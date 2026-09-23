@@ -1,0 +1,35 @@
+{
+  "nav": {
+    "overview": "概览",
+    "jobs": "任务",
+    "snapshots": "快照与恢复",
+    "sources": "数据源",
+    "storage": "存储",
+    "system": "系统",
+    "notifications": "通知",
+    "settings": "设置"
+  },
+  "theme": {
+    "label": "主题",
+    "light": "浅色",
+    "dark": "深色",
+    "system": "跟随系统"
+  },
+  "language": {
+    "label": "语言"
+  },
+  "common": {
+    "comingSoon": "该页面将在后续版本中提供",
+    "loading": "加载中…",
+    "retry": "重试"
+  },
+  "overview": {
+    "subtitle": "所有备份与同步任务的运行状态",
+    "systemStatus": "系统状态",
+    "version": "版本",
+    "database": "元数据库",
+    "databaseOk": "正常",
+    "databaseError": "不可用",
+    "loadFailed": "无法获取系统状态：{{message}}"
+  }
+}

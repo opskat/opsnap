@@ -1,0 +1,23 @@
+# 构建产物
+/bin/
+coverage.out
+/internal/web/dist/*
+!/internal/web/dist/.gitkeep
+
+# 本地配置与运行数据
+/configs/config.yaml
+/runtime/
+
+# 前端
+node_modules/
+/frontend/dist/
+*.tsbuildinfo
+
+# e2e：scratch 用于真实环境验证，不提交
+/e2e/scratch/
+/e2e/test-results/
+/e2e/playwright-report/
+/e2e/.env
+.verification/
+
+.DS_Store
