@@ -47,7 +47,7 @@ export function checkI18n(root) {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const problems = checkI18n(fileURLToPath(new URL("..", import.meta.url)));
   if (problems.length) {
-    console.error(`i18n 键检查未通过（docs/develop.md「国际化」）：\n  ${problems.join("\n  ")}`);
+    console.error(`i18n 键检查未通过（docs/develop.md#internationalization）：\n  ${problems.join("\n  ")}`);
     process.exit(1);
   }
   console.log("i18n 键检查通过");

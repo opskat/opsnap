@@ -1,53 +1,57 @@
-# 文档维护
+# Documentation maintenance
 
-用 `git ls-files '*.md'` 找出已跟踪的文档。核对事实时使用 git 命令；未跟踪的工作区文件不能作为已提交状态的证据。
+Find tracked docs with `git ls-files '*.md'`. Check facts with git-aware commands; untracked working files are not evidence of committed state.
 
-## 归属
+## Language
 
-| 文件 | 负责 |
+Contributor docs (`AGENTS.md`, `docs/`, READMEs) are written in English. Verification reports under `e2e/scratch/` may be written in Chinese. Specs under `docs/specs/` are written in English.
+
+## Ownership
+
+| File | Owns |
 |---|---|
-| `AGENTS.md` | 项目事实、阅读路由、工程原则、架构速览 |
-| `docs/develop.md` | 命令、目录结构、代码风格、守护规则、提交流程、CI |
-| `docs/testing.md` | 测试设计与命令 |
-| `docs/verification.md` | 测试环境与真实环境验证流程 |
-| `docs/design.md` | 设计系统 |
-| `docs/architecture.md` | 分层、子系统、扩展步骤、迁移 |
-| `docs/documentation.md` | 本规则 |
-| `docs/README.md` | 索引 |
-| `e2e/README.md` | e2e 框架与 scratch 脚本写法 |
+| `AGENTS.md` | project facts, routing, hard rules, principles, definition of done, quick map |
+| `docs/develop.md` | commands, layout, style, enforced rules, commits, CI |
+| `docs/testing.md` | test design and commands |
+| `docs/verification.md` | test environment and runtime verification workflow |
+| `docs/design.md` | design system |
+| `docs/architecture.md` | layering, subsystems, extension recipes, migrations |
+| `docs/documentation.md` | this policy |
+| `docs/README.md` | index |
+| `e2e/README.md` | e2e harness and scratch scripts |
 
-一条事实只写在它的归属文件里，其他地方链接过去，不要复制。
+Keep each fact in its owner and link to it elsewhere; do not copy it.
 
-## docs/specs/ 是记录，不属于本文档集
+## docs/specs/ is a record, not part of this set
 
-已完成的需求规格不随代码同步更新。进行中的一轮里，只有需求本身变了才修改正式 spec，并且要重新获得批准后再提交；不能为了迁就实现去改 spec。被新需求取代时，新建一份 spec，并更新旧 spec 的状态。
+Completed specs are not synced to the current code. During an active round, change a spec only when the requirement itself changes, get approval again, and commit that revision; never edit a spec to match an implementation. A superseding requirement gets a new spec, and the old one's status is updated.
 
-spec 不进索引和归属表，但其中的链接必须有效，且不能包含凭据或个人信息。
+Specs stay out of the index and the ownership table, but their links must resolve and they must not contain credentials or personal data.
 
-## 事实与规则核查
+## Fact and policy audit
 
-修改任何说法时逐项核对：
+For every changed claim, verify:
 
-| 说法 | 证据 |
+| Claim | Evidence |
 |---|---|
-| 文件、路径 | `git ls-files <路径>` |
-| 标识符、函数签名 | `git grep` 并直接阅读文件 |
-| 数量、列表 | 现场从权威来源重新枚举 |
-| lint 作用范围 | 配置文件，包括 overrides 与 ignores |
-| 命令 | `Makefile` 或 `package.json` 中存在，并实际运行一次 |
+| file or path | `git ls-files <path>` |
+| identifier or signature | `git grep` plus reading the file |
+| count or list | enumerate the authoritative source now |
+| lint scope | the configuration, including overrides and ignores |
+| command | exists in the `Makefile` or `package.json` and was actually run |
 
-触及的每条规则都要能说清：归属、触发条件、动作、例外或兜底、合规证据、停止条件。把绝对化的措辞当作复查清单：
+For every rule you touch, be able to name its owner, trigger, action, exception or fallback, compliance evidence and stop condition. Treat absolute wording as a review queue:
 
 ```bash
-git grep -n -E '必须|不得|不要|禁止|所有|一律' -- AGENTS.md 'docs/*.md'
+git grep -n -Ei 'always|never|must|all ' -- AGENTS.md 'docs/*.md'
 ```
 
-## 结构核查
+## Structural audit
 
-- 新增、重命名、删除文档时，同步更新索引、归属表和 `AGENTS.md` 的路由
-- 所有相对链接和锚点都要能解析
-- 只存在于分支上的计划事实要标注，不要写成主干现状
-- rebase 或解决冲突后，在最终结果上重新核查
+- When adding, renaming or deleting a doc, update the index, the ownership table and the `AGENTS.md` routes.
+- Every relative link and anchor must resolve.
+- Label facts that exist only on a branch; do not present them as the state of `main`.
+- After a rebase or conflict resolution, rerun the checks on the final tree.
 
 ```bash
 git ls-files '*.md' | while IFS= read -r doc; do
@@ -60,12 +64,12 @@ git ls-files '*.md' | while IFS= read -r doc; do
 done
 ```
 
-## 删除
+## Deletion
 
-在所有已跟踪文件中搜索被删除的标识符，清理链接、索引行、列举、示例、注释、配置、CI 和不再使用的辅助代码：
+Search tracked files for the removed identifier and clear links, index rows, lists, examples, comments, config, CI and helpers that are no longer used:
 
 ```bash
-git grep -inw '<被删除的标识符>' -- .
+git grep -inw '<removed identifier>' -- .
 ```
 
-然后重新运行链接、锚点、规则核查和 `make verify`，只报告实际核查过的范围。
+Then rerun the link, anchor and policy checks and `make verify`, and report only the scope you actually checked.

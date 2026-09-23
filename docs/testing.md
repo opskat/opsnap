@@ -1,82 +1,82 @@
-# 测试
+# Testing
 
-## 先判断要测什么
+## Applicability gate
 
-从改动的契约出发，只为适用的行为补用例：边界值、非法输入与失败、状态与生命周期、顺序与并发、兼容性与安全、进程或外部边界、可机械判定的源码约定。都不适用时，一个有代表性的正常路径就够了。
+Start from the changed contract. Add cases only for behaviour that applies: thresholds and edges, invalid input and failures, state and lifecycle, ordering and concurrency, compatibility and security, process or external boundaries, or mechanical source conventions. If none apply, one representative happy path is enough.
 
-写测试前先说清楚：
+Before writing a test, state:
 
-1. 可观察的契约是什么
-2. 触发的输入、状态或操作顺序
-3. 可观察的结果
-4. 这个测试能拒绝哪种看似合理的错误实现
+1. the observable contract;
+2. the triggering input, state or sequence;
+3. the observable outcome;
+4. a plausible wrong implementation the test rejects.
 
-## 选择测试边界
+## Choosing a test boundary
 
-选能观察到真实契约的最窄边界：
+Pick the narrowest boundary that observes the real contract:
 
-| 契约 | 边界 | 本项目的形式 |
+| Contract | Boundary | Form in this project |
 |---|---|---|
-| 解析、映射、校验、状态逻辑 | 单元 | Go 包内测试；前端 `*.test.ts` |
-| 接口的输入输出与错误 | 控制器 | `muxtest.NewTestMux()` + mock repository（见 `internal/controller/system_ctr/system_test.go`） |
-| 渲染状态、交互、无障碍 | 组件 | Vitest + Testing Library（见 `frontend/src/pages/OverviewPage.test.tsx`） |
-| 真实进程、内嵌前端、构建产物 | e2e | Playwright 冒烟（`e2e/tests/`） |
-| 需要真实数据库、存储或服务器 | 真实环境验证 | [`verification.md`](verification.md) |
+| parsing, mapping, validation, state logic | unit | Go package tests; frontend `*.test.ts` |
+| endpoint input, output and errors | controller | `muxtest.NewTestMux()` + mock repositories (see `internal/controller/system_ctr/system_test.go`) |
+| rendered state, interaction, accessibility | component | Vitest + Testing Library (see `frontend/src/pages/OverviewPage.test.tsx`) |
+| real process, embedded frontend, build output | e2e | Playwright smoke (`e2e/tests/`) |
+| real databases, storage or servers | runtime verification | [`verification.md`](verification.md) |
 
-## 有意识地覆盖行为空间
+## Covering the behaviour space deliberately
 
-先写一个正常路径，再为每个适用的分支补一个用例：
+Start with one happy path, then cover each distinct branch that applies:
 
-- 边界值，以及空、缺省、重复的输入
-- 依赖出错、拒绝、超时、取消，以及出错后状态保持不变
-- 重复调用、过期的异步结果、清理
-- 仅当契约承诺时，才覆盖乱序或重叠操作
+- boundary values and empty, omitted or duplicate input;
+- dependency errors, denial, timeouts, cancellation, and unchanged state after failure;
+- repeated calls, stale async results and cleanup;
+- out-of-order or overlapping operations, only when the contract promises something about them.
 
-不要沿着同一个分支堆砌普通样例。修 bug 的回归测试要足够贴近真实故障：把原因恢复回去，测试就应该变红。
+Do not multiply ordinary samples down the same branch. A bug regression test stays close enough to the real failure that restoring the cause turns it red.
 
-## 断言、mock 与夹具
+## Assertions, mocks and fixtures
 
-- 断言返回、渲染、持久化或发出的结果；只有当“调用某个协作者”本身就是契约时，才断言调用
-- Go：repository 用 `go.uber.org/mock` 生成的 mock（`internal/repository/*/mock/`），在 `setupXxxTest` 中用 `RegisterXxx` 注册；测试组织用 GoConvey（`convey.Convey` 嵌套场景）+ testify 断言。需要数据库时用 cago 的 `testutils.Database(t)`（sqlmock）
-- 前端：接口通过 `vi.stubGlobal("fetch", ...)` 模拟 HTTP 响应，因为所有请求都经过 `request()`；断言页面上显示的内容，而不是 mock 返回了什么
-- 夹具保持最小，并且能区分对错
+- Assert returned, rendered, persisted or emitted behaviour. Assert a collaborator call only when that call is the contract.
+- Go: repositories are mocked with `go.uber.org/mock` (generated into `internal/repository/*/mock/`) and registered with `RegisterXxx` inside `setupXxxTest`. Structure scenarios with GoConvey (`convey.Convey` nesting) and assert with testify. For database-level tests use cago's `testutils.Database(t)` (sqlmock).
+- Frontend: stub HTTP with `vi.stubGlobal("fetch", ...)`, which works because every request goes through `request()`. Assert what the page shows, not what the mock returned.
+- Keep fixtures minimal and able to tell right from wrong.
 
-## TDD 的例外
+## Exceptions to TDD
 
-只有两种：
+Only these:
 
-- 确实不改变行为的重构、类型调整、删除、重命名、依赖升级，按比例验证即可
-- 确实无法自动化，用人工验证并保留证据
+- genuinely behaviour-preserving refactors, type changes, deletions, renames or dependency upgrades, verified proportionately;
+- automation that is genuinely infeasible, verified manually with retained evidence.
 
-文件类型或任务名称都不构成例外。
+A file type or task label never grants an exception.
 
-## 什么测试不该写
+## Tests not to write
 
-不写同义反复的测试、重复覆盖、只是把 props 渲染出来的测试、测试 mock 或框架本身的测试、名不副实的测试，以及更适合用 lint 规则表达的“源码文本断言”。
+No tautologies, duplicate coverage, tests that only render props back, tests of mocks or of the framework, misleadingly named tests, or source-text assertions that belong in a lint rule.
 
-保留那些虽然很薄、但唯一覆盖某个分支、映射、无障碍推导、完整性约束或历史回归的测试。
+Keep thin tests that uniquely cover a branch, mapping, accessibility derivation, completeness invariant or historical regression.
 
-## 范围与清理
+## Scope and cleanup
 
-只清理本次改动涉及的、或被本次新增守护规则直接取代的无效测试；其他的报告出来，另开改动处理。删除前先看生产路径，并确认同一契约在其他测试里有覆盖。
+Clean up worthless tests only when they cover the changed code or are replaced by a guardrail landing in the same change; otherwise report them. Before deleting, read the production path and confirm the same contract is covered elsewhere.
 
-测试变红或变慢时先归类：生产代码回归、契约已过期、共享状态或时序导致的不稳定、误把真实 I/O 放进了单元测试、确实冗余。不要用重试或加长超时掩盖不稳定。
+Classify a red or slow test before changing it: production regression, stale contract, flaky shared state or timing, real I/O in a unit test, or genuinely redundant. Do not hide flakiness with retries or longer timeouts.
 
-## 运行
+## Running tests
 
 ```bash
-go test -run TestSystemHealth ./internal/controller/system_ctr/   # 单个 Go 测试
-pnpm -C frontend exec vitest run src/lib/api.test.ts             # 单个前端测试文件
-make test                                                        # 全部单元测试（含守护测试）
-make test-cover                                                  # Go 覆盖率
-make e2e                                                         # 冒烟 e2e
-make lint                                                        # 静态检查与类型检查
+go test -run TestSystemHealth ./internal/controller/system_ctr/   # one Go test
+pnpm -C frontend exec vitest run src/lib/api.test.ts             # one frontend test file
+make test                                                        # all unit and guard tests
+make test-cover                                                  # Go coverage
+make e2e                                                         # smoke e2e
+make lint                                                        # static checks and typechecks
 ```
 
-- Go：GoConvey + testify + go.uber.org/mock；cago 的 `muxtest`、`testutils`
-- 前端：Vitest（happy-dom 环境，`globals: true`）+ Testing Library + jest-dom 断言，配置在 `frontend/vite.config.ts` 的 `test` 段
-- e2e：Playwright，见 [`../e2e/README.md`](../e2e/README.md)
+- Go: GoConvey + testify + go.uber.org/mock, plus cago's `muxtest` and `testutils`.
+- Frontend: Vitest (happy-dom, `globals: true`) + Testing Library + jest-dom matchers, configured in the `test` block of `frontend/vite.config.ts`.
+- e2e: Playwright; see [`../e2e/README.md`](../e2e/README.md).
 
-## 相关文档
+## Related
 
 [`../AGENTS.md`](../AGENTS.md) · [`verification.md`](verification.md) · [`../e2e/README.md`](../e2e/README.md)

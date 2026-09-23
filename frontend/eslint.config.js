@@ -7,19 +7,9 @@ import reactX from "eslint-plugin-react-x";
 import globals from "globals";
 import tseslint from "typescript-eslint";
 
-// 守护规则的说明见 docs/develop.md「代码规范与守护规则」；每条规则在 src/__tests__/eslint-harness.test.ts 有对应测试。
+import opsnap from "./eslint-rules/index.mjs";
 
-// 设计 token：组件只用语义 token（text-muted-foreground / bg-success-soft …，定义在 src/styles/globals.css），
-// 不写 Tailwind 调色板类名——一个颜色只在一处定义，深浅主题才都成立（docs/design.md）。
-const paletteColors =
-  "red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|slate|gray|zinc|neutral|stone";
-const paletteClassPattern = `(^|[^-\\w])(text|bg|border|ring|fill|stroke)-(${paletteColors})-[0-9]{2,3}([^-\\w]|$)`;
-const paletteMessage =
-  "不写调色板类名，用语义 token（text-muted-foreground / bg-success-soft …，定义在 src/styles/globals.css）——见 docs/design.md。";
-const paletteRestrictions = [
-  { selector: `Literal[value=/${paletteClassPattern}/]`, message: paletteMessage },
-  { selector: `TemplateElement[value.raw=/${paletteClassPattern}/]`, message: paletteMessage },
-];
+// 守护规则的说明见 docs/develop.md#enforced-rules；每条规则在 src/__tests__/eslint-harness.test.ts 中有守护测试。
 
 export default tseslint.config(
   { ignores: ["dist", "node_modules"] },
@@ -29,8 +19,8 @@ export default tseslint.config(
     languageOptions: { globals: globals.browser },
   },
   {
-    // 构建脚本与配置文件运行在 Node 中
-    files: ["scripts/**/*.mjs", "*.config.{js,ts}"],
+    // 构建脚本、配置文件与本项目 ESLint 规则运行在 Node 中
+    files: ["scripts/**/*.mjs", "eslint-rules/**/*.mjs", "*.config.{js,ts}"],
     languageOptions: { globals: globals.node },
   },
   {
@@ -39,6 +29,7 @@ export default tseslint.config(
       "react-refresh": reactRefresh,
       "react-x": reactX,
       i18next,
+      opsnap,
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
@@ -54,8 +45,12 @@ export default tseslint.config(
   {
     files: ["src/**/*.{ts,tsx}"],
     rules: {
-      "no-restricted-syntax": ["error", ...paletteRestrictions],
-      // 界面文案走 i18n：JSX 中出现汉字即报错（英文标识符、符号不受影响），见 docs/develop.md「国际化」
+      // 设计系统：颜色、字号只用 token（docs/design.md#core-constraints）
+      "opsnap/no-raw-color": "error",
+      "opsnap/no-arbitrary-font-size": "error",
+      "opsnap/no-dark-variant": "error",
+      // 界面文案走 i18n：JSX 文本与可见属性中出现汉字即报错，英文标识与符号不受影响（docs/develop.md#internationalization）。
+      // 插件会把字符串排除规则转换为不带 u 标志的 RegExp，所以用 Unicode 区间表示汉字
       "i18next/no-literal-string": [
         "error",
         {
@@ -69,7 +64,7 @@ export default tseslint.config(
         "error",
         {
           name: "fetch",
-          message: "用 src/lib/api.ts 的 request() 发请求，不直接调用 fetch（docs/develop.md「接口请求」）。",
+          message: "用 src/lib/api.ts 的 request() 发请求，不直接调用 fetch（docs/develop.md#api-requests）。",
         },
       ],
     },
@@ -80,15 +75,20 @@ export default tseslint.config(
     rules: { "no-restricted-globals": "off" },
   },
   {
-    // shadcn 生成的组件同时导出组件与 variants，属于其固定写法
+    // shadcn 生成的组件：同时导出组件与 variants 是其固定写法；其内置的 dark: 变体只引用 token，保留原样便于跟进上游
     files: ["src/components/ui/**/*.tsx"],
-    rules: { "react-refresh/only-export-components": "off" },
+    rules: {
+      "react-refresh/only-export-components": "off",
+      "opsnap/no-dark-variant": "off",
+    },
   },
   {
     // 测试需要写违规样例和中文断言；守护测试自身必须包含违规 fixture 字符串
     files: ["src/**/*.test.{ts,tsx}"],
     rules: {
-      "no-restricted-syntax": "off",
+      "opsnap/no-raw-color": "off",
+      "opsnap/no-arbitrary-font-size": "off",
+      "opsnap/no-dark-variant": "off",
       "i18next/no-literal-string": "off",
       "no-restricted-globals": "off",
     },

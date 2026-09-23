@@ -1,80 +1,100 @@
-# OpsNap 设计系统
+# OpsNap design system
 
-来源：设计稿 `opsnap.pen`（Terminal 暗色风格，深浅两套变量）；代码中的 token 定义在 `frontend/src/styles/globals.css`，主题逻辑在 `frontend/src/lib/theme.tsx`。守护规则见 [`develop.md`](develop.md#守护规则)，实现分层见 [`architecture.md`](architecture.md)。
+Source of truth: the design file `opsnap.pen` (the "Terminal" dark style with light and dark variable sets). In code, tokens live in `frontend/src/styles/globals.css` and theme logic in `frontend/src/lib/theme.tsx`. Enforcement belongs to [`develop.md`](develop.md#enforced-rules); implementation layering to [`architecture.md`](architecture.md).
 
-## 核心约束
+## Core constraints
 
-- 只使用 `globals.css` 中的语义 token，不写 Tailwind 调色板类名或十六进制颜色。新概念需要同时给出深色和浅色取值，并补进下表
-- 每个界面状态都要在深色、浅色主题下各检查一遍
-- 先复用 `frontend/src/components/ui/`（shadcn/ui）和 `frontend/src/components/layout/` 中的组件，图标使用 `lucide-react`
-- 类名用 `cn()`（`frontend/src/lib/utils.ts`）合并，变体用 `class-variance-authority`；只有 CSS 无法表达的动态值才写内联样式
-- 每个自己负责的异步流程都要覆盖加载、出错、成功状态，只替换发生变化的区域，不整页刷新
-- 界面中的固定文案都通过 i18n（`t()`）输出；用户数据、运行时内容和日志不翻译
-- **绿底放文字的位置用 `primary`（深绿 `#08804F` 配白字，对比度约 5:1）**；品牌薄荷绿 `brand` 只用于标识、强调数字、图表等装饰位置
+- Use only the semantic tokens in `globals.css`. No Tailwind palette classes (`bg-red-500`, `text-white`, `bg-black/50`), no arbitrary colours (`bg-[#fff]`), no colour literals in `style`. A new concept gets both a light and a dark value and a row in the token table below. — enforced by `opsnap/no-raw-color`
+- Use only the type scale below; no arbitrary font sizes such as `text-[13px]`. — enforced by `opsnap/no-arbitrary-font-size`
+- Theme differences live in token values. App code writes one set of classes and never uses `dark:` variants; shadcn components under `src/components/ui/` keep their upstream `dark:` variants, which only reference tokens. — enforced by `opsnap/no-dark-variant`
+- **Text on a green fill uses `primary`** (`#08804F` with white text, about 5:1 contrast). The brand mint `brand` is for the logo mark, emphasised numbers, charts and progress only. — review-only
+- Numbers, addresses, paths, durations and sizes use `font-mono`. — review-only
+- Reuse `frontend/src/components/ui/` (shadcn/ui) and `frontend/src/components/layout/` before adding components; icons come from `lucide-react`. — review-only
+- Merge classes with `cn()` (`frontend/src/lib/utils.ts`); express variants with `class-variance-authority`. Inline styles only for values CSS classes cannot express. — review-only
+- Every async flow a component owns covers loading, error and success, and replaces only the region that changed. — review-only
+- All static UI copy goes through i18n; user data, runtime content and logs are never translated. — enforced by `i18next/no-literal-string` and `check-i18n.mjs`
+- Check every UI state in both light and dark themes and in both languages. — review-only
 
-## 主题与 token
+## Theme and tokens
 
-`ThemeProvider` 支持浅色、深色、跟随系统三种模式，选择保存在 `localStorage` 的 `opsnap-theme`；深色时在 `<html>` 上加 `dark` 类。`frontend/index.html` 中有一段内联脚本，在首帧渲染前套用主题，避免深色用户刷新时闪白，其逻辑需与 `theme.tsx` 保持一致。
+`ThemeProvider` supports light, dark and system modes, stores the choice in `localStorage` (`opsnap-theme`), and toggles the `dark` class on `<html>`. An inline script in `frontend/index.html` applies the theme before the first paint so dark-mode users do not see a white flash on reload; keep it in sync with `theme.tsx`.
 
-| Token | 浅色 | 深色 | 用途 |
+| Token | Light | Dark | Use |
 |---|---|---|---|
-| `background` | `#F6F7F7` | `#0B0D0E` | 页面背景 |
-| `foreground` | `#0E1113` | `#E8ECEF` | 正文 |
-| `card` / `popover` | `#FFFFFF` | `#121619` | 卡片、弹层表面 |
-| `sidebar` | `#FFFFFF` | `#0F1214` | 侧栏 |
-| `muted` / `secondary` / `accent` | `#F0F2F3` | `#1A2024` | 次级底色、悬停、选中项 |
-| `muted-foreground` | `#5E6873` | `#86909A` | 次要文字 |
-| `faint-foreground` | `#66707A` | `#7D8790` | 更弱的文字（未选中的导航、分组标题） |
-| `border` / `input` | `#E2E6E9` | `#20272C` | 边框、输入框 |
-| `ring` | `#1FBF7F` | `#3DDC97` | 焦点环 |
-| `primary` / `primary-foreground` | `#08804F` / `#FFFFFF` | `#08804F` / `#FFFFFF` | 实心按钮等绿底文字 |
-| `brand` / `brand-foreground` | `#1FBF7F` / `#04140C` | `#3DDC97` / `#04140C` | 品牌标识底色及其上的图标 |
-| `brand-text` | `#0B8F5A` | `#3DDC97` | 品牌色文字（强调数字） |
-| `success` / `success-soft` | `#087A4B` / `#0E9F6317` | `#3DDC97` / `#3DDC971F` | 成功状态文字、状态标签底色 |
-| `running` / `running-soft` | `#1765C2` / `#1F7AE017` | `#5AB0FF` / `#5AB0FF1F` | 运行中 |
-| `warning` / `warning-soft` | `#8A5A00` / `#8A5A0017` | `#F5B83D` / `#F5B83D1F` | 可用但有风险 |
-| `destructive` / `destructive-soft` | `#C4313A` / `#DC3B4117` | `#FF5C5C` / `#FF5C5C1F` | 失败、危险操作 |
-| `pending` / `pending-soft` | `#5E6873` / `#7A848D17` | `#86909A` / `#86909A1F` | 等待中 |
-| `chart-bar` | `#5FD3A1` | `#2E8F66` | 图表成功柱 |
-| `track` | `#ECEFF1` | `#1E2529` | 进度条轨道 |
+| `background` | `#F6F7F7` | `#0B0D0E` | page background |
+| `foreground` | `#0E1113` | `#E8ECEF` | body text |
+| `card` / `popover` | `#FFFFFF` | `#121619` | card and overlay surfaces |
+| `sidebar` | `#FFFFFF` | `#0F1214` | sidebar |
+| `muted` / `secondary` / `accent` | `#F0F2F3` | `#1A2024` | secondary fills, hover, selected item |
+| `muted-foreground` | `#5E6873` | `#86909A` | secondary text |
+| `faint-foreground` | `#66707A` | `#7D8790` | weaker text (inactive nav items, group labels) |
+| `border` / `input` | `#E2E6E9` | `#20272C` | borders and inputs |
+| `ring` | `#1FBF7F` | `#3DDC97` | focus ring |
+| `primary` / `primary-foreground` | `#08804F` / `#FFFFFF` | `#08804F` / `#FFFFFF` | solid buttons and any text on green |
+| `brand` / `brand-foreground` | `#1FBF7F` / `#04140C` | `#3DDC97` / `#04140C` | logo mark fill and the icon on it |
+| `brand-text` | `#0B8F5A` | `#3DDC97` | brand-coloured text (emphasised numbers) |
+| `success` / `success-soft` | `#087A4B` / `#0E9F6317` | `#3DDC97` / `#3DDC971F` | success text / status badge fill |
+| `running` / `running-soft` | `#1765C2` / `#1F7AE017` | `#5AB0FF` / `#5AB0FF1F` | running |
+| `warning` / `warning-soft` | `#8A5A00` / `#8A5A0017` | `#F5B83D` / `#F5B83D1F` | usable with risk |
+| `destructive` / `destructive-soft` | `#C4313A` / `#DC3B4117` | `#FF5C5C` / `#FF5C5C1F` | failure, dangerous actions |
+| `pending` / `pending-soft` | `#5E6873` / `#7A848D17` | `#86909A` / `#86909A1F` | queued |
+| `chart-bar` | `#5FD3A1` | `#2E8F66` | successful bars in charts |
+| `track` | `#ECEFF1` | `#1E2529` | progress bar track |
 
-- 字体：界面文字 `Geist Variable`，数字、地址、耗时等用 `JetBrains Mono Variable`（`font-mono`）；中文回退到 PingFang SC / Microsoft YaHei。两种字体通过 `@fontsource-variable` 打包进前端，不依赖外部 CDN
-- 圆角：`--radius: 0.375rem`（6px）
+Radius: `--radius: 0.375rem` (6px); `rounded-sm` / `rounded-md` / `rounded-lg` derive from it.
 
-## 布局
+## Typography
 
-- 整体框架：`AppShell`（`frontend/src/components/layout/AppShell.tsx`），左侧 232px 侧栏，右侧内容区独立滚动
-- 侧栏导航项定义在 `frontend/src/components/layout/nav.ts`（主导航 + “系统”分组），底部放主题与语言切换
-- 页面标题用 `PageHeader`（标题 + 副标题，底部分隔线）
+Fonts: UI text uses `Geist Variable`; numbers, addresses and durations use `JetBrains Mono Variable` (`font-mono`); Chinese falls back to PingFang SC / Microsoft YaHei. Both fonts are bundled through `@fontsource-variable`; nothing loads from a CDN.
 
-## 组件与状态
+The type scale overrides Tailwind's defaults in `globals.css` and matches the sizes used in the design file:
 
-| 需求 | 本项目的做法 |
+| Class | Size / line height | Use |
+|---|---|---|
+| `text-2xs` | 11px / 16px | group labels, dense metadata |
+| `text-xs` | 12px / 16px | hints, badges, secondary lines |
+| `text-sm` | 13px / 20px | body text, buttons, nav items (default UI size) |
+| `text-base` | 14px / 20px | section titles |
+| `text-md` | 15px / 22px | card titles |
+| `text-lg` | 17px / 24px | wordmark, dialog titles |
+| `text-xl` | 20px / 28px | wizard page titles |
+| `text-2xl` | 24px / 32px | page titles |
+| `text-3xl` | 26px / 32px | stat values |
+
+## Layout
+
+- App frame: `AppShell` (`frontend/src/components/layout/AppShell.tsx`) — a 232px sidebar on the left and an independently scrolling content area.
+- Navigation items are defined in `frontend/src/components/layout/nav.ts` (main navigation plus the "system" group); theme and language switches sit at the bottom of the sidebar.
+- Page titles use `PageHeader` (title, optional subtitle, bottom divider).
+
+## Components and states
+
+| Need | Project pattern |
 |---|---|
-| 首次加载 | 在内容区域显示“加载中…”文字；替换为内容时不改变外层卡片的位置 |
-| 出错 | 在出错区域内显示 `destructive-soft` 底的错误信息，附带“重试”按钮 |
-| 状态标签 | `<状态>-soft` 底色 + `<状态>` 文字 + 同色圆点，例如健康检查的“正常 / 不可用” |
-| 尚未实现的页面 | `ComingSoonPage`：保留导航完整，对应功能落地时直接替换 |
+| First load | "Loading…" text inside the region; the surrounding card keeps its position when content replaces it |
+| Error | message on a `destructive-soft` fill inside the failing region, with a Retry button |
+| Status badge | `<status>-soft` fill + `<status>` text + a dot of the same colour, e.g. the health badge "Healthy / Unavailable" |
+| Page not built yet | `ComingSoonPage`: keeps navigation complete; replace it when the feature lands |
 
-参考实现：`frontend/src/pages/OverviewPage.tsx`（加载、出错重试、就绪三种状态，区域带 `aria-live="polite"`）。
+Reference implementation: `frontend/src/pages/OverviewPage.tsx` (loading, error with retry, ready; the region has `aria-live="polite"`).
 
-## 无障碍
+## Accessibility
 
-- 所有主题下文字对比度达到 WCAG AA：普通文字 ≥ 4.5:1，图标 ≥ 3:1；设计稿中的颜色已按此校验。不只用颜色表达含义，状态同时有文字
-- 纯图标按钮必须有 `aria-label`（如主题切换按钮），切换类按钮用 `aria-pressed` 表示当前状态
-- 加载、出错、成功的变化通过 `aria-live` 区域播报
+- Text meets WCAG AA in every theme: normal text ≥ 4.5:1, icons ≥ 3:1. The design file's colours were checked against this. Meaning is never carried by colour alone; statuses also have text.
+- Icon-only buttons have an `aria-label` (e.g. the theme switches); toggle buttons expose state with `aria-pressed`.
+- Loading, error and success changes are announced through an `aria-live` region.
 
-## 新增页面
+## Adding a page
 
-1. 在 `nav.ts` 中添加导航项，在 `App.tsx` 中添加路由
-2. 用 `PageHeader` 和现有组件、token 组合页面
-3. 实现需要的异步状态
-4. 分别在深色、浅色主题和中英文下检查，确认键盘可达、图标有标签
-5. 运行 `make lint`、`make test`，涉及真实流程时按 [`verification.md`](verification.md) 验证
+1. Add the navigation item in `nav.ts` and the route in `App.tsx`.
+2. Compose the page from `PageHeader`, existing components, tokens and the type scale.
+3. Implement the async states the page owns.
+4. Check light and dark themes and both languages; confirm keyboard access and labelled icon controls.
+5. Run `make lint` and `make test`; verify real flows through [`verification.md`](verification.md).
 
-## 来源
+## Sources
 
-- token 与主题：`frontend/src/styles/globals.css`、`frontend/src/lib/theme.tsx`、`frontend/index.html`
-- 组件：`frontend/src/components/ui/`、`frontend/src/components/layout/`
-- 守护规则：[`develop.md`](develop.md)
-- 事实核查：[`documentation.md`](documentation.md)
+- Tokens and themes: `frontend/src/styles/globals.css`, `frontend/src/lib/theme.tsx`, `frontend/index.html`
+- Components: `frontend/src/components/ui/`, `frontend/src/components/layout/`
+- Rules: `frontend/eslint-rules/`, [`develop.md`](develop.md#enforced-rules)
+- Fact checks: [`documentation.md`](documentation.md)

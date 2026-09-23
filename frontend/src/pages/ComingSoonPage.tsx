@@ -8,7 +8,7 @@ export function ComingSoonPage({ title }: { title: string }) {
   return (
     <>
       <PageHeader title={t(title)} />
-      <p className="px-8 py-6 text-[13px] text-muted-foreground">{t("common.comingSoon")}</p>
+      <p className="px-8 py-6 text-sm text-muted-foreground">{t("common.comingSoon")}</p>
     </>
   );
 }

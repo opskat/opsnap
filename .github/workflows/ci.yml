@@ -1,4 +1,4 @@
-# PR 与 main 的合并门禁。命令与本地 Makefile 保持一致（docs/develop.md「提交前检查」）。
+# PR 与 main 的合并门禁。命令与本地 Makefile 保持一致（docs/develop.md#ci）。
 # 真实环境验证（docker.local）不在 CI 中运行，见 docs/verification.md。
 name: CI
 

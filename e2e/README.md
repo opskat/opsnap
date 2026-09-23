@@ -1,71 +1,71 @@
 # E2E
 
-## 1. 两条路线
+## 1. Tracks
 
-| | 冒烟测试 | 本地真实环境验证 |
+| | Smoke | Local runtime verification |
 |---|---|---|
-| 路径 | `e2e/tests/`（提交） | `e2e/scratch/`（不提交） |
-| 命令 | `make e2e` | `pnpm -C e2e scratch` |
-| 范围 | 稳定的核心回归流程 | 针对某次改动或某个 bug 的一次性验证 |
-| 外部系统 | 不连接任何外部系统 | 经授权可访问 docker.local 测试服务 |
-| 产出 | CI 结论 | `scratch/<场景>/report.md` 及证据 |
+| Path | `e2e/tests/` (committed) | `e2e/scratch/` (gitignored) |
+| Command | `make e2e` | `pnpm -C e2e scratch` |
+| Scope | stable core regression flows | one-off check of a change or bug |
+| External systems | none | docker.local test services, with authorization |
+| Output | CI verdict | `scratch/<scenario>/report.md` and evidence |
 
-scratch 脚本提升为冒烟用例需要单独决定。冒烟范围：应用身份与启动、主导航、一条带独立持久化证据的核心增删改查流程、一条关键的完整性流程。目前还没有业务数据，后两类待对应功能落地后补充。
+Promoting a scratch script to smoke is a separate decision. Smoke scope: app identity and startup, main navigation, one core CRUD flow with an independent persistence oracle, and one critical integrity flow. There is no business data yet; the last two are added when those features land.
 
-## 2. 测试框架
+## 2. Harness
 
 ```text
-make e2e → make build（生成 bin/opsnap）→ pnpm -C e2e test
-  → global-setup.ts：临时目录 + 专用端口启动真实的 bin/opsnap
-  → Playwright（Chromium）驱动页面与接口
-  → 断言 + 独立证据（/api/v1/system/health 接口）
+make e2e → make build (produces bin/opsnap) → pnpm -C e2e test
+  → global-setup.ts: start the real bin/opsnap in a temp dir on a dedicated port
+  → Playwright (Chromium) drives pages and the API
+  → assertions + independent oracle (/api/v1/system/health)
 ```
 
-| 资源 | 隔离方式 |
+| Resource | Isolation |
 |---|---|
-| 配置与元数据库 | 每次运行在系统临时目录下新建 `opsnap-e2e-*`，teardown 时删除 |
-| 端口 | 专用端口 18291（`e2e/ports.ts`），避开开发实例的 8210；启动前若端口已被占用直接失败 |
-| 应用身份 | 就绪检查要求健康检查返回 `code: 0` 且 `database: ok`，端口被其他程序占用时不会误判 |
-| 浏览器状态 | 每个用例使用独立的浏览器上下文（主题、语言的 localStorage 互不影响） |
+| config and metadata database | a new `opsnap-e2e-*` directory under the system temp dir per run, deleted in teardown |
+| port | dedicated port 18291 (`e2e/ports.ts`), away from the dev instance's 8210; setup fails if it is already in use |
+| app identity | readiness requires the health check to return `code: 0` and `database: ok`, so another program on the port cannot pass |
+| browser state | every test gets its own browser context (theme and language `localStorage` do not leak) |
 
-## 3. 冒烟命令与覆盖
+## 3. Smoke command and coverage
 
 ```bash
-make install   # 首次：安装依赖与 Chromium
+make install   # once: dependencies and Chromium
 make e2e
 ```
 
-当前用例（`e2e/tests/smoke.spec.ts`）：健康检查、未知接口 404、首页显示的版本号与接口一致、前端路由可直接访问并刷新、深色主题刷新后保持、中英文切换。
+Current scenarios (`e2e/tests/smoke.spec.ts`): health check, 404 for unknown API paths, the home page shows the same version as the API, client routes load directly and survive reload, dark theme persists across reload, switching between Chinese and English.
 
-## 4. 协议 mock
+## 4. Protocol mocks
 
-目前冒烟测试不依赖任何外部系统，因此没有 mock。需要时放在 `e2e/fixtures/`，作为无依赖的独立进程启动并暴露就绪检查，端口通过环境变量传入，只实现用到的协议响应。
+Smoke tests depend on no external system, so there are no mocks. When one is needed it goes in `e2e/fixtures/` as a dependency-free process with a readiness check, its port passed through an environment variable, implementing only the protocol responses the tests use.
 
-## 5. 进程编排与清理
+## 5. Orchestration and cleanup
 
-`e2e/global-setup.ts` 生成临时配置、启动 `bin/opsnap`、等待就绪，并返回 teardown 函数：先发 SIGTERM，5 秒后仍未退出则 SIGKILL，最后删除临时目录。失败时 Playwright 在 `e2e/test-results/` 保留 trace 和截图，CI 会把它们和 `playwright-report/` 上传为构件。
+`e2e/global-setup.ts` writes a temporary config, starts `bin/opsnap`, waits for readiness and returns the teardown: SIGTERM, SIGKILL after 5 seconds if the process is still alive, then delete the temp directory. On failure Playwright keeps traces and screenshots in `e2e/test-results/`; CI uploads them together with `playwright-report/`.
 
-## 6. 编写 scratch 脚本
+## 6. Writing a scratch script
 
-验证过程中编写和观察到的所有内容都放在 `e2e/scratch/<场景>/`；选择哪种方式（不写脚本、只写启动脚本、写完整脚本），以及结论与证据的要求，由 [`../docs/verification.md`](../docs/verification.md) 负责。用 `pnpm -C e2e scratch` 运行。
+Everything a verification writes or observes goes in `e2e/scratch/<scenario>/`. [`../docs/verification.md`](../docs/verification.md) decides the form (no script, a launcher, or a full script) and owns verdicts and evidence. Run scripts with `pnpm -C e2e scratch`.
 
-主配置 `playwright.config.ts` 用 `testIgnore: ["**/scratch/**"]` 排除 scratch；`playwright.scratch.config.ts` 只指向 `./scratch` 并去掉 globalSetup，被验证实例的地址来自 `OPSNAP_BASE_URL`。这种机械隔离保证 CI 不会收集到本地脚本。
+The main config `playwright.config.ts` excludes scratch with `testIgnore: ["**/scratch/**"]`; `playwright.scratch.config.ts` targets only `./scratch`, drops the global setup, and reads the target address from `OPSNAP_BASE_URL`. This mechanical split keeps CI from collecting local scripts.
 
-### 真实环境
+### Real environment
 
-把 [`.env.example`](.env.example) 复制为 `e2e/.env`（不提交）。只有 scratch 配置会读取它，冒烟测试和应用本身不读；环境变量优先于文件。访问真实环境前取得授权，使用隔离的测试数据，结束后清理。测试服务的部署见 [`../docs/verification.md`](../docs/verification.md#测试环境)。
+Copy [`.env.example`](.env.example) to `e2e/.env` (gitignored). Only the scratch config reads it; smoke tests and the application do not, and environment variables override the file. Get authorization before touching a real environment, use isolated test data, and clean up afterwards. Deployment of the test services is described in [`../docs/verification.md`](../docs/verification.md#test-environment).
 
-`.env` 没有配置某个服务时，要去问，而不是自己安排：自行启动依赖或替换成 mock，得出的结论描述的是一个没人选择过的环境。说出服务名和缺失的变量，然后询问用户。
+If `.env` does not configure a service, ask instead of arranging one: starting a dependency yourself or swapping in a mock produces a verdict about an environment nobody chose. Name the service and the missing variables, then ask the user.
 
-## 7. 排查失败
+## 7. Investigating failures
 
 ```bash
-pnpm -C e2e exec playwright show-report          # 查看 HTML 报告
-pnpm -C e2e exec playwright show-trace e2e/test-results/<用例>/trace.zip
+pnpm -C e2e exec playwright show-report
+pnpm -C e2e exec playwright show-trace e2e/test-results/<test>/trace.zip
 ```
 
-被测进程的日志直接输出在 Playwright 的终端里。
+Output from the process under test is printed directly in Playwright's terminal.
 
-## 相关文档
+## Related
 
 [`../docs/verification.md`](../docs/verification.md) · [`../docs/testing.md`](../docs/testing.md) · [`../AGENTS.md`](../AGENTS.md)

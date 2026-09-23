@@ -16,7 +16,7 @@ export interface NavItem {
   icon: LucideIcon;
 }
 
-// 导航结构见 docs/specs/2026-09-23-opsnap-v1.md「信息架构」
+// 导航结构见 docs/specs/2026-09-23-opsnap-v1.md#information-architecture
 export const mainNav: NavItem[] = [
   { path: "/", label: "nav.overview", icon: LayoutDashboard },
   { path: "/jobs", label: "nav.jobs", icon: ListChecks },

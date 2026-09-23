@@ -75,17 +75,17 @@ var importBans = []importBanRule{
 		dir:       "internal/controller/",
 		banned:    []string{module + "/internal/repository"},
 		skipTests: true, // 控制器测试需要注册 mock repository
-		message:   "controller 不直接访问 repository，通过对应的 service 调用（docs/architecture.md「分层」）",
+		message:   "controller 不直接访问 repository，通过对应的 service 调用（docs/architecture.md#layering-and-dependency-direction）",
 	},
 	{
 		dir:     "internal/service/",
 		banned:  []string{module + "/internal/controller"},
-		message: "service 不依赖 controller：依赖方向只能是 controller → service → repository（docs/architecture.md「分层」）",
+		message: "service 不依赖 controller：依赖方向只能是 controller → service → repository（docs/architecture.md#layering-and-dependency-direction）",
 	},
 	{
 		dir:     "internal/repository/",
 		banned:  []string{module + "/internal/controller", module + "/internal/service"},
-		message: "repository 不依赖上层：依赖方向只能是 controller → service → repository（docs/architecture.md「分层」）",
+		message: "repository 不依赖上层：依赖方向只能是 controller → service → repository（docs/architecture.md#layering-and-dependency-direction）",
 	},
 	{
 		dir: "internal/api/",
@@ -93,13 +93,13 @@ var importBans = []importBanRule{
 			module + "/internal/controller", module + "/internal/service", module + "/internal/repository",
 		},
 		exempt:  map[string]bool{"internal/api/router.go": true}, // 路由注册处需要引用控制器
-		message: "internal/api 只放请求与响应定义，不依赖业务层；路由注册集中在 internal/api/router.go（docs/architecture.md）",
+		message: "internal/api 只放请求与响应定义，不依赖业务层；路由注册集中在 internal/api/router.go（docs/architecture.md#layering-and-dependency-direction）",
 	},
 	{
 		dir:     "internal/",
 		banned:  []string{"log"},
 		exact:   true, // 只禁标准库 log，不影响 log/slog
-		message: "业务代码不用标准库 log，用 cago 的 logger.Ctx(ctx)（docs/develop.md「日志」）",
+		message: "业务代码不用标准库 log，用 cago 的 logger.Ctx(ctx)（docs/develop.md#logging）",
 	},
 }
 

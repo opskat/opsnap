@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -16,7 +17,7 @@ func serve(files fstest.MapFS, method, path string) *httptest.ResponseRecorder {
 	r := gin.New()
 	r.NoRoute(Handler(files))
 	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(method, path, nil))
+	r.ServeHTTP(w, httptest.NewRequestWithContext(context.Background(), method, path, nil))
 	return w
 }
 

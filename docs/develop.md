@@ -1,114 +1,122 @@
-# 开发规范
+# Development standards
 
-## 命令
+## Commands
 
-所有命令都从仓库根目录的 `Makefile` 进入；文档、CI 使用同一套命令。
+Every command starts from the root `Makefile`; docs and CI use the same commands.
 
 ```bash
-make install        # 安装前端、e2e 依赖和 Playwright 浏览器
-make dev-server     # 启动后端，监听 127.0.0.1:8210（首次运行会从 configs/config.example.yaml 复制出 config.yaml）
-make dev-web        # 启动前端开发服务器，/api 转发到 127.0.0.1:8210
-make build          # 构建前端并内嵌进 bin/opsnap
-make generate       # go generate ./...（重新生成 mock）
-make lint           # golangci-lint + ESLint + Prettier + i18n 键检查 + e2e 类型检查
-make lint-fix       # 自动修复格式与可修复的 lint 问题
-make test           # Go 测试 + 前端 Vitest（含守护测试）
-make test-cover     # Go 覆盖率
-make e2e            # 构建后运行 Playwright 冒烟测试
-make verify         # lint + test + e2e，提交前的完整验证
+make install        # install frontend and e2e dependencies plus the Playwright browser
+make dev-server     # run the backend on 127.0.0.1:8210 (copies configs/config.example.yaml to config.yaml on first run)
+make dev-web        # run the Vite dev server on localhost:5173, proxying /api to 127.0.0.1:8210
+make build          # build the frontend and embed it into bin/opsnap
+make generate       # go generate ./... (regenerate mocks)
+make lint           # golangci-lint + ESLint + Prettier + i18n key check + e2e typecheck
+make lint-fix       # apply automatic formatting and lint fixes
+make test           # Go tests + frontend Vitest (guard tests included)
+make test-cover     # Go coverage summary
+make e2e            # build, then run the Playwright smoke suite
+make verify         # lint + test + e2e: the full pre-PR check
 ```
 
-只跑一部分：
+Targeted runs:
 
 ```bash
 go test -run TestSystemHealth ./internal/controller/system_ctr/
 pnpm -C frontend exec vitest run src/pages/OverviewPage.test.tsx
-pnpm -C e2e exec playwright test -g "主题"   # 需要先 make build
+pnpm -C e2e exec playwright test -g "主题"   # requires make build first
 ```
 
-包管理：前端与 e2e 用 pnpm 10，版本由各自 `package.json` 的 `packageManager` 字段锁定；锁文件必须提交，CI 使用 `--frozen-lockfile`。
+Package managers: pnpm 10 for `frontend/` and `e2e/`, pinned by each `package.json` `packageManager` field. Lockfiles are committed and CI installs with `--frozen-lockfile`. Do not use npm or yarn.
 
-## 目录结构
+## Structure and style
 
 ```text
-cmd/opsnap/            入口：配置、注册 repository、启动 cago 组件
-configs/               config.example.yaml（提交）；config.yaml（本地，不提交）
+cmd/opsnap/            entry point: config, repository registration, cago components
+configs/               config.example.yaml (committed); config.yaml (local, gitignored)
 internal/
-  api/                 请求/响应定义（mux.Meta）与 router.go
-  controller/          控制器，只做参数转发，<name>_ctr/
-  service/             业务逻辑，接口 + 单例获取函数，<name>_svc/
-  repository/          数据访问，接口 + Register/获取函数，<name>_repo/，mock 在 mock/
-  web/                 内嵌前端（dist/ 为构建产物，仓库中只保留 .gitkeep）
-  archtest/            分层守护测试
-migrations/            元数据库迁移（只追加）
-frontend/              React 前端（src/ 下 @ 别名指向 src）
-e2e/                   Playwright 冒烟测试与 scratch 验证
-deploy/test/           docker.local 测试服务的 compose 定义
-scripts/               仓库级脚本（test-env.sh）
-docs/                  开发文档与需求规格
+  api/                 request/response types (mux.Meta) and router.go
+  controller/          controllers that only forward, <name>_ctr/
+  service/             business logic: interface + singleton getter, <name>_svc/
+  repository/          data access: interface + Register/getter, <name>_repo/, mocks in mock/
+  web/                 embedded frontend (dist/ is build output; only .gitkeep is tracked)
+  archtest/            layering guard tests
+migrations/            metadata database migrations (append-only)
+frontend/              React app (the @ alias points to src/)
+  eslint-rules/        project ESLint plugin (design-system rules)
+  scripts/             check-i18n.mjs
+e2e/                   Playwright smoke tests and scratch verification
+deploy/test/           docker-compose.yaml for the docker.local test services
+scripts/               repository scripts (test-env.sh)
+docs/                  contributor docs and specs
 ```
 
-- 路径别名：前端 `@/*` → `frontend/src/*`（`tsconfig.json` 与 `vite.config.ts` 同步配置）
-- Go：`gofmt` + `goimports`，本项目包单独成组放在第三方包之后（`.golangci.yml` 的 `local-prefixes`）；代码注释与提交信息用中文
-- 前端：Prettier（行宽 120、双引号、`trailingComma: es5`，见 `frontend/.prettierrc`）；组件文件用 PascalCase，工具模块用 camelCase
-- 测试位置：Go 测试与被测文件同目录 `*_test.go`；前端测试与被测文件同目录 `*.test.ts(x)`，守护测试在 `frontend/src/__tests__/`
+- Path alias: `@/*` → `frontend/src/*` (kept in sync in `tsconfig.json` and `vite.config.ts`).
+- Go: `gofmt` + `goimports`; project imports form their own group after third-party imports (`local-prefixes` in `.golangci.yml`). Code comments and commit messages are in Chinese.
+- Frontend: Prettier (print width 120, double quotes, `trailingComma: es5`; see `frontend/.prettierrc`). Markdown is excluded from Prettier. Components use PascalCase file names, utility modules camelCase.
+- Tests: Go tests sit next to the code as `*_test.go`; frontend tests sit next to the code as `*.test.ts(x)`; guard tests live in `frontend/src/__tests__/`.
 
-## 守护规则
+## Enforced rules
 
-| 规则 | 正确写法 | 门禁与豁免 |
+| Rule | Correct form | Gate and exemption |
 |---|---|---|
-| controller 不直接访问 repository | 经对应 service 调用 | `internal/archtest`；豁免：`*_test.go`（需要注册 mock repository） |
-| service、repository 不反向依赖上层 | controller → service → repository | `internal/archtest` |
-| `internal/api` 只放请求/响应定义 | 路由注册集中在 `internal/api/router.go` | `internal/archtest`；豁免：`internal/api/router.go` |
-| `internal/` 不用标准库 `log` | cago 的 `logger.Ctx(ctx)` | `internal/archtest`（`log/slog` 不受影响） |
-| 不写 Tailwind 调色板类名 | 语义 token，见 [`design.md`](design.md) | ESLint `no-restricted-syntax`，作用于 `frontend/src/**`；豁免：测试文件 |
-| JSX 中不写死中文 | `t("key")`，键写入 `frontend/src/i18n/locales/*.json` | ESLint `i18next/no-literal-string`（仅检查含汉字的文本与可见属性）；豁免：测试文件 |
-| 各语言文件键一致，字面量 `t("a.b")` 的键必须存在 | 同时修改 `zh-CN.json` 与 `en.json` | `frontend/scripts/check-i18n.mjs`（`pnpm lint` 的一部分） |
-| 不直接调用 `fetch` | `frontend/src/lib/api.ts` 的 `request()` | ESLint `no-restricted-globals`；豁免：`src/lib/api.ts` 与测试文件 |
-| React 19 写法 | `ref` 作 prop、`<Context value>`、`use(Context)` | ESLint `react-x/no-forward-ref`、`no-context-provider`、`no-use-context` |
-| 通用 Go 检查 | — | golangci-lint v2（`.golangci.yml`，沿用 opskat 的规则集） |
+| Controllers do not import repositories | call the matching service | `internal/archtest`; exempt: `*_test.go` (tests register mock repositories) |
+| Services and repositories do not import upper layers | controller → service → repository | `internal/archtest` |
+| `internal/api` holds only request/response types | register routes in `internal/api/router.go` | `internal/archtest`; exempt: `internal/api/router.go` |
+| No standard `log` under `internal/` | cago `logger.Ctx(ctx)` | `internal/archtest` (`log/slog` unaffected) |
+| No `fmt.Print*` | cago `logger.Ctx(ctx)` | golangci-lint `forbidigo`; exempt: `cmd/` |
+| Security checks without global exclusions | fix the finding, or `//nolint:gosec // <reason>` at the call site | golangci-lint `gosec` + `nolintlint` (explanation and specific linter required) |
+| Wrapped errors stay inspectable | `fmt.Errorf("...: %w", err)`, `errors.Is/As` | golangci-lint `errorlint` |
+| Outgoing requests carry a context | `http.NewRequestWithContext`, `httptest.NewRequestWithContext` | golangci-lint `noctx` |
+| No palette or raw colours | semantic tokens ([`design.md`](design.md#theme-and-tokens)) | ESLint `opsnap/no-raw-color` on `frontend/src/**`; exempt: test files |
+| No arbitrary font sizes | type scale ([`design.md`](design.md#typography)) | ESLint `opsnap/no-arbitrary-font-size`; exempt: test files |
+| No `dark:` variants in app code | put theme differences in token values | ESLint `opsnap/no-dark-variant`; exempt: `src/components/ui/**` (shadcn output), test files |
+| No Chinese literals in JSX | `t("key")` with entries in `frontend/src/i18n/locales/*.json` | ESLint `i18next/no-literal-string` (text and visible attributes containing Han characters); exempt: test files |
+| Locale files agree; literal `t("a.b")` keys exist | edit `zh-CN.json` and `en.json` together | `frontend/scripts/check-i18n.mjs` (part of `pnpm lint`) |
+| No direct `fetch` | `request()` in `frontend/src/lib/api.ts` | ESLint `no-restricted-globals`; exempt: `src/lib/api.ts`, test files |
+| React 19 APIs | `ref` as a prop, `<Context value>`, `use(Context)` | ESLint `react-x/no-forward-ref`, `no-context-provider`, `no-use-context` |
 
-守护测试用真实配置验证每条规则“违规被报告、合规与豁免不被误报”：
-- Go 分层：`internal/archtest/archtest_test.go`
-- ESLint：`frontend/src/__tests__/eslint-harness.test.ts`
-- i18n 键检查：`frontend/scripts/check-i18n.test.mjs`
+Guard tests run each rule through the real configuration and assert that violations are reported while compliant and exempt code is not:
 
-以上规则自 2026-09-23 起生效，目前没有存量豁免。
+- Go layering: `internal/archtest/archtest_test.go`
+- ESLint: `frontend/src/__tests__/eslint-harness.test.ts`
+- i18n key check: `frontend/scripts/check-i18n.test.mjs`
 
-**shadcn 组件**：用 `pnpm dlx shadcn@latest add <组件>` 添加后，检查生成文件中 `cn` 的导入路径是否为 `@/lib/utils`，并确认 `package.json` 没有被加入名为 `cn` 的无关依赖——本项目初始化时 CLI 两处都出过错。
+These rules took effect on 2026-09-23 with no existing exemptions.
 
-## 国际化
+**Adding shadcn components**: after `pnpm dlx shadcn@latest add <component>`, check that the generated file imports `cn` from `@/lib/utils` and that no unrelated `cn` package was added to `package.json`; the CLI got both wrong when this project was set up. Generated files must also pass `opsnap/no-raw-color` (replace colours such as `text-white` or `bg-black/50` with tokens).
 
-- 界面文案放在 `frontend/src/i18n/locales/zh-CN.json` 与 `en.json`，两份文件的键必须一致
-- 组件中用 `useTranslation()` 的 `t("分组.键")`；不要用 `t(key, { defaultValue })`，缺键时应由检查脚本发现
-- 语言切换用 `frontend/src/i18n/index.ts` 的 `changeLanguage()`，会同步写入 `localStorage`（`opsnap-lang`）和 `<html lang>`
+## Internationalization
 
-## 接口请求
+- UI copy lives in `frontend/src/i18n/locales/zh-CN.json` and `en.json`; both files must contain the same keys.
+- Components use `t("group.key")` from `useTranslation()`. Do not use `t(key, { defaultValue })`; a missing key must be caught by the check script.
+- Switch languages with `changeLanguage()` in `frontend/src/i18n/index.ts`; it also writes `localStorage` (`opsnap-lang`) and `<html lang>`.
 
-前端只通过 `request<T>(path)` 调用后端：它拼接 `/api/v1` 前缀、带上 `Accept-Language`，解析 cago 的 `{ code, msg, data }` 响应；`code !== 0`、HTTP 失败或响应不是 JSON 时抛出 `ApiError`（含 `code`、`status`）。按领域在 `frontend/src/lib/` 下封装具体接口，例如 `system.ts` 的 `getHealth()`。
+## API requests
 
-## 日志
+The frontend calls the backend only through `request<T>(path)`. It prefixes `/api/v1`, sends `Accept-Language`, and unwraps cago's `{ code, msg, data }` envelope. It throws `ApiError` (with `code` and `status`) when `code !== 0`, the HTTP status fails, or the body is not JSON. Wrap each domain's endpoints in `frontend/src/lib/`, for example `getHealth()` in `system.ts`.
 
-后端使用 cago 的 `logger.Ctx(ctx)`，错误通过 `zap.Error(err)` 附带，例如 `internal/service/system_svc/system.go`。日志中不得输出凭据、密钥和数据源密码。
+## Logging
 
-## 提交与 PR
+The backend logs through cago `logger.Ctx(ctx)` and attaches errors with `zap.Error(err)`, as in `internal/service/system_svc/system.go`. Logs must never contain credentials, keys or data source passwords.
 
-- 不在 `main` 上直接开发；从 `main` 拉分支，推送后开 PR
-- 提交信息用中文，格式 `<类型>: <描述>`，类型如 `feat`、`fix`、`docs`、`test`、`refactor`、`chore`
-- 提交前运行 `make verify`；没有 pre-commit 钩子
+## Commits and PRs
 
-PR 描述需包含：做了什么、为什么；运行过的命令与结果；界面改动附截图或运行时证据；涉及元数据库结构时说明影响范围与回滚方式。
+- Never commit to `main`; branch from `main`, push, and open a PR.
+- Commit messages are in Chinese, formatted `<type>: <description>` with types such as `feat`, `fix`, `docs`, `test`, `refactor`, `chore`.
+- Run `make verify` before opening a PR. There is no pre-commit hook.
+
+A PR description states what changed and why, the commands run and their results, runtime evidence or screenshots for UI changes, and the blast radius and rollback plan for metadata schema changes.
 
 ## CI
 
-`.github/workflows/ci.yml` 在 PR 与推送到 `main` 时运行，命令与本地一致：
+`.github/workflows/ci.yml` runs on pull requests and on pushes to `main`, using the same commands as local development:
 
-- `go`：golangci-lint v2.12.2 + `go test ./...`
-- `frontend`：`pnpm lint` + `pnpm test`（前端），`pnpm lint`（e2e）
-- `e2e`：`make e2e`
+- `go`: golangci-lint v2.12.2 + `go test ./...`
+- `frontend`: `pnpm lint` and `pnpm test` in `frontend/`, `pnpm lint` in `e2e/`
+- `e2e`: `make e2e`
 
-**这些检查目前还不会阻止合并**：需要仓库管理员在 GitHub 上为 `main` 开启分支保护，并把上述三个 job 设为必需检查。开启之前，它们只作为提示。
+**These checks do not block merging yet.** A repository admin has to enable branch protection on `main` and mark the three jobs as required. Until then they are advisory.
 
-## 相关文档
+## Related
 
 [`../AGENTS.md`](../AGENTS.md) · [`architecture.md`](architecture.md) · [`testing.md`](testing.md) · [`verification.md`](verification.md)

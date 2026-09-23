@@ -36,18 +36,18 @@ export function OverviewPage() {
       <PageHeader title={t("nav.overview")} subtitle={t("overview.subtitle")} />
       <section className="px-8 py-6">
         <div className="max-w-md rounded-md border bg-card p-4" aria-live="polite">
-          <h2 className="mb-3 text-[15px] font-semibold">{t("overview.systemStatus")}</h2>
-          {state.status === "loading" && <p className="text-[13px] text-muted-foreground">{t("common.loading")}</p>}
+          <h2 className="mb-3 text-md font-semibold">{t("overview.systemStatus")}</h2>
+          {state.status === "loading" && <p className="text-sm text-muted-foreground">{t("common.loading")}</p>}
           {state.status === "error" && (
             <div className="flex items-center justify-between gap-3 rounded-md bg-destructive-soft px-3 py-2">
-              <p className="text-[13px] text-destructive">{t("overview.loadFailed", { message: state.message })}</p>
+              <p className="text-sm text-destructive">{t("overview.loadFailed", { message: state.message })}</p>
               <Button variant="outline" size="sm" onClick={retry}>
                 {t("common.retry")}
               </Button>
             </div>
           )}
           {state.status === "ready" && (
-            <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-[13px]">
+            <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
               <dt className="text-muted-foreground">{t("overview.version")}</dt>
               <dd className="font-mono" data-testid="health-version">
                 {state.health.version}

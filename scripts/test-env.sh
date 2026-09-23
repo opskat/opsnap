@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 管理 docker.local 上的 opsnap-test 测试服务：up | down | status | destroy
-# 通过 opsctl 资产 local-docker 操作远端（docs/verification.md「测试环境」）。
+# 通过 opsctl 资产 local-docker 操作远端（docs/verification.md#test-environment）。
 # 测试密码保存在 e2e/.env 的 OPSNAP_TEST_PASSWORD（不提交），首次 up 时自动生成。
 set -euo pipefail
 
@@ -21,7 +21,7 @@ ensure_password() {
   grep '^OPSNAP_TEST_PASSWORD=' "$ENV_FILE" | cut -d= -f2-
 }
 
-compose() { echo "cd $REMOTE_DIR && docker compose -f compose.yaml $*"; }
+compose() { echo "cd $REMOTE_DIR && docker compose -f docker-compose.yaml $*"; }
 
 case "${1:-}" in
 up)
@@ -31,7 +31,7 @@ up)
   printf 'OPSNAP_TEST_PASSWORD=%s\nREGISTRY_MIRROR=%s\n' "$password" "$REGISTRY_MIRROR" >"$tmp/.env"
   chmod 600 "$tmp/.env"
   ssh_exec "mkdir -p $REMOTE_DIR && chmod 700 $REMOTE_DIR"
-  opsctl cp "$ROOT/deploy/test/compose.yaml" "$ASSET:$REMOTE_DIR/compose.yaml"
+  opsctl cp "$ROOT/deploy/test/docker-compose.yaml" "$ASSET:$REMOTE_DIR/docker-compose.yaml"
   opsctl cp "$tmp/.env" "$ASSET:$REMOTE_DIR/.env"
   ssh_exec "chmod 600 $REMOTE_DIR/.env && $(compose up -d --wait)"
   ;;

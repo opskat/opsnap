@@ -1,94 +1,94 @@
-<!-- Copy into the scenario directory verification.md names, as report.md, before running. Delete unused sections and this comment. -->
+<!-- 运行前复制到 docs/verification.md 指定的场景目录，命名为 report.md。删掉用不到的小节和本注释。 -->
 
-# Local verification: <scenario>
+# 本地验证：<场景>
 
-## Mode
+## 模式
 
-`verifying a change` | `reproducing a bug`
+`验证改动` | `复现 bug`
 
-## Goal / problem
+## 目标 / 问题
 
-<Expected observable behaviour and risk, or Expected/Actual bug statement>.
+<预期的可观察行为及风险；或者“预期 / 实际”形式的 bug 描述>。
 
-## Verdict
+## 结论
 
-<!-- Fill last. Keep verdicts only here. For spec acceptance, one row per requirement. Where `not observed` came from unconfigured environment, "How observed" names the service and the absent variable names, never values. -->
+<!-- 最后填写。结论只写在这里。按 spec 验收时，每条需求一行。因环境未配置而“未观察到”的，在“如何观察”中写明服务名和缺失的变量名，不要写变量值。 -->
 
-| # | Requirement / bug claim | Verdict | Real / substituted | How observed | Check it yourself |
+| # | 需求 / bug 描述 | 结论 | 真实 / 替代 | 如何观察 | 自行复核 |
 |---|---|---|---|---|---|
-| V1 | `<verbatim requirement>` | holds / does not hold / not observed | real, or `substituted: <what stood in> — <what it does not cover>` | `<runtime observation>` | `<command, or launch command plus steps>` |
+| V1 | `<逐字引用的需求>` | 成立 / 不成立 / 未观察到 | 真实，或 `替代：<用什么替代> —— <没有覆盖什么>` | `<运行时观察>` | `<命令，或启动命令加操作步骤>` |
 
-Summary: <what holds, deciding observation, every not-observed/failed item and shipping implication>.
+小结：<哪些成立、决定结论的观察、所有未观察到或不成立的项，以及对发布的影响>。
 
-## Authorization
+## 授权
 
-<!-- Keep only when a real dependency was substituted or an external effect was authorized. -->
+<!-- 只在替代了真实依赖、或经授权产生外部副作用时保留。 -->
 
-| # | Substitute or effect | The user's authorization, verbatim |
+| # | 替代或副作用 | 用户授权原话 |
 |---|---|---|
-| V1 | `<what stood in for what, or the effect and what it touches>` | `<sentence>` |
+| V1 | `<用什么替代了什么，或副作用及其影响范围>` | `<原话>` |
 
-## Reproduction steps
+## 复现步骤
 
-<!-- Keep for bug reproduction. -->
+<!-- 复现 bug 时保留。 -->
 
-1. `<clean-checkout-to-observation steps>`
+1. `<从干净的代码检出到观察到现象的步骤>`
 
-## Acceptance evidence
+## 验收证据
 
-<!-- Keep for spec acceptance. One section per V row; do not repeat verdict labels. -->
+<!-- 按 spec 验收时保留。每个 V 行一个小节，不再重复结论标签。 -->
 
-### V1 · `<requirement>`
+### V1 · `<需求>`
 
 ```console
-$ <command>   # cwd and relevant redacted environment
-<deciding lines>
+$ <命令>   # 工作目录与相关环境变量（已脱敏）
+<决定结论的输出行>
 $ echo $?
 0
 ```
 
-<What this proves>. Full output: `logs/<file>`.
+<这段输出证明了什么>。完整输出：`logs/<文件>`。
 
-<!-- UI only; use paired annotated images for before/after or light/dark. -->
+<!-- 仅界面改动：前后对比或深浅主题对比用成对的标注截图。 -->
 
-| Before | After |
+| 改动前 | 改动后 |
 |---|---|
-| `<screenshots/v1-before.png with annotation>` | `<screenshots/v1-after.png with annotation>` |
+| `<screenshots/v1-before.png 及标注>` | `<screenshots/v1-after.png 及标注>` |
 
-## Evidence index
+## 证据索引
 
-- Commands/logs: `<inline deciding output plus optional full-file links>`
-- Resources/data snapshots: `<paths and what each proves>`
-- Screenshots/video: `<UI only; video includes decisive stills>`
+- 命令与日志：`<决定结论的内联输出，以及可选的完整文件链接>`
+- 资源与数据快照：`<路径及各自证明了什么>`
+- 截图与录屏：`<仅界面；录屏需附关键帧截图>`
 
-## Persistent data changes
+## 持久化数据变更
 
-<!-- Keep only when authorized persistent data changed. -->
+<!-- 只在经授权修改了持久化数据时保留。 -->
 
-| Change | Forward | Backward/backup | Before/after query |
+| 变更 | 正向 | 回退 / 备份 | 变更前后查询 |
 |---|---|---|---|
-| `<scope/blast radius>` | `<command/exit>` | `<command/exit or irreversible plan>` | `<evidence>` |
+| `<范围与影响面>` | `<命令 / 退出码>` | `<命令 / 退出码，或不可逆时的方案>` | `<证据>` |
 
-Dataset: `<source, size and representative edge values>`. Compatibility window: `<old/new readers>`.
+数据集：`<来源、规模与有代表性的边界值>`。兼容窗口：`<新旧读取方>`。
 
-## Execution record
+## 执行记录
 
-| Step | Status | Evidence/blocker |
+| 步骤 | 状态 | 证据 / 阻塞原因 |
 |---|---|---|
-| `<step>` | pending / passed / failed / blocked | `<path or observation>` |
+| `<步骤>` | 待执行 / 通过 / 失败 / 受阻 | `<路径或观察>` |
 
-## Integrity and cleanup
+## 完整性与清理
 
-- Initial/final HEAD: `<sha>` / `<sha>`
-- Initial/final plan checksum: `<sha256>` / `<sha256>`
-- Final `git status --porcelain=v1`: `<output>`
-- Created artifacts/processes/external data and cleanup: `<inventory>`
-- Redaction performed: `<what was removed>`
+- 开始 / 结束时的 HEAD：`<sha>` / `<sha>`
+- 开始 / 结束时的计划校验和：`<sha256>` / `<sha256>`
+- 结束时 `git status --porcelain=v1`：`<输出>`
+- 创建的产物、进程、外部数据及其清理：`<清单>`
+- 已脱敏的内容：`<删除了什么>`
 
-## Evidence rules
+## 证据规则
 
-- Every `holds` names how the target was driven — command, or launch command plus steps — and the deciding observation; failures are `does not hold`, unreached checks are `not observed`.
-- Where a requirement changes state beyond the driven surface, that observation is an independent read with its own command and exit code.
-- Embed decisive text/images inline. Link only large/binary/full captures and state what they contain.
-- Use request/status/key fields for APIs; structured logs plus before/after data for async work; commands/stdout/stderr for CLI.
-- Keep failed/unchecked steps visible. Redact secrets, credentials and personal data before saving.
+- 每个“成立”都要写明如何驱动目标（命令，或启动命令加操作步骤）以及决定结论的观察；失败记为“不成立”，未执行到的检查记为“未观察到”。
+- 需求改变了被驱动界面之外的状态时，该观察必须是一次独立读取，有自己的命令和退出码。
+- 决定结论的文字和图片直接内嵌；只有大文件、二进制或完整抓取才用链接，并说明其内容。
+- 接口看请求、状态码和关键字段；异步任务看结构化日志与前后数据；命令行看命令、标准输出和标准错误。
+- 失败或未检查的步骤要保留可见。保存前删除密钥、凭据和个人数据。
