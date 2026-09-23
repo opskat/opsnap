@@ -29,7 +29,7 @@ OpsNap — a self-hosted web console for backing up and syncing servers, shipped
 
 ## Language conventions
 
-- Documentation (`AGENTS.md`, `docs/`, READMEs): English. Verification reports under `e2e/scratch/<scenario>/` may be written in Chinese.
+- Documentation (`AGENTS.md`, `docs/`, READMEs): English. Specs under `docs/specs/` and verification reports under `e2e/scratch/<scenario>/` are written in Chinese.
 - Code comments, lint and test diagnostics, commit messages: Chinese (cago convention).
 - UI copy: never hard-coded; every visible string goes through i18n with both `zh-CN` and `en` entries.
 

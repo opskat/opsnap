@@ -103,6 +103,7 @@ The backend logs through cago `logger.Ctx(ctx)` and attaches errors with `zap.Er
 
 - Never commit to `main`; branch from `main`, push, and open a PR.
 - Commit messages are in Chinese, formatted `<type>: <description>` with types such as `feat`, `fix`, `docs`, `test`, `refactor`, `chore`.
+- Commits and PR descriptions carry no `Co-Authored-By` or other AI attribution trailers.
 - Run `make verify` before opening a PR. There is no pre-commit hook.
 
 A PR description states what changed and why, the commands run and their results, runtime evidence or screenshots for UI changes, and the blast radius and rollback plan for metadata schema changes.

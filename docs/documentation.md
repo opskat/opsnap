@@ -4,7 +4,7 @@ Find tracked docs with `git ls-files '*.md'`. Check facts with git-aware command
 
 ## Language
 
-Contributor docs (`AGENTS.md`, `docs/`, READMEs) are written in English. Verification reports under `e2e/scratch/` may be written in Chinese. Specs under `docs/specs/` are written in English.
+Contributor docs (`AGENTS.md`, `docs/`, READMEs) are written in English. Specs under `docs/specs/` and verification reports under `e2e/scratch/` are written in Chinese.
 
 ## Ownership
 
