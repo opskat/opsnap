@@ -1,0 +1,148 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/jetbrains-mono";
+
+/* 设计 token：取值与设计稿 opsnap.pen 的变量一一对应（docs/design.md 为准）。
+   组件只使用这里的语义 token，不写 Tailwind 调色板类名，深浅主题才能都成立。 */
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --radius: 0.375rem;
+
+  --background: #f6f7f7;
+  --foreground: #0e1113;
+  --card: #ffffff;
+  --card-foreground: #0e1113;
+  --popover: #ffffff;
+  --popover-foreground: #0e1113;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #0e1113;
+  --muted: #f0f2f3;
+  --muted-foreground: #5e6873;
+  --faint-foreground: #66707a;
+  --secondary: #f0f2f3;
+  --secondary-foreground: #0e1113;
+  --accent: #f0f2f3;
+  --accent-foreground: #0e1113;
+  --border: #e2e6e9;
+  --input: #e2e6e9;
+  --ring: #1fbf7f;
+
+  /* 实心按钮等“绿底放文字”的位置用 primary；品牌薄荷绿 brand 只用于装饰和强调 */
+  --primary: #08804f;
+  --primary-foreground: #ffffff;
+  --brand: #1fbf7f;
+  --brand-foreground: #04140c;
+  --brand-text: #0b8f5a;
+
+  --success: #087a4b;
+  --success-soft: #0e9f6317;
+  --running: #1765c2;
+  --running-soft: #1f7ae017;
+  --warning: #8a5a00;
+  --warning-soft: #8a5a0017;
+  --destructive: #c4313a;
+  --destructive-soft: #dc3b4117;
+  --pending: #5e6873;
+  --pending-soft: #7a848d17;
+
+  --chart-bar: #5fd3a1;
+  --track: #eceff1;
+}
+
+.dark {
+  --background: #0b0d0e;
+  --foreground: #e8ecef;
+  --card: #121619;
+  --card-foreground: #e8ecef;
+  --popover: #121619;
+  --popover-foreground: #e8ecef;
+  --sidebar: #0f1214;
+  --sidebar-foreground: #e8ecef;
+  --muted: #1a2024;
+  --muted-foreground: #86909a;
+  --faint-foreground: #7d8790;
+  --secondary: #1a2024;
+  --secondary-foreground: #e8ecef;
+  --accent: #1a2024;
+  --accent-foreground: #e8ecef;
+  --border: #20272c;
+  --input: #20272c;
+  --ring: #3ddc97;
+
+  --primary: #08804f;
+  --primary-foreground: #ffffff;
+  --brand: #3ddc97;
+  --brand-foreground: #04140c;
+  --brand-text: #3ddc97;
+
+  --success: #3ddc97;
+  --success-soft: #3ddc971f;
+  --running: #5ab0ff;
+  --running-soft: #5ab0ff1f;
+  --warning: #f5b83d;
+  --warning-soft: #f5b83d1f;
+  --destructive: #ff5c5c;
+  --destructive-soft: #ff5c5c1f;
+  --pending: #86909a;
+  --pending-soft: #86909a1f;
+
+  --chart-bar: #2e8f66;
+  --track: #1e2529;
+}
+
+@theme inline {
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+
+  --radius-sm: calc(var(--radius) - 2px);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) + 2px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-faint-foreground: var(--faint-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-brand-text: var(--brand-text);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-running: var(--running);
+  --color-running-soft: var(--running-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-destructive: var(--destructive);
+  --color-destructive-soft: var(--destructive-soft);
+  --color-pending: var(--pending);
+  --color-pending-soft: var(--pending-soft);
+  --color-chart-bar: var(--chart-bar);
+  --color-track: var(--track);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+}
