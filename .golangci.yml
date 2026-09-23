@@ -1,0 +1,49 @@
+version: "2"
+linters:
+  enable:
+    - bodyclose
+    - copyloopvar
+    - durationcheck
+    - gosec
+    - loggercheck
+    - makezero
+    - misspell
+    - nilerr
+    - nolintlint
+    - prealloc
+    - predeclared
+    - rowserrcheck
+    - staticcheck
+
+  exclusions:
+    paths:
+      - ".*/mock/.*"
+  settings:
+    gosec:
+      excludes:
+        - G106
+        - G115
+        - G117
+        - G301
+        - G302
+        - G306
+        - G401
+        - G402
+        - G404
+        - G501
+        - G505
+    misspell:
+      locale: US
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      # 本项目的包单独成组，放在第三方包之后
+      local-prefixes:
+        - github.com/opskat/opsnap
+
+run:
+  timeout: 10m

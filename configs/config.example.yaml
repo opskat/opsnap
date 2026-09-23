@@ -1,0 +1,20 @@
+# 复制为 configs/config.yaml 后按需修改；config.yaml 不提交
+env: DEV
+source: file
+debug: true
+
+http:
+  address:
+    - "127.0.0.1:8210"
+
+logger:
+  level: info
+  disableConsole: false
+  logFile:
+    enable: true
+    filename: ./runtime/logs/opsnap.log
+    errorFilename: ./runtime/logs/opsnap.err.log
+
+db:
+  driver: sqlite
+  dsn: "./runtime/opsnap.db?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"

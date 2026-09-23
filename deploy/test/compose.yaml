@@ -1,0 +1,61 @@
+# docker.local 上的真实环境测试服务（compose 项目名 opsnap-test）。
+# 只用于本地真实验证，不用于 CI；由 scripts/test-env.sh 部署。密码来自同目录 .env（部署脚本生成，不提交）。
+# 端口避开宿主机上其他项目已占用的 3306/5432/6379 等（docs/verification.md「测试环境」）。
+name: opsnap-test
+
+services:
+  mysql80:
+    image: ${REGISTRY_MIRROR:-}docker.io/library/mysql:8.0
+    command:
+      - --server-id=1
+      - --log-bin=mysql-bin
+      - --binlog-format=ROW
+      - --gtid-mode=ON
+      - --enforce-gtid-consistency=ON
+      - --innodb-buffer-pool-size=128M
+    environment:
+      MYSQL_ROOT_PASSWORD: ${OPSNAP_TEST_PASSWORD:?缺少 OPSNAP_TEST_PASSWORD}
+    ports:
+      - "13306:3306"
+    volumes:
+      - mysql80:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      retries: 30
+
+  pg16:
+    image: ${REGISTRY_MIRROR:-}docker.io/library/postgres:16
+    command: ["postgres", "-c", "wal_level=logical", "-c", "max_wal_senders=10", "-c", "max_replication_slots=10"]
+    environment:
+      POSTGRES_PASSWORD: ${OPSNAP_TEST_PASSWORD:?缺少 OPSNAP_TEST_PASSWORD}
+    ports:
+      - "15432:5432"
+    volumes:
+      - pg16:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      retries: 30
+
+  minio:
+    # MinIO 已停止在 Docker Hub 发布社区版镜像，使用 quay.io 并固定版本
+    image: ${REGISTRY_MIRROR:-}quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: opsnap
+      MINIO_ROOT_PASSWORD: ${OPSNAP_TEST_PASSWORD:?缺少 OPSNAP_TEST_PASSWORD}
+    ports:
+      - "19000:9000"
+      - "19001:9001"
+    volumes:
+      - minio:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      retries: 30
+
+volumes:
+  mysql80:
+  pg16:
+  minio:

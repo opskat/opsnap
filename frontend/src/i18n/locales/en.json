@@ -1,0 +1,35 @@
+{
+  "nav": {
+    "overview": "Overview",
+    "jobs": "Jobs",
+    "snapshots": "Snapshots",
+    "sources": "Sources",
+    "storage": "Storage",
+    "system": "SYSTEM",
+    "notifications": "Notifications",
+    "settings": "Settings"
+  },
+  "theme": {
+    "label": "Theme",
+    "light": "Light",
+    "dark": "Dark",
+    "system": "System"
+  },
+  "language": {
+    "label": "Language"
+  },
+  "common": {
+    "comingSoon": "This page will be available in a later release",
+    "loading": "Loading…",
+    "retry": "Retry"
+  },
+  "overview": {
+    "subtitle": "Status of all backup and sync jobs",
+    "systemStatus": "System status",
+    "version": "Version",
+    "database": "Metadata database",
+    "databaseOk": "Healthy",
+    "databaseError": "Unavailable",
+    "loadFailed": "Failed to load system status: {{message}}"
+  }
+}
