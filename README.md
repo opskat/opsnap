@@ -1,23 +1,23 @@
 # OpsNap
 
-自托管的服务器备份与同步 Web 控制台：把 MySQL、PostgreSQL、MongoDB、Redis、Kafka 和服务器文件按计划备份到本地目录或 S3 兼容存储，并支持同类实例之间的同步。单个 Go 二进制内嵌前端。
+A self-hosted web console for server backup and sync: back up MySQL, PostgreSQL, MongoDB, Redis, Kafka and server files on a schedule to a local directory or S3-compatible storage, and sync between instances of the same kind. Ships as a single Go binary with the frontend embedded.
 
-> 项目处于早期开发阶段。v1 的需求规格见 [`docs/specs/2026-09-23-opsnap-v1.md`](docs/specs/2026-09-23-opsnap-v1.md)。
+> Early development. The v1 requirements are in [`docs/specs/2026-09-23-opsnap-v1.md`](docs/specs/2026-09-23-opsnap-v1.md).
 
-## 快速开始
+## Quick start
 
-需要 Go 1.26、Node.js 22、pnpm 10。
+Requires Go 1.26, Node.js 22 and pnpm 10.
 
 ```bash
-make install      # 安装前端与 e2e 依赖
-make build        # 构建 bin/opsnap（内嵌前端）
+make install      # frontend and e2e dependencies
+make build        # build bin/opsnap with the frontend embedded
 cp configs/config.example.yaml configs/config.yaml
-bin/opsnap        # 访问 http://127.0.0.1:8210
+bin/opsnap        # open http://127.0.0.1:8210
 ```
 
-开发时分别运行 `make dev-server` 和 `make dev-web`。
+For development, run `make dev-server` and `make dev-web` side by side.
 
-## 文档
+## Documentation
 
-- 贡献与 AI 协作规则：[`AGENTS.md`](AGENTS.md)
-- 开发文档索引：[`docs/README.md`](docs/README.md)
+- Rules for contributors and AI agents: [`AGENTS.md`](AGENTS.md)
+- Developer docs: [`docs/README.md`](docs/README.md)

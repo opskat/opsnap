@@ -1,62 +1,62 @@
-# 真实环境验证
+# Runtime verification
 
-## 什么时候需要
+## When to use this guide
 
-提交的测试已经能完整观察改动逻辑时，只跑对应的测试即可。需要真实的界面、进程、数据库、存储或服务器才能确认时，或者要复现只在运行时出现的 bug 时，按本文执行。它不替代 TDD。
+When committed tests fully observe the changed logic, run those tests and stop. Use this guide when confirming a change needs the real UI, process, database, storage or servers, or when reproducing a runtime-only bug. It does not replace TDD.
 
-## 测试环境
+## Test environment
 
-测试服务部署在 docker.local（opsctl 资产 `local-docker`，192.168.8.141），compose 项目名 `opsnap-test`，定义在 [`../deploy/test/compose.yaml`](../deploy/test/compose.yaml)。
+Test services run on docker.local (opsctl asset `local-docker`, 192.168.8.141) as the compose project `opsnap-test`, defined in [`../deploy/test/docker-compose.yaml`](../deploy/test/docker-compose.yaml).
 
-| 服务 | 地址（从开发机访问） | 说明 |
+| Service | Address from a dev machine | Notes |
 |---|---|---|
-| MySQL 8.0 | `192.168.8.141:13306`，用户 `root` | 已开启 binlog、ROW 格式、GTID |
-| PostgreSQL 16 | `192.168.8.141:15432`，用户 `postgres` | `wal_level=logical`，10 个复制槽 |
-| MinIO（S3） | API `192.168.8.141:19000`，控制台 `:19001`，用户 `opsnap` | 固定版本 `RELEASE.2025-04-22T22-12-26Z` |
+| MySQL 8.0 | `192.168.8.141:13306`, user `root` | binlog on, ROW format, GTID on |
+| PostgreSQL 16 | `192.168.8.141:15432`, user `postgres` | `wal_level=logical`, 10 replication slots |
+| MinIO (S3) | API `192.168.8.141:19000`, console `:19001`, user `opsnap` | pinned to `RELEASE.2025-04-22T22-12-26Z` |
 
-三个服务使用同一个测试密码，保存在本地 `e2e/.env` 的 `OPSNAP_TEST_PASSWORD`（不提交），首次执行 `make test-env-up` 时自动生成。
+All three share one test password, stored as `OPSNAP_TEST_PASSWORD` in the local, gitignored `e2e/.env`; `make test-env-up` generates it on first run.
 
 ```bash
-make test-env-up       # 部署或更新（经 opsctl 复制 compose 与 .env 到 /opt/opsnap-test，并等待健康检查通过）
-make test-env-status   # 查看容器状态
-make test-env-down     # 停止容器，保留数据
-scripts/test-env.sh destroy   # 删除容器、数据卷和远端目录
+make test-env-up              # deploy or update (copies docker-compose.yaml and .env to /opt/opsnap-test via opsctl, waits for health checks)
+make test-env-status          # container status
+make test-env-down            # stop containers, keep data
+scripts/test-env.sh destroy   # remove containers, volumes and the remote directory
 ```
 
-注意事项：
+Constraints:
 
-- **那台机器上还跑着其他项目的容器**（包括占用 3306、5432、6379 的 MySQL、PostgreSQL、Redis）。只操作 `opsnap-test` 项目，不碰其他容器
-- 机器内存约 7.8 GiB，按需启动服务，不要一次性常驻所有引擎版本
-- 镜像通过 `katch.ggnb.top/` 代理拉取（写法为 `<代理>/docker.io/...`、`<代理>/quay.io/...`），换机器时设置环境变量 `OPSNAP_TEST_REGISTRY_MIRROR`，设为空则直连
-- MongoDB、Redis、Kafka 和带 LVM 的 SSH 测试目标（特权容器 + loop 设备）尚未加入，到对应开发轮次再补进 compose
+- **Other projects' containers run on the same host**, including a MySQL, PostgreSQL and Redis on 3306, 5432 and 6379. Only ever operate on the `opsnap-test` project.
+- The host has about 7.8 GiB of memory. Start services as needed; do not keep every engine version running.
+- Images are pulled through the `katch.ggnb.top/` mirror (`<mirror>/docker.io/...`, `<mirror>/quay.io/...`). On another host set `OPSNAP_TEST_REGISTRY_MIRROR`; an empty value pulls directly.
+- MongoDB, Redis, Kafka and the LVM SSH target (privileged container with a loop device) are not deployed yet; they are added to the compose file in the rounds that need them.
 
-## 验证流程
+## Workflow
 
-1. 先跑 `make lint` 和相关的测试；风险较高或需要门禁时再跑全量 `make verify`
-2. 构建并启动被验证的目标：`make build` 后运行 `bin/opsnap -c <配置文件>`，或用 `make dev-server` 启动开发实例。只启动目标本身；真实依赖通过 `e2e/.env` 访问。`.env` 里缺少某个服务的配置时，说出服务名和缺失的变量并询问用户，不要自行启动替代品或改用 mock
-3. 选最省事、又能观察到契约的方式，把产生的所有东西放在不提交的 `e2e/scratch/<场景>/` 下：
+1. Run `make lint` and the relevant tests; run the full `make verify` when the risk or a gate requires it.
+2. Build and start the target: `make build`, then `bin/opsnap -c <config>`, or a dev instance with `make dev-server`. Start only the target; reach real dependencies through `e2e/.env`. If `.env` lacks a service, name the service and the missing variables and ask the user — do not start a substitute or switch to a mock.
+3. Choose the cheapest form that observes the contract, and put everything it produces under the gitignored `e2e/scratch/<scenario>/`:
 
-   | 如何到达并观察目标 | 需要写什么 |
+   | To reach and observe the target | You write |
    |---|---|
-   | 现有命令或入口就够，且不依赖、不改写本机状态 | 不写，直接驱动并读取独立证据 |
-   | 需要特定的启动方式、隔离的状态或真实环境配置，只观察一次 | 写一个启动到目标为止的脚本，之后手动驱动 |
-   | 需要重放操作序列，或时序、并发本身就是契约 | 写完整的 scratch 脚本（`pnpm -C e2e scratch`） |
+   | an existing command or entry point suffices and neither depends on nor changes local state | nothing — drive it and read the independent evidence |
+   | it needs a specific launch, isolated state or real-environment config, observed once | a launcher that stops at the target; drive it by hand |
+   | the sequence must be replayed, or timing/concurrency is the contract | a full scratch script (`pnpm -C e2e scratch`) |
 
-   复用 [`../e2e/README.md`](../e2e/README.md) 的隔离方式和独立证据，但不复用它的夹具。每种方式都至少要有一项观察来自被驱动界面以外的路径：元数据库中的数据、结构化日志、只读接口（如 `/api/v1/system/health`）或输出文件，并在产生它的运行结束前复制进场景目录。
-4. 运行前，从 [`references/verification-report-template.md`](references/verification-report-template.md) 复制出 `report.md`，边运行边补充证据
-5. 记录如何驱动目标、各步骤的退出码、决定结论的运行时观察、未覆盖的部分，以及用户自行复现的最短步骤
+   Reuse the isolation and independent evidence from [`../e2e/README.md`](../e2e/README.md), not its fixtures. Every form includes at least one observation from a path the driven surface does not share — metadata database rows, structured logs, a read-only endpoint such as `/api/v1/system/health`, or an output file — copied into the scenario directory while the run that produced it is still alive.
+4. Before running, copy [`references/verification-report-template.md`](references/verification-report-template.md) into the scenario directory as `report.md` and fill it in as evidence arrives. Reports may be written in Chinese.
+5. Record how the target was driven, exit codes, the runtime observations that decide the verdict, what was not covered, and the shortest steps for the user to reproduce it.
 
 ```bash
-pnpm -C e2e scratch                      # 运行 e2e/scratch/ 下的全部脚本
-pnpm -C e2e scratch -g "<场景名>"         # 只运行一个场景
+pnpm -C e2e scratch                   # run every script under e2e/scratch/
+pnpm -C e2e scratch -g "<scenario>"   # run one scenario
 ```
 
-按 spec 验收时，场景名使用 spec 的 slug，spec 中每条需求对应结论表的一行，结论只能是“成立”“不成立”“未观察到”。
+For acceptance against a spec, the scenario name is the spec slug and every requirement becomes one verdict row. Verdicts are only "holds", "does not hold" or "not observed" (in a Chinese report: 成立 / 不成立 / 未观察到).
 
-复现 bug 时，先说明复现脚本断言的是预期行为（修复前为红）还是当前的错误行为（修复前为绿），然后转成一个提交的、会失败的测试；只有满足 [`testing.md`](testing.md#tdd-的例外) 中人工验证的例外时才可以不写。
+For a bug reproduction, state whether the script asserts the expected behaviour (red until fixed) or the current buggy behaviour (green until fixed), then turn it into a committed failing test unless the manual-evidence exception in [`testing.md`](testing.md#exceptions-to-tdd) applies.
 
-不要放宽断言、跳过失败的步骤，或把红的说成绿的。后台或运行时效果要用具体的日志、指标或数据变化来证明，“没有报错”不是证据。有破坏性或外部副作用的操作、以及用 mock 替代真实依赖之前，都要先取得授权；替代时，结论表要写明用什么替代了什么、没有覆盖什么。
+Never weaken an assertion, skip a failed step, or describe red as green. Prove background or runtime effects with a specific log line, metric or data change; "no errors" is not evidence. Get authorization before destructive or external side effects and before substituting a mock for a real dependency; the verdict row then names what stood in and what it does not cover.
 
-## 维护
+## Maintaining this route
 
-确认文中命令都存在；`e2e/playwright.config.ts` 排除了 `scratch/`，`e2e/playwright.scratch.config.ts` 只指向它；`.gitignore` 覆盖 `e2e/scratch/`、`e2e/.env`。路径或测试框架变化后按 [`documentation.md`](documentation.md) 核对。
+Confirm the documented commands exist, `e2e/playwright.config.ts` ignores `scratch/`, `e2e/playwright.scratch.config.ts` targets only it, and `.gitignore` covers `e2e/scratch/` and `e2e/.env`. After path or harness changes, follow [`documentation.md`](documentation.md).

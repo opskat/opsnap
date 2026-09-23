@@ -1,69 +1,71 @@
-# 架构
+# Architecture
 
-> 速览：[`../AGENTS.md`](../AGENTS.md#架构速览)。产品需求见 [`specs/2026-09-23-opsnap-v1.md`](specs/2026-09-23-opsnap-v1.md)。
+> Quick map: [`../AGENTS.md`](../AGENTS.md#architecture). Product requirements: [`specs/2026-09-23-opsnap-v1.md`](specs/2026-09-23-opsnap-v1.md).
 
-## 分层与依赖方向
+## Layering and dependency direction
 
 ```text
-internal/api（请求/响应定义 + router.go）
-        │ router.go 绑定
+internal/api (request/response types + router.go)
+        │ router.go binds
         ▼
-internal/controller ──> internal/service ──> internal/repository ──> db.Ctx(ctx)（GORM / SQLite）
+internal/controller ──> internal/service ──> internal/repository ──> db.Ctx(ctx) (GORM / SQLite)
 ```
 
-| 约束 | 仓库中的具体形式 | 执行方式 |
+| Constraint | Concrete form | Enforcement |
 |---|---|---|
-| controller 只做转发 | 控制器方法签名 `func (c *X) M(ctx, *api.Req) (*api.Resp, error)`，直接调用 `xxx_svc.X().M(...)` | review-only |
-| controller 不导入 `internal/repository` | 测试文件除外（需要注册 mock） | `internal/archtest` |
-| service、repository 不反向依赖 | service 不导入 controller；repository 不导入 service、controller | `internal/archtest` |
-| `internal/api` 不依赖业务层 | 仅 `internal/api/router.go` 可导入 controller | `internal/archtest` |
-| service 通过获取函数取依赖 | `system_repo.System()`；实现在 `cmd/opsnap/main.go` 用 `RegisterSystem(NewSystem())` 注册 | review-only |
+| Controllers only forward | methods shaped `func (c *X) M(ctx, *api.Req) (*api.Resp, error)` that call `xxx_svc.X().M(...)` | review-only |
+| Controllers do not import `internal/repository` | test files excepted (they register mocks) | `internal/archtest` |
+| No upward imports | services never import controllers; repositories never import services or controllers | `internal/archtest` |
+| `internal/api` does not depend on business layers | only `internal/api/router.go` may import controllers | `internal/archtest` |
+| Services reach dependencies through getters | `system_repo.System()`; the implementation is registered in `cmd/opsnap/main.go` via `RegisterSystem(NewSystem())` | review-only |
 
-## 子系统
+There are no exemptions beyond those listed; any future debt is enumerated in the rule and only shrinks.
 
-### HTTP 与路由
+## Subsystems
 
-cago 的 `mux.HTTP(api.Router)` 启动 Gin。`internal/api/router.go` 把所有业务接口挂在 `/api/v1` 下，接口路径与方法由请求结构体的 `mux.Meta` 标签声明（如 `internal/api/system/system.go` 的 `HealthRequest`）。cago 自带的 `/health` 只返回 `ok`；带版本号和元数据库状态的健康检查是 `/api/v1/system/health`。
+### HTTP and routing
 
-### 内嵌前端
+cago's `mux.HTTP(api.Router)` starts Gin. `internal/api/router.go` mounts every business endpoint under `/api/v1`; each request struct declares its path and method with a `mux.Meta` tag (e.g. `HealthRequest` in `internal/api/system/system.go`). cago's built-in `/health` only returns `ok`; the health check with version and metadata database status is `/api/v1/system/health`.
 
-`internal/web` 用 `//go:embed all:dist` 内嵌前端构建产物，通过 `mux.RegisterMiddleware(web.Register)` 注册为 Gin 的 `NoRoute` 处理器：
+### Embedded frontend
 
-- 存在的静态文件直接返回
-- 其他 GET 请求回退到 `index.html`，交给前端路由
-- `/api/` 下的未知路径和非 GET 请求保持 404
-- 前端未构建时（`dist/` 中只有 `.gitkeep`）返回提示“请先执行 make build”
+`internal/web` embeds the frontend build with `//go:embed all:dist` and registers a Gin `NoRoute` handler through `mux.RegisterMiddleware(web.Register)`:
 
-### 启动顺序
+- existing static files are served as-is
+- other GET requests fall back to `index.html` for client-side routing
+- unknown paths under `/api/` and non-GET requests stay 404
+- before the frontend is built (`dist/` holds only `.gitkeep`) it answers with a "run make build" hint
 
-`cmd/opsnap/main.go` 依次注册：`component.Core()`（日志）→ 创建 SQLite 数据目录 → `component.Database()` → 执行迁移 → HTTP 服务。配置文件默认 `./configs/config.yaml`，可用 `-c` 指定。版本号在构建时注入 `github.com/cago-frame/cago/configs.Version`（`Makefile` 中取 `git describe`）。
+### Startup order
 
-## 扩展步骤
+`cmd/opsnap/main.go` registers, in order: `component.Core()` (logging) → creating the SQLite data directory → `component.Database()` → migrations → the HTTP server. The config file defaults to `./configs/config.yaml` and can be set with `-c`. The version is injected at build time into `github.com/cago-frame/cago/configs.Version` (the `Makefile` uses `git describe`).
 
-### 新增一个接口
+## Extension recipes
 
-1. 在 `internal/api/<领域>/` 定义请求（带 `mux.Meta`）与响应结构体
-2. 在 `internal/controller/<领域>_ctr/` 写测试：`setupXxxTest` 注册 mock repository、用 `muxtest.NewTestMux()` 绑定控制器；运行并确认失败
-3. 需要数据访问时，在 `internal/repository/<领域>_repo/` 定义接口，加 `//go:generate mockgen ...` 注释，执行 `make generate`
-4. 实现 service（`internal/service/<领域>_svc/`）与 controller，让测试通过
-5. 在 `internal/api/router.go` 中 `Bind`，新 repository 在 `cmd/opsnap/main.go` 注册
-6. 运行 `go test ./...` 与 `make lint`
+### Add an endpoint
 
-参考实现：健康检查（`internal/api/system`、`internal/controller/system_ctr`、`internal/service/system_svc`、`internal/repository/system_repo`）。
+1. Define the request (with `mux.Meta`) and response structs in `internal/api/<domain>/`.
+2. Write the controller test in `internal/controller/<domain>_ctr/`: a `setupXxxTest` that registers mock repositories and binds the controller on `muxtest.NewTestMux()`. Run it and watch it fail.
+3. For data access, define the interface in `internal/repository/<domain>_repo/` with a `//go:generate mockgen ...` directive and run `make generate`.
+4. Implement the service (`internal/service/<domain>_svc/`) and the controller until the test passes.
+5. `Bind` the handler in `internal/api/router.go`; register a new repository in `cmd/opsnap/main.go`.
+6. Run `go test ./...` and `make lint`.
 
-## 数据与迁移
+Reference: the health check (`internal/api/system`, `internal/controller/system_ctr`, `internal/service/system_svc`, `internal/repository/system_repo`).
 
-- 元数据库为 SQLite，路径由配置 `db.dsn` 决定，默认 `./runtime/opsnap.db`（开启 WAL 与 5 秒 busy timeout）；启动时自动创建所在目录
-- 迁移写在 `migrations/`：新增一个返回 `*gormigrate.Migration` 的函数，追加到 `RunMigrations` 的参数列表末尾。已发布的迁移不修改；使用确定性的 SQL，不使用 `AutoMigrate(&entity)`，避免实体结构变化影响旧迁移
-- 目前还没有任何业务表，`RunMigrations` 在列表为空时直接返回
+## Data and migrations
 
-## 生成产物
+- The metadata database is SQLite at the path in `db.dsn`, `./runtime/opsnap.db` by default (WAL mode, 5-second busy timeout). Its directory is created at startup.
+- Migrations live in `migrations/`: add a function returning `*gormigrate.Migration` and append it to the `RunMigrations` argument list. Never edit a released migration; use deterministic SQL, never `AutoMigrate(&entity)`, so later entity changes cannot alter old migrations.
+- No business tables exist yet; `RunMigrations` returns immediately while the list is empty.
 
-| 路径 | 来源 | 重新生成 |
+## Generated output
+
+| Path | Source | Regenerate |
 |---|---|---|
-| `internal/repository/*/mock/*.go` | 各 repository 接口上的 `//go:generate mockgen` | `make generate` |
-| `internal/web/dist/`（除 `.gitkeep` 外不提交） | `frontend/` | `make build-web` |
+| `internal/repository/*/mock/*.go` | `//go:generate mockgen` on each repository interface | `make generate` |
+| `internal/web/dist/` (only `.gitkeep` tracked) | `frontend/` | `make build-web` |
 
-## 相关文档
+## Related
 
 [`develop.md`](develop.md) · [`testing.md`](testing.md) · [`../AGENTS.md`](../AGENTS.md)

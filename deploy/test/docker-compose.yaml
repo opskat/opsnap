@@ -1,6 +1,6 @@
 # docker.local 上的真实环境测试服务（compose 项目名 opsnap-test）。
 # 只用于本地真实验证，不用于 CI；由 scripts/test-env.sh 部署。密码来自同目录 .env（部署脚本生成，不提交）。
-# 端口避开宿主机上其他项目已占用的 3306/5432/6379 等（docs/verification.md「测试环境」）。
+# 端口避开宿主机上其他项目已占用的 3306/5432/6379 等（docs/verification.md#test-environment）。
 name: opsnap-test
 
 services:

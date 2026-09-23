@@ -29,7 +29,7 @@ function NavEntry({ item }: { item: NavItem }) {
       end={item.path === "/"}
       className={({ isActive }) =>
         cn(
-          "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13.5px] transition-colors",
+          "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors",
           isActive
             ? "bg-accent font-semibold text-sidebar-foreground"
             : "text-faint-foreground hover:bg-accent/60 hover:text-sidebar-foreground"
@@ -53,13 +53,13 @@ export function AppShell() {
           <span className="flex size-7 items-center justify-center rounded-md bg-brand text-brand-foreground">
             <Aperture className="size-4" />
           </span>
-          <span className="text-[17px] font-bold text-sidebar-foreground">OpsNap</span>
+          <span className="text-lg font-bold text-sidebar-foreground">OpsNap</span>
         </div>
         <nav className="flex flex-col gap-0.5" aria-label="main">
           {mainNav.map((item) => (
             <NavEntry key={item.path} item={item} />
           ))}
-          <div className="px-2.5 pt-4 pb-1.5 text-[11px] tracking-wide text-faint-foreground">{t("nav.system")}</div>
+          <div className="px-2.5 pt-4 pb-1.5 text-2xs tracking-wide text-faint-foreground">{t("nav.system")}</div>
           {systemNav.map((item) => (
             <NavEntry key={item.path} item={item} />
           ))}
