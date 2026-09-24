@@ -108,8 +108,8 @@ func TestCreateAndVerifyLocal(t *testing.T) {
 		assert.Empty(t, left)
 	})
 
-	t.Run("启动时清理上次校验中途退出留下的连接配置", func(t *testing.T) {
-		root := t.TempDir()
+	t.Run("启动时清理上次校验中途退出留下的连接配置（数据目录名含通配符也一样）", func(t *testing.T) {
+		root := filepath.Join(t.TempDir(), "opsnap[1]", "kopia")
 		stale := []string{
 			filepath.Join(root, "3", "repository.config"),
 			filepath.Join(root, "tmp-verify-123", "repository.config"),

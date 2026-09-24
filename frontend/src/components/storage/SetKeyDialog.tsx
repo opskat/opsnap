@@ -70,6 +70,7 @@ export function SetKeyDialog({
     setError(undefined);
   };
 
+  // 打开时从头开始；关闭时退场期间内容不变，退场结束（onCloseAutoFocus）即丢弃密钥
   useResetOnOpen(open, reset);
 
   const customError =
@@ -111,7 +112,12 @@ export function SetKeyDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && !submitting && onCancel()}>
-      <DialogContent className="gap-0 bg-card p-0 sm:max-w-lg">
+      <DialogContent
+        className="gap-0 bg-card p-0 sm:max-w-lg"
+        onCloseAutoFocus={() => {
+          if (!open) reset();
+        }}
+      >
         <DialogHeader className="gap-1.5 border-b px-5 py-4 text-left">
           <DialogTitle>{t("storage.key.setTitle")}</DialogTitle>
           <DialogDescription>{t("storage.key.setHint", { name: shown?.name ?? "" })}</DialogDescription>

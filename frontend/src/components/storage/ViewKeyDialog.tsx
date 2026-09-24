@@ -104,15 +104,17 @@ export function ViewKeyDialog({ request, onClose }: { request?: RevealRequest; o
     if (request) onOpen(request);
   }, [request]);
 
-  // 每次打开都从验证身份开始；关闭时不清空，退场期间内容不变
-  useResetOnOpen(request !== undefined, () => {
+  const reset = () => {
     setAuth(undefined);
     setPassword("");
     setPasswordError(undefined);
     setError(undefined);
     setRevealed(undefined);
     setSubmitting(false);
-  });
+  };
+
+  // 每次打开都从验证身份开始；关闭时退场期间内容不变，退场结束（onCloseAutoFocus）即丢弃密钥与密码
+  useResetOnOpen(request !== undefined, reset);
 
   const close = () => {
     started.current = undefined;
@@ -128,7 +130,12 @@ export function ViewKeyDialog({ request, onClose }: { request?: RevealRequest; o
   const name = storage?.name ?? "";
   return (
     <Dialog open={request !== undefined} onOpenChange={(next) => !next && close()}>
-      <DialogContent className="gap-0 bg-card p-0 sm:max-w-lg">
+      <DialogContent
+        className="gap-0 bg-card p-0 sm:max-w-lg"
+        onCloseAutoFocus={() => {
+          if (request === undefined) reset();
+        }}
+      >
         <DialogHeader className="gap-1.5 border-b px-5 py-4 text-left">
           <DialogTitle>
             {revealed ? t("storage.reveal.shownTitle", { name }) : t("storage.reveal.title", { name })}

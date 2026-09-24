@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/kopia/kopia/repo"
@@ -51,13 +52,18 @@ const configName = "repository.config"
 // NewManager root 通常为 <数据目录>/kopia。
 // 启动时清理上次进程在校验途中退出留下的连接配置，不让其中的明文凭据留在磁盘上。
 func NewManager(root string) *Manager {
-	stale, _ := filepath.Glob(filepath.Join(root, "*", configName))
-	for _, p := range stale {
-		_ = os.Remove(p)
-	}
-	tmp, _ := filepath.Glob(filepath.Join(root, tmpVerifyPrefix+"*"))
-	for _, p := range tmp {
-		_ = os.RemoveAll(p)
+	// 逐项列目录而不用 Glob：数据目录名中的 [ ] * ? 会被 Glob 当作通配符，导致什么也清不掉
+	entries, _ := os.ReadDir(root)
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		p := filepath.Join(root, e.Name())
+		if strings.HasPrefix(e.Name(), tmpVerifyPrefix) {
+			_ = os.RemoveAll(p)
+			continue
+		}
+		_ = os.Remove(filepath.Join(p, configName))
 	}
 	return &Manager{root: root, locks: map[int64]*sync.Mutex{}}
 }

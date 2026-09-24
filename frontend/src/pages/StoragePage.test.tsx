@@ -507,7 +507,7 @@ describe("存储页 · 编辑与删除", () => {
     const whileClosingEdit = await textsWhileClosing(() =>
       userEvent.click(within(edit).getByRole("button", { name: "取消" }))
     );
-    expect(whileClosingEdit).not.toContain("新建存储");
+    expect(whileClosingEdit.join("\n")).not.toContain("新建存储");
 
     await userEvent.click(screen.getByRole("button", { name: "本地备份盘 的更多操作" }));
     await userEvent.click(await screen.findByRole("menuitem", { name: "删除存储" }));
@@ -533,7 +533,7 @@ describe("存储页 · 编辑与删除", () => {
     const whileClosingSetKey = await textsWhileClosing(() =>
       userEvent.click(within(setKey).getByRole("button", { name: "取消" }))
     );
-    expect(whileClosingSetKey).not.toContain("加载中…");
+    expect(whileClosingSetKey.join("\n")).not.toContain("加载中…");
 
     dialog = await openCreate();
     await fillLocal(dialog, "a", "/data/repo");

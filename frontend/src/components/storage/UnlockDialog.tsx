@@ -64,7 +64,7 @@ export function UnlockDialog({
     setSnapshots(undefined);
   };
 
-  // 打开时清零：失败次数只统计本次对话框内的尝试；关闭时不清空，退场期间内容不变
+  // 打开时清零：失败次数只统计本次对话框内的尝试；关闭时退场期间内容不变，退场结束（onCloseAutoFocus）即丢弃输入的密钥
   useResetOnOpen(target !== undefined, reset);
 
   const close = () => {
@@ -100,7 +100,12 @@ export function UnlockDialog({
 
   return (
     <Dialog open={target !== undefined} onOpenChange={(next) => !next && !submitting && close()}>
-      <DialogContent className="gap-0 bg-card p-0 sm:max-w-lg">
+      <DialogContent
+        className="gap-0 bg-card p-0 sm:max-w-lg"
+        onCloseAutoFocus={() => {
+          if (target === undefined) reset();
+        }}
+      >
         <DialogHeader className="gap-1.5 border-b px-5 py-4 text-left">
           <DialogTitle>{t("storage.unlock.title")}</DialogTitle>
           <DialogDescription>
