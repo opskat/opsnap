@@ -8,7 +8,7 @@
 |---|---|---|
 | Before writing code | [`docs/develop.md`](docs/develop.md) | commands, layout, style, enforced rules, commits, CI |
 | Before writing tests | [`docs/testing.md`](docs/testing.md) | test boundaries, coverage, mocks and fixtures, commands |
-| Before runtime verification | [`docs/verification.md`](docs/verification.md) | docker.local test environment, scratch workflow, reports |
+| Before runtime verification | [`docs/verification.md`](docs/verification.md) | docker.lan test environment, scratch workflow, reports |
 | Before UI work | [`docs/design.md`](docs/design.md) | tokens, type scale, components, themes, states, accessibility |
 | Before changing layers or adding a module | [`docs/architecture.md`](docs/architecture.md) | layering, subsystems, extension recipes, migrations |
 | Before editing docs | [`docs/documentation.md`](docs/documentation.md) | ownership and fact checks |
@@ -41,7 +41,7 @@ These come from the spec's invariants and repository policy. Breaking one is a b
 2. **Storage credentials and repository keys never leave the controller.** Never send them to executors or backed-up hosts, never log them, never persist them unencrypted. gosec runs without global exclusions (golangci-lint, CI `go` job); the rest is review-only
 3. **Never commit to `main`.** Branch from `main` and open a PR. review-only until branch protection is enabled (see [`docs/develop.md`](docs/develop.md#ci))
 4. **The spec owns requirements.** Do not implement behaviour the spec leaves undecided; raise it and update the spec first. Never edit a spec to match an implementation. review-only
-5. **On docker.local, touch only the `opsnap-test` compose project.** Other projects' containers run on the same host. review-only
+5. **On docker.lan, touch only the `opsnap-test` compose project.** Other projects' containers run on the same host. review-only
 
 ## Engineering principles
 

@@ -195,7 +195,7 @@
 | OIDC × 进程内假 IdP | 绑定、登录成功，身份不匹配、state/nonce/PKCE 错误、回调过期、签名或 audience 错误、IdP 不可达；修改 Issuer 清除绑定并重新开启密码登录 | 无 |
 | 命令行 `opsnap admin reset-password` | 交互与 `--password-stdin` 两种输入；会话失效；重新开启密码登录；未初始化时报错 | 无 |
 | 前端端到端（Playwright，进程内假 IdP） | 从启动日志取设置码完成首次设置；登录、退出；生成令牌后用它调用 API，吊销后 401；修改密码；配置、绑定 OIDC 后用 OIDC 登录并关闭密码登录；中英文与深浅主题下这些页面可用 | `e2e/tests/smoke.spec.ts` |
-| docker.local 真实 Keycloak（`opsnap-test` compose） | 收尾时用真实 IdP 完成配置、绑定、OIDC 登录、关闭并通过命令行恢复密码登录，写入验证报告 | 无 |
+| docker.lan 真实 Keycloak（`opsnap-test` compose） | 收尾时用真实 IdP 完成配置、绑定、OIDC 登录、关闭并通过命令行恢复密码登录，写入验证报告 | 无 |
 
 难以自动化、需要人工验证的部分：深浅主题和中英文下的视觉效果、对比度，由收尾时的界面走查覆盖。
 

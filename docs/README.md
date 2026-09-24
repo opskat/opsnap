@@ -7,7 +7,7 @@ Read [`../AGENTS.md`](../AGENTS.md) first: it owns routing and the project's non
 | [`develop.md`](develop.md) | commands, layout, style, enforced rules, commits, CI |
 | [`architecture.md`](architecture.md) | layering, subsystems, extension recipes, migrations, generated output |
 | [`testing.md`](testing.md) | test boundaries, coverage, mocks and fixtures, commands |
-| [`verification.md`](verification.md) | docker.local test environment, runtime verification workflow and reports |
+| [`verification.md`](verification.md) | docker.lan test environment, runtime verification workflow and reports |
 | [`design.md`](design.md) | tokens, type scale, components, themes, states, accessibility |
 | [`documentation.md`](documentation.md) | documentation ownership and fact checks |
 | [`references/verification-report-template.md`](references/verification-report-template.md) | verification report structure, verdicts and evidence (Chinese) |

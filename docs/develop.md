@@ -47,7 +47,7 @@ frontend/              React app (the @ alias points to src/)
   eslint-rules/        project ESLint plugin (design-system rules)
   scripts/             check-i18n.mjs
 e2e/                   Playwright smoke tests and scratch verification
-deploy/test/           docker-compose.yaml for the docker.local test services
+deploy/test/           docker-compose.yaml for the docker.lan test services
 scripts/               repository scripts (test-env.sh)
 docs/                  contributor docs and specs
 ```
