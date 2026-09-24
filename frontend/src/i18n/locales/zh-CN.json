@@ -241,6 +241,35 @@
       "downloadFirst": "先下载密钥文件",
       "needsVerify": "需要验证身份",
       "confirm": "删除存储"
+    },
+    "reveal": {
+      "title": "查看「{{name}}」的密钥",
+      "shownTitle": "「{{name}}」的仓库密钥",
+      "hint": "查看仓库密钥前需要再次确认身份。",
+      "shownHint": "这是该存储 kopia 仓库的密码。用它加上 kopia 官方命令行即可在 OpsNap 之外打开仓库。",
+      "cli": "用 kopia 命令行连接，按提示输入上面的密钥：",
+      "password": "当前登录密码",
+      "oidcHint": "密码登录已关闭。点击下方按钮使用 {{provider}} 重新验证，5 分钟内回到这里即可查看。",
+      "verify": "验证并查看",
+      "reauth": "使用 {{provider}} 重新验证"
+    },
+    "picker": {
+      "title": "选择目录",
+      "path": "当前路径",
+      "up": "上一级",
+      "dirs": "子目录",
+      "noDirs": "这里没有子目录",
+      "newFolderName": "新文件夹名称",
+      "newFolder": "新建文件夹",
+      "selected": "当前选择",
+      "choose": "选择此目录",
+      "status": {
+        "empty": "空目录",
+        "repository": "kopia 仓库",
+        "not_empty": "非空",
+        "not_writable": "不可写",
+        "no_access": "无权访问"
+      }
     }
   },
   "oidc": {

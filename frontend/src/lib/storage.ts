@@ -138,6 +138,36 @@ export function keyInfo(key?: string) {
   return request<KeyInfo>("/storages/key", { method: "POST", body: JSON.stringify({ key: key ?? "" }) });
 }
 
+export type DirStatus = "empty" | "repository" | "not_empty" | "not_writable" | "no_access";
+
+export interface Dir {
+  name: string;
+  path: string;
+  status: DirStatus;
+}
+
+/** 查看密钥（仅浏览器会话）：密码登录开启时需提交管理员密码，关闭时需先完成 OIDC 再次验证 */
+export function revealKey(id: number, password = "") {
+  return request<{ key: string; fingerprint: string }>(`/storages/${id}/reveal`, {
+    method: "POST",
+    body: JSON.stringify({ password }),
+  });
+}
+
+/** OIDC 再次验证：浏览器跳转到这里，回来后回到 next，5 分钟内可以查看一次密钥 */
+export function reauthURL(next: string) {
+  return `/api/v1/auth/oidc/reauth?next=${encodeURIComponent(next)}`;
+}
+
+/** 浏览 OpsNap 主机上的目录；path 为空或不存在时打开数据目录的上级目录 */
+export function listDirs(path: string) {
+  return request<{ path: string; parent: string; dirs: Dir[] }>(`/storages/dirs?path=${encodeURIComponent(path)}`);
+}
+
+export function makeDir(parent: string, name: string) {
+  return request<{ path: string }>("/storages/dirs", { method: "POST", body: JSON.stringify({ parent, name }) });
+}
+
 /** 密钥文件中密钥所在行的固定前缀，上传密钥文件时据此取出密钥 */
 const KEY_LINE = "Key: ";
 

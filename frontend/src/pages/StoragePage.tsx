@@ -1,13 +1,16 @@
 import { HardDrive, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useSearchParams } from "react-router";
 
 import { PageHeader } from "@/components/layout/PageHeader";
 import { ChangeLocationDialog, DeleteStorageDialog } from "@/components/storage/ConfirmDialogs";
+import { FolderPickerDialog } from "@/components/storage/FolderPickerDialog";
 import { SetKeyDialog } from "@/components/storage/SetKeyDialog";
 import { StorageFormDialog, type StorageDraft } from "@/components/storage/StorageFormDialog";
 import { StorageTable } from "@/components/storage/StorageTable";
 import { UnlockDialog, type UnlockTarget } from "@/components/storage/UnlockDialog";
+import { ViewKeyDialog, type RevealIntent, type RevealRequest } from "@/components/storage/ViewKeyDialog";
 import { Button } from "@/components/ui/button";
 import {
   createStorage,
@@ -18,6 +21,7 @@ import {
   type ProbeResult,
   type Storage,
 } from "@/lib/storage";
+import { useOidcErrorMessage } from "@/lib/useOidcError";
 
 type State = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; items: Storage[] };
 
@@ -40,6 +44,17 @@ export function StoragePage() {
   const [deleting, setDeleting] = useState<Storage>();
   const [testing, setTesting] = useState<number>();
   const [actionError, setActionError] = useState<string>();
+  const [picker, setPicker] = useState<{ start: string; pick: (path: string) => void }>();
+  const [reveal, setReveal] = useState<RevealRequest>();
+  const [params, setParams] = useSearchParams();
+  const oidcError = useOidcErrorMessage(params);
+  const revealID = Number(params.get("reveal"));
+  const revealIntent: RevealIntent = params.get("intent") === "download" ? "download" : "view";
+  const revealTarget = state.status === "ready" ? state.items.find((i) => i.id === revealID) : undefined;
+  // OIDC 再次验证后回到这里（?reveal=<id>&intent=view|download）：列表加载后自动继续查看或下载；关闭时清掉参数
+  const afterReauth: RevealRequest | undefined = revealTarget
+    ? { storage: revealTarget, intent: revealIntent, afterReauth: true }
+    : undefined;
 
   useEffect(() => {
     let cancelled = false;
@@ -136,9 +151,9 @@ export function StoragePage() {
         }
       />
       <section className="flex flex-col gap-4 px-8 py-6" aria-live="polite">
-        {actionError && (
+        {(actionError ?? oidcError) && (
           <p role="alert" className="rounded-md bg-destructive-soft px-3 py-2.5 text-sm text-destructive">
-            {actionError}
+            {actionError ?? oidcError}
           </p>
         )}
         {state.status === "loading" && <p className="text-sm text-muted-foreground">{t("common.loading")}</p>}
@@ -170,6 +185,8 @@ export function StoragePage() {
               onEdit: (s) => openForm(s),
               onUnlock: reunlock,
               onDelete: setDeleting,
+              onRevealKey: (storage) => setReveal({ storage, intent: "view" }),
+              onDownloadKey: (storage) => setReveal({ storage, intent: "download" }),
             }}
           />
         )}
@@ -184,6 +201,19 @@ export function StoragePage() {
         onSaved={(item) => {
           replace(item);
           setForm(undefined);
+        }}
+        browse={(start, pick) => setPicker({ start, pick })}
+      />
+      <FolderPickerDialog
+        start={picker?.start}
+        onPick={(path) => picker?.pick(path)}
+        onClose={() => setPicker(undefined)}
+      />
+      <ViewKeyDialog
+        request={reveal ?? afterReauth}
+        onClose={() => {
+          setReveal(undefined);
+          if (params.has("reveal")) setParams({}, { replace: true });
         }}
       />
       <SetKeyDialog
@@ -214,6 +244,7 @@ export function StoragePage() {
           setDeleting(undefined);
           reload();
         }}
+        downloadKey={(storage) => setReveal({ storage, intent: "download" })}
       />
     </>
   );

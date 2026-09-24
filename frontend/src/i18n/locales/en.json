@@ -241,6 +241,35 @@
       "downloadFirst": "Download key file first",
       "needsVerify": "Requires verification",
       "confirm": "Delete storage"
+    },
+    "reveal": {
+      "title": "View key of \"{{name}}\"",
+      "shownTitle": "Repository key of \"{{name}}\"",
+      "hint": "Verify your identity again to view the repository key.",
+      "shownHint": "This is the password of this storage's kopia repository. With it and the official kopia CLI you can open the repository outside OpsNap.",
+      "cli": "Connect with the kopia CLI and enter the key above when prompted:",
+      "password": "Current sign-in password",
+      "oidcHint": "Password sign-in is off. Verify again with {{provider}} below and return within 5 minutes to view the key.",
+      "verify": "Verify and view",
+      "reauth": "Verify with {{provider}}"
+    },
+    "picker": {
+      "title": "Choose directory",
+      "path": "Current path",
+      "up": "Up one level",
+      "dirs": "Subdirectories",
+      "noDirs": "No subdirectories here",
+      "newFolderName": "New folder name",
+      "newFolder": "New folder",
+      "selected": "Selected",
+      "choose": "Choose this directory",
+      "status": {
+        "empty": "Empty",
+        "repository": "kopia repository",
+        "not_empty": "Not empty",
+        "not_writable": "Not writable",
+        "no_access": "No access"
+      }
     }
   },
   "oidc": {

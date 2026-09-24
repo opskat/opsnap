@@ -34,6 +34,7 @@ func TestFrontendErrorCodesInSync(t *testing.T) {
 		"TooManyAttempts":          TooManyAttempts,
 		"CurrentPasswordWrong":     CurrentPasswordWrong,
 		"SessionRequired":          SessionRequired,
+		"ReauthPasswordWrong":      ReauthPasswordWrong,
 		"TokenNameInvalid":         TokenNameInvalid,
 		"TokenNameDuplicate":       TokenNameDuplicate,
 		"OIDCResetConfirmRequired": OIDCResetConfirmRequired,

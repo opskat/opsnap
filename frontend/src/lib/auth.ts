@@ -11,6 +11,7 @@ export const ErrorCode = {
   TooManyAttempts: 10105,
   CurrentPasswordWrong: 10106,
   SessionRequired: 10108,
+  ReauthPasswordWrong: 10110,
   TokenNameInvalid: 10203,
   TokenNameDuplicate: 10204,
   OIDCResetConfirmRequired: 10304,

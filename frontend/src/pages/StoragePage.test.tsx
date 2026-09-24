@@ -1,5 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import i18n from "@/i18n";
@@ -74,6 +75,14 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
+function renderPage(entry = "/storage") {
+  render(
+    <MemoryRouter initialEntries={[entry]}>
+      <StoragePage />
+    </MemoryRouter>
+  );
+}
+
 async function openCreate() {
   await userEvent.click((await screen.findAllByRole("button", { name: "新建存储" }))[0]);
   return screen.findByRole("dialog", { name: "新建存储" });
@@ -87,7 +96,7 @@ async function fillLocal(dialog: HTMLElement, name: string, path: string) {
 describe("存储页 · 列表", () => {
   it("显示位置、指纹与三种状态；密钥不正确的行提供重新解锁", async () => {
     respond(ok({ items: [base, minio, nas] }));
-    render(<StoragePage />);
+    renderPage();
     const rows = await screen.findAllByRole("row");
     expect(rows).toHaveLength(4);
     const local = within(rows[1]);
@@ -109,7 +118,7 @@ describe("存储页 · 列表", () => {
 
   it("没有存储时显示空状态；加载失败时可重试", async () => {
     respond(fail(10000, "服务器内部错误", 500), ok({ items: [] }));
-    render(<StoragePage />);
+    renderPage();
     expect(await screen.findByText(/无法加载存储列表/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "重试" }));
     expect(await screen.findByText("还没有存储")).toBeInTheDocument();
@@ -117,7 +126,7 @@ describe("存储页 · 列表", () => {
 
   it("测试连接：按钮显示进行中，结果更新到这一行", async () => {
     respond(ok({ items: [base] }));
-    render(<StoragePage />);
+    renderPage();
     let finish: (r: Response) => void = () => {};
     fetchMock.mockReturnValueOnce(new Promise<Response>((r) => (finish = r)));
     await userEvent.click(await screen.findByRole("button", { name: "测试连接 本地备份盘" }));
@@ -136,7 +145,7 @@ describe("存储页 · 列表", () => {
 describe("存储页 · 新建", () => {
   it("空位置：测试连接后设置系统生成的密钥，勾选确认才能启用加密", async () => {
     respond(ok({ items: [] }));
-    render(<StoragePage />);
+    renderPage();
     const dialog = await openCreate();
     await fillLocal(dialog, "本地备份盘", "/var/backups/opsnap");
     respond(ok({ state: "empty", created_at: 0, location: "/var/backups/opsnap", location_changed: false }));
@@ -171,7 +180,7 @@ describe("存储页 · 新建", () => {
 
   it("自设密码：至少 12 个字符且两次一致", async () => {
     respond(ok({ items: [] }));
-    render(<StoragePage />);
+    renderPage();
     const dialog = await openCreate();
     await fillLocal(dialog, "a", "/data/a");
     respond(
@@ -197,7 +206,7 @@ describe("存储页 · 新建", () => {
 
   it("不为空也不是仓库：显示拒绝原因，不进入下一步", async () => {
     respond(ok({ items: [] }));
-    render(<StoragePage />);
+    renderPage();
     const dialog = await openCreate();
     await fillLocal(dialog, "a", "/srv/data/shared");
     respond(ok({ state: "not_empty", created_at: 0, location: "/srv/data/shared", location_changed: false }));
@@ -208,7 +217,7 @@ describe("存储页 · 新建", () => {
 
   it("重名与相对路径显示在对应字段旁；无法连接显示在表单中", async () => {
     respond(ok({ items: [] }));
-    render(<StoragePage />);
+    renderPage();
     const dialog = await openCreate();
     await fillLocal(dialog, "a", "data/a");
     respond(fail(10403, "本地目录必须是绝对路径"));
@@ -234,7 +243,7 @@ describe("存储页 · 新建", () => {
 
   it("已有仓库：解锁，失败次数累计，成功后显示快照数", async () => {
     respond(ok({ items: [] }));
-    render(<StoragePage />);
+    renderPage();
     const dialog = await openCreate();
     await fillLocal(dialog, "a", "/data/repo");
     respond(ok({ state: "repository", created_at: now() - 86400, location: "/data/repo", location_changed: false }));
@@ -266,7 +275,7 @@ describe("存储页 · 新建", () => {
 
   it("已有仓库：上传 OpsNap 导出的密钥文件", async () => {
     respond(ok({ items: [] }));
-    render(<StoragePage />);
+    renderPage();
     const dialog = await openCreate();
     await fillLocal(dialog, "a", "/data/repo");
     respond(ok({ state: "repository", created_at: 0, location: "/data/repo", location_changed: false }));
@@ -286,7 +295,7 @@ describe("存储页 · 新建", () => {
 describe("存储页 · 编辑与删除", () => {
   it("位置没变：直接保存并更新这一行；S3 的 Secret Key 留空表示不修改", async () => {
     respond(ok({ items: [minio] }));
-    render(<StoragePage />);
+    renderPage();
     await userEvent.click(await screen.findByRole("button", { name: "编辑 MinIO 测试" }));
     const dialog = await screen.findByRole("dialog", { name: "编辑存储" });
     expect(within(dialog).getByLabelText("Secret Key")).toHaveAttribute(
@@ -311,7 +320,7 @@ describe("存储页 · 编辑与删除", () => {
 
   it("位置变了：先确认，新位置为空时用当前密钥保存", async () => {
     respond(ok({ items: [base] }));
-    render(<StoragePage />);
+    renderPage();
     await userEvent.click(await screen.findByRole("button", { name: "编辑 本地备份盘" }));
     const dialog = await screen.findByRole("dialog", { name: "编辑存储" });
     await userEvent.clear(within(dialog).getByLabelText("目录路径"));
@@ -336,7 +345,7 @@ describe("存储页 · 编辑与删除", () => {
 
   it("位置变了且新位置是仓库：确认后解锁", async () => {
     respond(ok({ items: [base] }));
-    render(<StoragePage />);
+    renderPage();
     await userEvent.click(await screen.findByRole("button", { name: "编辑 本地备份盘" }));
     const dialog = await screen.findByRole("dialog", { name: "编辑存储" });
     await userEvent.clear(within(dialog).getByLabelText("目录路径"));
@@ -356,7 +365,7 @@ describe("存储页 · 编辑与删除", () => {
 
   it("重新解锁：成功后改用新密钥", async () => {
     respond(ok({ items: [minio] }));
-    render(<StoragePage />);
+    renderPage();
     await userEvent.click(await screen.findByRole("button", { name: "重新解锁" }));
     const unlock = await screen.findByRole("dialog", { name: "解锁已有仓库" });
     expect(unlock).toHaveTextContent("s3://opsnap-backup/prod/");
@@ -369,7 +378,7 @@ describe("存储页 · 编辑与删除", () => {
 
   it("删除：说明数据保留，确认后从列表移除", async () => {
     respond(ok({ items: [base] }));
-    render(<StoragePage />);
+    renderPage();
     await userEvent.click(await screen.findByRole("button", { name: "本地备份盘 的更多操作" }));
     await userEvent.click(await screen.findByRole("menuitem", { name: "删除存储" }));
     const confirm = await screen.findByRole("dialog", { name: "删除存储「本地备份盘」？" });
@@ -378,5 +387,153 @@ describe("存储页 · 编辑与删除", () => {
     await userEvent.click(within(confirm).getByRole("button", { name: "删除存储" }));
     expect(await screen.findByText("还没有存储")).toBeInTheDocument();
     expect(call(1)).toMatchObject({ url: "/api/v1/storages/1", method: "DELETE" });
+  });
+});
+
+describe("存储页 · 选择目录", () => {
+  const listing = {
+    path: "/srv",
+    parent: "/",
+    dirs: [
+      { name: "backups", path: "/srv/backups", status: "not_empty" },
+      { name: "locked", path: "/srv/locked", status: "no_access" },
+      { name: "repo", path: "/srv/repo", status: "repository" },
+    ],
+  };
+
+  it("从输入框的路径开始浏览，进入目录、新建文件夹并选择它", async () => {
+    respond(ok({ items: [] }));
+    renderPage();
+    const dialog = await openCreate();
+    await userEvent.type(within(dialog).getByLabelText("目录路径"), "/srv");
+    respond(ok(listing));
+    await userEvent.click(within(dialog).getByRole("button", { name: "浏览…" }));
+    const picker = await screen.findByRole("dialog", { name: "选择目录" });
+    expect(call(1).url).toBe("/api/v1/storages/dirs?path=%2Fsrv");
+    expect(await within(picker).findByRole("button", { name: /backups\s*非空/ })).toBeInTheDocument();
+    expect(within(picker).getByRole("button", { name: /repo\s*kopia 仓库/ })).toBeInTheDocument();
+    expect(within(picker).getByRole("button", { name: /locked\s*无权访问/ })).toBeDisabled();
+
+    respond(ok({ path: "/srv/backups", parent: "/srv", dirs: [] }));
+    await userEvent.click(within(picker).getByRole("button", { name: /backups/ }));
+    expect(await within(picker).findByText("这里没有子目录")).toBeInTheDocument();
+    expect(within(picker).getByRole("button", { name: "backups" })).toHaveAttribute("aria-current", "location");
+
+    respond(fail(10424, "已有同名的文件夹"));
+    await userEvent.type(within(picker).getByLabelText("新文件夹名称"), "opsnap");
+    await userEvent.click(within(picker).getByRole("button", { name: "新建文件夹" }));
+    expect(await within(picker).findByRole("alert")).toHaveTextContent("已有同名的文件夹");
+
+    respond(ok({ path: "/srv/backups/opsnap" }), ok({ path: "/srv/backups/opsnap", parent: "/srv/backups", dirs: [] }));
+    await userEvent.click(within(picker).getByRole("button", { name: "新建文件夹" }));
+    expect(await within(picker).findByRole("button", { name: "opsnap" })).toHaveAttribute("aria-current", "location");
+    expect(call(4)).toMatchObject({ method: "POST", body: { parent: "/srv/backups", name: "opsnap" } });
+
+    await userEvent.click(within(picker).getByRole("button", { name: "选择此目录" }));
+    expect(screen.queryByRole("dialog", { name: "选择目录" })).not.toBeInTheDocument();
+    expect(within(dialog).getByLabelText("目录路径")).toHaveValue("/srv/backups/opsnap");
+  });
+
+  it("上一级回到父目录；根目录没有上一级", async () => {
+    respond(ok({ items: [] }));
+    renderPage();
+    const dialog = await openCreate();
+    respond(ok(listing));
+    await userEvent.click(within(dialog).getByRole("button", { name: "浏览…" }));
+    const picker = await screen.findByRole("dialog", { name: "选择目录" });
+    expect(call(1).url).toBe("/api/v1/storages/dirs?path=");
+    respond(ok({ path: "/", parent: "", dirs: [{ name: "srv", path: "/srv", status: "not_empty" }] }));
+    await userEvent.click(await within(picker).findByRole("button", { name: "上一级" }));
+    expect(await within(picker).findByRole("button", { name: /srv\s*非空/ })).toBeInTheDocument();
+    expect(within(picker).getByRole("button", { name: "上一级" })).toBeDisabled();
+  });
+});
+
+describe("存储页 · 查看密钥", () => {
+  const status = (password_login: boolean) => ({
+    initialized: true,
+    password_login,
+    oidc_login: { display_name: "Keycloak" },
+  });
+
+  it("密码登录开启：密码错误提示，正确后显示密钥、指纹与 kopia 命令；关闭即丢弃", async () => {
+    respond(ok({ items: [base] }));
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "本地备份盘 的更多操作" }));
+    respond(ok(status(true)));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "查看密钥" }));
+    const dialog = await screen.findByRole("dialog", { name: "查看「本地备份盘」的密钥" });
+
+    const input = await within(dialog).findByLabelText("当前登录密码");
+    await userEvent.type(input, "wrong");
+    respond(fail(10110, "登录密码不正确"));
+    await userEvent.click(within(dialog).getByRole("button", { name: "验证并查看" }));
+    expect(await within(dialog).findByText("登录密码不正确")).toBeInTheDocument();
+    expect(input).toHaveAttribute("aria-invalid", "true");
+
+    await userEvent.clear(input);
+    await userEvent.type(input, "correct-horse-battery");
+    respond(ok({ key: "Q7nT-4mK2-9ZxP-1bR8-VcE5-3jHw", fingerprint: "3F9A···C218" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "验证并查看" }));
+    const shown = await screen.findByRole("dialog", { name: "「本地备份盘」的仓库密钥" });
+    expect(within(shown).getByText("Q7nT-4mK2-9ZxP-1bR8-VcE5-3jHw")).toBeInTheDocument();
+    expect(within(shown).getByText("指纹 3F9A···C218 · AES256-GCM-HMAC-SHA256")).toBeInTheDocument();
+    expect(
+      within(shown).getByText("kopia repository connect filesystem --path /var/backups/opsnap")
+    ).toBeInTheDocument();
+    expect(call(3)).toMatchObject({ url: "/api/v1/storages/1/reveal", body: { password: "correct-horse-battery" } });
+
+    await userEvent.click(within(shown).getByRole("button", { name: "完成" }));
+    expect(screen.queryByText("Q7nT-4mK2-9ZxP-1bR8-VcE5-3jHw")).not.toBeInTheDocument();
+  });
+
+  it("密码登录关闭：跳转 IdP 重新验证，next 带上存储与意图", async () => {
+    const assign = vi.fn();
+    vi.stubGlobal("location", { ...window.location, assign });
+    respond(ok({ items: [base] }));
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "本地备份盘 的更多操作" }));
+    respond(ok(status(false)));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "下载密钥文件" }));
+    const dialog = await screen.findByRole("dialog", { name: "查看「本地备份盘」的密钥" });
+    expect(within(dialog).queryByLabelText("当前登录密码")).not.toBeInTheDocument();
+    await userEvent.click(await within(dialog).findByRole("button", { name: "使用 Keycloak 重新验证" }));
+    expect(assign).toHaveBeenCalledWith(
+      "/api/v1/auth/oidc/reauth?next=" + encodeURIComponent("/storage?reveal=1&intent=download")
+    );
+  });
+
+  it("从 IdP 回来：自动查看，意图为下载时直接下载密钥文件", async () => {
+    const createObjectURL = vi.fn(() => "blob:key");
+    vi.stubGlobal("URL", Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() }));
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    respond(ok({ items: [base] }), ok({ key: "Q7nT-4mK2-9ZxP-1bR8-VcE5-3jHw", fingerprint: "3F9A···C218" }));
+    renderPage("/storage?reveal=1&intent=download");
+    expect(await screen.findByText("Q7nT-4mK2-9ZxP-1bR8-VcE5-3jHw")).toBeInTheDocument();
+    expect(call(1)).toMatchObject({ url: "/api/v1/storages/1/reveal", body: { password: "" } });
+    expect(click).toHaveBeenCalledTimes(1);
+    const anchor = click.mock.contexts[0] as HTMLAnchorElement;
+    expect(anchor.download).toBe("opsnap-本地备份盘-key.txt");
+    const blob = (createObjectURL.mock.calls[0] as unknown as [Blob])[0];
+    expect(await blob.text()).toContain("Key: Q7nT-4mK2-9ZxP-1bR8-VcE5-3jHw");
+    click.mockRestore();
+  });
+
+  it("重新验证失败回到页面时显示原因", async () => {
+    respond(ok({ items: [base] }));
+    renderPage("/storage?oidc_error=not_bound");
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+  });
+
+  it("删除确认中可以先下载密钥文件（需要验证身份）", async () => {
+    respond(ok({ items: [base] }));
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "本地备份盘 的更多操作" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "删除存储" }));
+    const confirm = await screen.findByRole("dialog", { name: "删除存储「本地备份盘」？" });
+    expect(confirm).toHaveTextContent("需要验证身份");
+    respond(ok(status(true)));
+    await userEvent.click(within(confirm).getByRole("button", { name: "先下载密钥文件" }));
+    expect(await screen.findByRole("dialog", { name: "查看「本地备份盘」的密钥" })).toBeInTheDocument();
   });
 });
