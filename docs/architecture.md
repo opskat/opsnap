@@ -73,6 +73,19 @@ Secrets that must be recovered later (OIDC client secret, later storage and data
 - The `settings` row `master_key_check` holds a value encrypted with the key. At startup the key must decrypt it; otherwise startup fails with "主密钥与数据库不匹配". If that row exists but neither the file nor the variable is present, startup fails with "主密钥缺失" and no new key is generated.
 - Primitives live in `internal/pkg/secret`; loading and checking live in `internal/service/secret_svc`.
 
+### kopia repositories
+
+Requirements: [`specs/2026-09-24-storage.md`](specs/2026-09-24-storage.md). kopia v0.23.1 is embedded as a Go library; `internal/pkg/kopiarepo` is the only package that imports it.
+
+- `Location` describes a local directory or an S3-compatible bucket and prefix. `Normalize` cleans the path, lowercases the endpoint and makes a non-empty prefix end with `/`; `Key()` identifies a location for uniqueness checks.
+- `Probe` checks reachability and writability (it writes and deletes a `.opsnap-write-test-*` object) and classifies the location as empty (including a missing local directory), a kopia repository (with the write time of `kopia.repository`) or non-empty. Failures are `*LocationError` with a `Reason`.
+  - Local directories are inspected with the `os` package, never through kopia's filesystem backend, which writes a `.shards` file on first access. A local repository is recognised by `<dir>/kopia.repository.f`.
+  - S3 is inspected with minio-go directly (one retry), because kopia's S3 backend treats a missing bucket as an empty one.
+- `Create` probes again and gives up with `ErrNotEmpty` / `ErrAlreadyRepository` rather than overwrite; it then initialises an AES256-GCM-HMAC-SHA256 repository with the storage key as password.
+- `Manager.Verify` connects with a key and returns the snapshot count (`ErrInvalidPassword` for a wrong key). The repository log is disabled, so opening writes nothing to the repository. Per-storage kopia config and cache live under `<data dir>/kopia/<storage id>/`; id 0 uses a throwaway directory. `Manager.Remove` deletes that directory only.
+- `ListDirs` / `Mkdir` back the directory picker: subdirectories only (symlinks to directories included), each tagged empty, repository, non-empty, not writable or no access; new folders are created with mode 0700.
+- `GenerateKey` returns 24 alphanumerics in dash-separated groups of four; `Fingerprint` is the first and last four uppercase hex digits of the key's SHA-256.
+
 ## Extension recipes
 
 ### Add an endpoint
