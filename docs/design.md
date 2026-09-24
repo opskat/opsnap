@@ -79,6 +79,9 @@ The type scale overrides Tailwind's defaults in `globals.css` and matches the si
 | Form field | `FormField` (`frontend/src/components/form/FormField.tsx`): label above, hint below in `faint-foreground`, which an error in `destructive` replaces (and the input gets `aria-invalid`); `type="password"` adds a show/hide toggle; `mono` for codes, usernames and secrets |
 | Form-level error | `role="alert"` message on a `destructive-soft` fill at the top of the form |
 | Submitting | the submit button is disabled and reads "Submitting…" |
+| Switch | `Switch` (`frontend/src/components/form/Switch.tsx`): `role="switch"` with an `aria-label`; used for on/off settings such as HTTPS and password sign-in |
+| Row actions | at most two ghost buttons in the row, the rest in a `DropdownMenu` (`frontend/src/components/ui/dropdown-menu.tsx`) behind an ⋯ icon button whose label names the row; destructive items last, after a separator |
+| Destructive or irreversible step | a confirmation dialog stating what is and is not affected; a required checkbox when the user must have done something first (e.g. saved a key) |
 | Page not built yet | `ComingSoonPage`: keeps navigation complete; replace it when the feature lands |
 
 Reference implementation: `frontend/src/pages/OverviewPage.tsx` (loading, error with retry, ready; the region has `aria-live="polite"`).
