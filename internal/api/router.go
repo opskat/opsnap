@@ -8,6 +8,7 @@ import (
 
 	"github.com/opskat/opsnap/internal/controller/auth_ctr"
 	"github.com/opskat/opsnap/internal/controller/oidc_ctr"
+	"github.com/opskat/opsnap/internal/controller/storage_ctr"
 	"github.com/opskat/opsnap/internal/controller/system_ctr"
 	"github.com/opskat/opsnap/internal/controller/token_ctr"
 	"github.com/opskat/opsnap/internal/middleware"
@@ -30,12 +31,14 @@ func Router(ctx context.Context, root *mux.Router) error {
 	auth := auth_ctr.NewAuth()
 	token := token_ctr.NewToken()
 	oidc := oidc_ctr.NewOIDC()
+	storage := storage_ctr.NewStorage()
 
 	public := r.Group("/")
 	public.Bind(system.Health, auth.Status, auth.Setup, auth.Login, oidc.Login, oidc.Callback)
 
 	authed := r.Group("/", requireAuth())
-	authed.Bind(auth.Logout, auth.Me)
+	authed.Bind(auth.Logout, auth.Me,
+		storage.List, storage.Probe, storage.Create, storage.Update, storage.Test, storage.Unlock, storage.Delete, storage.Key)
 
 	account := authed.Group("/", requireSession())
 	account.Bind(auth.ChangePassword, token.List, token.Create, token.Revoke,

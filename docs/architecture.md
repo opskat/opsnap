@@ -59,7 +59,7 @@ Requirements: [`specs/2026-09-23-admin-auth.md`](specs/2026-09-23-admin-auth.md)
 
 ### Startup order
 
-`cmd/opsnap/main.go` registers, in order: `component.Core()` (logging) → creating the SQLite data directory → `component.Database()` → migrations → loading the master key → printing the setup code (only while no administrator exists) → the HTTP server. A component that fails stops startup with one `启动失败: ...` line and exit status 1. The config file defaults to `./configs/config.yaml` and can be set with `-c`. The version is injected at build time into `github.com/cago-frame/cago/configs.Version` (the `Makefile` uses `git describe`).
+`cmd/opsnap/main.go` registers, in order: `component.Core()` (logging) → creating the SQLite data directory → `component.Database()` → migrations → loading the master key → setting the kopia directory (`<data dir>/kopia`) → printing the setup code (only while no administrator exists) → the HTTP server. A component that fails stops startup with one `启动失败: ...` line and exit status 1. The config file defaults to `./configs/config.yaml` and can be set with `-c`. The version is injected at build time into `github.com/cago-frame/cago/configs.Version` (the `Makefile` uses `git describe`).
 
 ### Request language
 
@@ -85,6 +85,15 @@ Requirements: [`specs/2026-09-24-storage.md`](specs/2026-09-24-storage.md). kopi
 - `Manager.Verify` connects with a key and returns the snapshot count (`ErrInvalidPassword` for a wrong key). The repository log is disabled, so opening writes nothing to the repository. Per-storage kopia config and cache live under `<data dir>/kopia/<storage id>/`; id 0 uses a throwaway directory. `Manager.Remove` deletes that directory only.
 - `ListDirs` / `Mkdir` back the directory picker: subdirectories only (symlinks to directories included), each tagged empty, repository, non-empty, not writable or no access; new folders are created with mode 0700.
 - `GenerateKey` returns 24 alphanumerics in dash-separated groups of four; `Fingerprint` is the first and last four uppercase hex digits of the key's SHA-256.
+
+### Storage management
+
+`storage_svc` (table `storages`, error codes 10400–10499) builds on `kopiarepo`; routes are in the `authed` group, so API tokens can manage storages.
+
+- Name and location are unique; `location_key` (a unique column) holds `Location.Key()`. The S3 secret key and the repository key are stored encrypted with the master key and never returned. A blank secret key on edit keeps the saved one.
+- `POST /storages/probe` validates fields and uniqueness, then reports `empty`, `repository` or `not_empty`; the frontend picks the next dialog from it. `POST /storages` and `PUT /storages/:id` probe again on the server before acting, so a stale answer never overwrites data: an empty location gets a new repository (on create, only with `confirm_saved` and a key of at least 12 characters; on a location change, with the current managed key), an existing repository needs the submitted key, and a non-empty location is refused. A location change needs `confirm_location_change`.
+- `POST /storages/:id/test` records the outcome in `status` (`ok` / `wrong_key` / `unreachable`) with `status_code` and `status_detail`; the list only shows the last result and never tests on load. `POST /storages/:id/unlock` replaces the managed key after a successful open.
+- Delete removes the row and `<data dir>/kopia/<id>/`; the repository data stays.
 
 ## Extension recipes
 
