@@ -1,0 +1,42 @@
+{
+  "realm": "opsnap",
+  "enabled": true,
+  "clients": [
+    {
+      "clientId": "opsnap",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${OPSNAP_TEST_PASSWORD}",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "http://127.0.0.1:8210/api/v1/auth/oidc/callback",
+        "http://localhost:8210/api/v1/auth/oidc/callback",
+        "http://127.0.0.1:18293/api/v1/auth/oidc/callback",
+        "http://localhost:18293/api/v1/auth/oidc/callback"
+      ],
+      "attributes": { "pkce.code.challenge.method": "S256" }
+    }
+  ],
+  "users": [
+    {
+      "username": "ops",
+      "email": "ops@opsnap.test",
+      "emailVerified": true,
+      "firstName": "Ops",
+      "lastName": "Admin",
+      "enabled": true,
+      "credentials": [{ "type": "password", "value": "${OPSNAP_TEST_PASSWORD}", "temporary": false }]
+    },
+    {
+      "username": "other",
+      "email": "other@opsnap.test",
+      "emailVerified": true,
+      "firstName": "Other",
+      "lastName": "User",
+      "enabled": true,
+      "credentials": [{ "type": "password", "value": "${OPSNAP_TEST_PASSWORD}", "temporary": false }]
+    }
+  ]
+}

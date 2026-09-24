@@ -50,6 +50,7 @@
 
   --chart-bar: #5fd3a1;
   --track: #eceff1;
+  --overlay: #0507084d;
 }
 
 .dark {
@@ -91,6 +92,7 @@
 
   --chart-bar: #2e8f66;
   --track: #1e2529;
+  --overlay: #05070899;
 }
 
 @theme inline {
@@ -157,6 +159,7 @@
   --color-pending-soft: var(--pending-soft);
   --color-chart-bar: var(--chart-bar);
   --color-track: var(--track);
+  --color-overlay: var(--overlay);
 }
 
 @layer base {

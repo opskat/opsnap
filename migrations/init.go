@@ -9,7 +9,11 @@ import (
 // RunMigrations 按顺序执行迁移。只允许追加新的迁移函数，不修改已发布的迁移；
 // 迁移中使用确定性的 DDL，不使用 AutoMigrate(&entity)，避免实体变化影响旧迁移
 func RunMigrations(db *gorm.DB) error {
-	return run(db)
+	return run(db,
+		t20260923Settings,
+		t20260923Auth,
+		t20260923APITokens,
+	)
 }
 
 func run(db *gorm.DB, fs ...func() *gormigrate.Migration) error {

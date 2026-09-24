@@ -1,0 +1,35 @@
+package code
+
+var en = map[int]string{ //nolint:gosec // 错误文案中的 “token”“password” 字样被误判为硬编码凭据
+	ServerError:         "Internal server error",
+	Unauthorized:        "Not signed in, or the session has expired",
+	CrossOriginRejected: "Cross-site request rejected",
+
+	AlreadyInitialized:    "Already initialized: the administrator account exists",
+	SetupCodeInvalid:      "Incorrect setup code",
+	UsernameInvalid:       "Username must be 3–32 characters: lowercase letters, digits, . _ -",
+	PasswordTooShort:      "Password must be at least 12 characters",
+	LoginFailed:           "Incorrect username or password",
+	TooManyAttempts:       "Too many attempts. Try again in %d minutes",
+	CurrentPasswordWrong:  "Current password is incorrect",
+	NotInitialized:        "No administrator yet. Finish first-run setup in the web console",
+	SessionRequired:       "This action requires signing in with a browser; API tokens cannot call it",
+	PasswordLoginDisabled: "Password sign-in is disabled",
+
+	TokenInvalid:       "Invalid token",
+	TokenRevoked:       "Token has been revoked",
+	TokenExpired:       "Token has expired",
+	TokenNameInvalid:   "Name must be 1–64 characters",
+	TokenNameDuplicate: "An active token with this name already exists",
+	TokenExpiryInvalid: "Validity must be 30 days, 90 days, 1 year or never",
+	TokenNotFound:      "Token not found",
+
+	OIDCFieldRequired:              "Display name, issuer, client ID and client secret are required",
+	OIDCRedirectInvalid:            "Invalid callback URL",
+	OIDCIssuerUnreachable:          "Could not connect to %s: %s",
+	OIDCDiscoveryInvalid:           "Invalid OIDC discovery document or issuer mismatch: %s",
+	OIDCResetConfirmRequired:       "Changing the issuer or client ID removes the existing binding. Confirm to save",
+	OIDCNotConfigured:              "OIDC is not configured",
+	OIDCAlreadyBound:               "An OIDC identity is already bound. Unbind it first",
+	PasswordLoginDisableNotAllowed: "Bind an OIDC identity and sign in with it once before disabling password sign-in",
+}

@@ -1,25 +1,13 @@
-import { Aperture, Monitor, Moon, Sun } from "lucide-react";
+import { Aperture, LogOut, User } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { NavLink, Outlet } from "react-router";
 
 import { Button } from "@/components/ui/button";
-import { changeLanguage, type Language } from "@/i18n";
-import { useTheme, type Theme } from "@/lib/theme";
+import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
 import { mainNav, systemNav, type NavItem } from "./nav";
-
-const themeOptions: { value: Theme; icon: typeof Sun }[] = [
-  { value: "light", icon: Sun },
-  { value: "dark", icon: Moon },
-  { value: "system", icon: Monitor },
-];
-
-const languageOptions: { value: Language; label: string }[] = [
-  { value: "zh-CN", label: "中文" },
-  { value: "en", label: "EN" },
-];
-
+import { PreferenceToggles } from "./PreferenceToggles";
 function NavEntry({ item }: { item: NavItem }) {
   const { t } = useTranslation();
   const Icon = item.icon;
@@ -43,8 +31,8 @@ function NavEntry({ item }: { item: NavItem }) {
 }
 
 export function AppShell() {
-  const { t, i18n } = useTranslation();
-  const { theme, setTheme } = useTheme();
+  const { t } = useTranslation();
+  const { user, logout } = useSession();
 
   return (
     <div className="flex h-screen">
@@ -65,34 +53,27 @@ export function AppShell() {
           ))}
         </nav>
         <div className="mt-auto flex flex-col gap-2 border-t pt-3">
-          <div className="flex gap-1" role="group" aria-label={t("theme.label")}>
-            {themeOptions.map(({ value, icon: Icon }) => (
-              <Button
-                key={value}
-                variant={theme === value ? "secondary" : "ghost"}
-                size="icon-sm"
-                aria-pressed={theme === value}
-                aria-label={t(`theme.${value}`)}
-                title={t(`theme.${value}`)}
-                onClick={() => setTheme(value)}
-              >
-                <Icon />
-              </Button>
-            ))}
+          <div className="flex items-center gap-2.5 px-1">
+            <span className="flex size-6.5 items-center justify-center rounded-full bg-accent text-muted-foreground">
+              <User className="size-3.5" />
+            </span>
+            <span
+              className="min-w-0 flex-1 truncate font-mono text-sm text-sidebar-foreground"
+              data-testid="current-user"
+            >
+              {user.username}
+            </span>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={t("auth.logout")}
+              title={t("auth.logout")}
+              onClick={() => void logout()}
+            >
+              <LogOut />
+            </Button>
           </div>
-          <div className="flex gap-1" role="group" aria-label={t("language.label")}>
-            {languageOptions.map(({ value, label }) => (
-              <Button
-                key={value}
-                variant={i18n.language === value ? "secondary" : "ghost"}
-                size="sm"
-                aria-pressed={i18n.language === value}
-                onClick={() => void changeLanguage(value)}
-              >
-                {label}
-              </Button>
-            ))}
-          </div>
+          <PreferenceToggles className="flex-col" />
         </div>
       </aside>
       <main className="min-w-0 flex-1 overflow-auto">

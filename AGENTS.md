@@ -88,4 +88,5 @@ browser ──> Gin (cago mux)
 ### Key constraints
 
 - Routes are registered only in `internal/api/router.go`; unknown paths under `/api/` return 404 and never fall back to the SPA
+- New endpoints go in the `authed` group; `public` holds only what the auth spec lists and `account` only session-only account endpoints, enforced by `internal/api/router_test.go`
 - A new repository is registered in `cmd/opsnap/main.go` and its mock regenerated with `make generate`

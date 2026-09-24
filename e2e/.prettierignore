@@ -4,3 +4,4 @@ playwright-report
 scratch
 pnpm-lock.yaml
 *.md
+.auth/

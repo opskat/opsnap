@@ -17,6 +17,31 @@ bin/opsnap        # open http://127.0.0.1:8210
 
 For development, run `make dev-server` and `make dev-web` side by side.
 
+## OIDC sign-in
+
+Under Settings → Sign-in methods, configure one OIDC provider (display name, issuer, client ID and secret, scopes) and register the callback URL shown there with the IdP. Then click Bind and sign in at the IdP: that identity becomes a second way to sign in as the administrator. After signing in with it once, you can turn off password sign-in; `opsnap admin reset-password` turns it back on if the IdP is unavailable.
+
+## API tokens
+
+Generate a token under Settings → API tokens and send it as `Authorization: Bearer <token>`. A token can call every business API but cannot manage tokens, change the password or change sign-in methods. It is shown only once; revoke it if lost.
+
+## Forgotten password
+
+On the server, run:
+
+```bash
+bin/opsnap admin reset-password -c configs/config.yaml        # prompts twice, input hidden
+echo 'new-password' | bin/opsnap admin reset-password -c configs/config.yaml --password-stdin
+```
+
+For Docker, use `docker exec -it <container> opsnap admin reset-password`. Every signed-in browser is signed out; API tokens keep working.
+
+## Master key
+
+OpsNap encrypts stored credentials with a master key. On first start it creates `master.key` (mode 0600) next to the SQLite database. To supply the key yourself, set `OPSNAP_MASTER_KEY` to 32 random bytes in base64 (for example `openssl rand -base64 32`); the file is then neither read nor written.
+
+**When moving or restoring OpsNap, keep `master.key` (or the `OPSNAP_MASTER_KEY` value) together with the database.** Without it the stored credentials cannot be decrypted, and OpsNap refuses to start rather than generate a new key.
+
 ## Documentation
 
 - Rules for contributors and AI agents: [`AGENTS.md`](AGENTS.md)

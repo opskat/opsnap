@@ -18,6 +18,10 @@ node_modules/
 /e2e/test-results/
 /e2e/playwright-report/
 /e2e/.env
+/e2e/.auth/
 .verification/
 
 .DS_Store
+
+# dev-kit 本地工作文件（计划、评审、验证产物）
+.dev-kit/

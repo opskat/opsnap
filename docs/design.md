@@ -40,6 +40,7 @@ Source of truth: the design file `opsnap.pen` (the "Terminal" dark style with li
 | `pending` / `pending-soft` | `#5E6873` / `#7A848D17` | `#86909A` / `#86909A1F` | queued |
 | `chart-bar` | `#5FD3A1` | `#2E8F66` | successful bars in charts |
 | `track` | `#ECEFF1` | `#1E2529` | progress bar track |
+| `overlay` | `#0507084D` | `#05070899` | dialog backdrop |
 
 Radius: `--radius: 0.375rem` (6px); `rounded-sm` / `rounded-md` / `rounded-lg` derive from it.
 
@@ -64,8 +65,9 @@ The type scale overrides Tailwind's defaults in `globals.css` and matches the si
 ## Layout
 
 - App frame: `AppShell` (`frontend/src/components/layout/AppShell.tsx`) — a 232px sidebar on the left and an independently scrolling content area.
-- Navigation items are defined in `frontend/src/components/layout/nav.ts` (main navigation plus the "system" group); theme and language switches sit at the bottom of the sidebar.
+- Navigation items are defined in `frontend/src/components/layout/nav.ts` (main navigation plus the "system" group). The bottom of the sidebar shows the signed-in username with a sign-out button, then the theme and language switches (`PreferenceToggles`).
 - Page titles use `PageHeader` (title, optional subtitle, bottom divider).
+- Sign-in and first-run setup pages use `AuthLayout`: theme and language switches top right, brand, title and subtitle, then a centred 384px card holding the form, and an optional footnote.
 
 ## Components and states
 
@@ -74,6 +76,9 @@ The type scale overrides Tailwind's defaults in `globals.css` and matches the si
 | First load | "Loading…" text inside the region; the surrounding card keeps its position when content replaces it |
 | Error | message on a `destructive-soft` fill inside the failing region, with a Retry button |
 | Status badge | `<status>-soft` fill + `<status>` text + a dot of the same colour, e.g. the health badge "Healthy / Unavailable" |
+| Form field | `FormField` (`frontend/src/components/form/FormField.tsx`): label above, hint below in `faint-foreground`, which an error in `destructive` replaces (and the input gets `aria-invalid`); `type="password"` adds a show/hide toggle; `mono` for codes, usernames and secrets |
+| Form-level error | `role="alert"` message on a `destructive-soft` fill at the top of the form |
+| Submitting | the submit button is disabled and reads "Submitting…" |
 | Page not built yet | `ComingSoonPage`: keeps navigation complete; replace it when the feature lands |
 
 Reference implementation: `frontend/src/pages/OverviewPage.tsx` (loading, error with retry, ready; the region has `aria-live="polite"`).

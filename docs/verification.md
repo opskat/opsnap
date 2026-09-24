@@ -13,11 +13,12 @@ Test services run on docker.local (opsctl asset `local-docker`, 192.168.8.141) a
 | MySQL 8.0 | `192.168.8.141:13306`, user `root` | binlog on, ROW format, GTID on |
 | PostgreSQL 16 | `192.168.8.141:15432`, user `postgres` | `wal_level=logical`, 10 replication slots |
 | MinIO (S3) | API `192.168.8.141:19000`, console `:19001`, user `opsnap` | pinned to `RELEASE.2025-04-22T22-12-26Z` |
+| Keycloak 26.4 (OIDC) | `http://192.168.8.141:18080`, realm `opsnap`, issuer `http://192.168.8.141:18080/realms/opsnap` | client `opsnap` (secret = test password), users `ops` and `other`; allowed callbacks are OpsNap on `127.0.0.1`/`localhost` ports 8210 and 18293 (`deploy/test/keycloak/opsnap-realm.json`); admin user `admin` |
 
-All three share one test password, stored as `OPSNAP_TEST_PASSWORD` in the local, gitignored `e2e/.env`; `make test-env-up` generates it on first run.
+All services share one test password, stored as `OPSNAP_TEST_PASSWORD` in the local, gitignored `e2e/.env`; `make test-env-up` generates it on first run.
 
 ```bash
-make test-env-up              # deploy or update (copies docker-compose.yaml and .env to /opt/opsnap-test via opsctl, waits for health checks)
+make test-env-up              # deploy or update (copies docker-compose.yaml, the Keycloak realm file and .env to /opt/opsnap-test via opsctl, waits for health checks)
 make test-env-status          # container status
 make test-env-down            # stop containers, keep data
 scripts/test-env.sh destroy   # remove containers, volumes and the remote directory

@@ -32,6 +32,8 @@ up)
   chmod 600 "$tmp/.env"
   ssh_exec "mkdir -p $REMOTE_DIR && chmod 700 $REMOTE_DIR"
   opsctl cp "$ROOT/deploy/test/docker-compose.yaml" "$ASSET:$REMOTE_DIR/docker-compose.yaml"
+  ssh_exec "mkdir -p $REMOTE_DIR/keycloak"
+  opsctl cp "$ROOT/deploy/test/keycloak/opsnap-realm.json" "$ASSET:$REMOTE_DIR/keycloak/opsnap-realm.json"
   opsctl cp "$tmp/.env" "$ASSET:$REMOTE_DIR/.env"
   ssh_exec "chmod 600 $REMOTE_DIR/.env && $(compose up -d --wait)"
   ;;

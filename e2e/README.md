@@ -16,7 +16,11 @@ Promoting a scratch script to smoke is a separate decision. Smoke scope: app ide
 
 ```text
 make e2e → make build (produces bin/opsnap) → pnpm -C e2e test
-  → global-setup.ts: start the real bin/opsnap in a temp dir on a dedicated port
+  → global-setup.ts: start the real bin/opsnap in a temp dir on a dedicated port,
+    read the setup code from its log into OPSNAP_SETUP_CODE
+  → project "setup": complete first-run setup in the UI, save the session to e2e/.auth/admin.json (gitignored)
+  → project "chromium": the other specs, signed in through that saved state
+  → project "logout": signs out (invalidates the saved session), so it runs last
   → Playwright (Chromium) drives pages and the API
   → assertions + independent oracle (/api/v1/system/health)
 ```
@@ -25,8 +29,10 @@ make e2e → make build (produces bin/opsnap) → pnpm -C e2e test
 |---|---|
 | config and metadata database | a new `opsnap-e2e-*` directory under the system temp dir per run, deleted in teardown |
 | port | dedicated port 18291 (`e2e/ports.ts`), away from the dev instance's 8210; setup fails if it is already in use |
+| OIDC provider | `bin/fakeidp` (`tools/fakeidp`, built by `make e2e`) on port 18292 (`e2e/ports.ts`); `POST /control/next` sets how the next authorization behaves |
 | app identity | readiness requires the health check to return `code: 0` and `database: ok`, so another program on the port cannot pass |
-| browser state | every test gets its own browser context (theme and language `localStorage` do not leak) |
+| browser state | every test gets its own browser context (theme and language `localStorage` do not leak); specs in the `chromium` and `logout` projects start signed in, so anonymous scenarios pass `storageState: { cookies: [], origins: [] }` explicitly |
+| locale | `zh-CN`; tests that check English switch the language themselves |
 
 ## 3. Smoke command and coverage
 
@@ -35,7 +41,14 @@ make install   # once: dependencies and Chromium
 make e2e
 ```
 
-Current scenarios (`e2e/tests/smoke.spec.ts`): health check, 404 for unknown API paths, the home page shows the same version as the API, client routes load directly and survive reload, dark theme persists across reload, switching between Chinese and English.
+Current scenarios:
+
+- `setup.spec.ts`: an uninitialized instance redirects to the setup page; a wrong setup code is rejected; the real one creates the administrator and signs in with an HttpOnly, SameSite=Lax session cookie.
+- `auth.spec.ts`: anonymous API calls get 401 while public endpoints stay reachable; anonymous page visits redirect to the login page keeping the target; a second setup gets 409; cross-site writes get 403.
+- `tokens.spec.ts`: a token generated in Settings is shown once, calls the API with `Bearer`, gets 403 on token management, records its last use, and gets 401 "令牌已吊销" right after revocation.
+- `oidc.spec.ts` (serial): an unreachable issuer is reported; a saved provider hides its secret; binding returns to Settings; the login page offers "使用 FakeIdP 登录" and returns to the requested page; an unbound identity and an IdP cancellation show their errors; after an OIDC sign-in, turning password sign-in off leaves only the OIDC button and makes password login return 403, and it is turned back on at the end.
+- `smoke.spec.ts`: health check, 404 for unknown API paths, the home page shows the same version as the API, client routes load directly and survive reload, dark theme persists across reload, switching between Chinese and English.
+- `logout.spec.ts` (serial, runs last): changing the password in Settings rejects a wrong current password, then signs out another session while this browser stays signed in; signing out returns to the login page and the old session gets 401; a wrong password shows an error and the right one returns to the page originally requested; five failures lock the client IP out (429), so nothing may sign in after it.
 
 ## 4. Protocol mocks
 
