@@ -6,7 +6,7 @@ When committed tests fully observe the changed logic, run those tests and stop. 
 
 ## Test environment
 
-Test services run on docker.local (opsctl asset `local-docker`, 192.168.8.141) as the compose project `opsnap-test`, defined in [`../deploy/test/docker-compose.yaml`](../deploy/test/docker-compose.yaml).
+Test services run on docker.lan (opsctl asset `local-docker`, 192.168.8.141) as the compose project `opsnap-test`, defined in [`../deploy/test/docker-compose.yaml`](../deploy/test/docker-compose.yaml).
 
 | Service | Address from a dev machine | Notes |
 |---|---|---|

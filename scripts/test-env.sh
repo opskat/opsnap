@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# 管理 docker.local 上的 opsnap-test 测试服务：up | down | status | destroy
+# 管理 docker.lan 上的 opsnap-test 测试服务：up | down | status | destroy
 # 通过 opsctl 资产 local-docker 操作远端（docs/verification.md#test-environment）。
 # 测试密码保存在 e2e/.env 的 OPSNAP_TEST_PASSWORD（不提交），首次 up 时自动生成。
 set -euo pipefail
 
 ASSET="${OPSNAP_TEST_ASSET:-local-docker}"
 REMOTE_DIR="/opt/opsnap-test"
-# docker.local 通过镜像代理拉取镜像（形如 <代理>/docker.io/...、<代理>/quay.io/...）；换机器时用环境变量覆盖，设为空则直连
+# docker.lan 通过镜像代理拉取镜像（形如 <代理>/docker.io/...、<代理>/quay.io/...）；换机器时用环境变量覆盖，设为空则直连
 REGISTRY_MIRROR="${OPSNAP_TEST_REGISTRY_MIRROR-katch.ggnb.top/}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE="$ROOT/e2e/.env"

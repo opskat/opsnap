@@ -7,7 +7,7 @@
 | Path | `e2e/tests/` (committed) | `e2e/scratch/` (gitignored) |
 | Command | `make e2e` | `pnpm -C e2e scratch` |
 | Scope | stable core regression flows | one-off check of a change or bug |
-| External systems | none | docker.local test services, with authorization |
+| External systems | none | docker.lan test services, with authorization |
 | Output | CI verdict | `scratch/<scenario>/report.md` and evidence |
 
 Promoting a scratch script to smoke is a separate decision. Smoke scope: app identity and startup, main navigation, one core CRUD flow with an independent persistence oracle, and one critical integrity flow. There is no business data yet; the last two are added when those features land.

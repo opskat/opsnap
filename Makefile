@@ -61,7 +61,7 @@ clean:
 	find internal/web/dist -mindepth 1 ! -name .gitkeep -delete
 
 .PHONY: test-env-up test-env-down test-env-status
-test-env-up: ## 在 docker.local 部署/更新 opsnap-test 测试服务（docs/verification.md）
+test-env-up: ## 在 docker.lan 部署/更新 opsnap-test 测试服务（docs/verification.md）
 	scripts/test-env.sh up
 test-env-down:
 	scripts/test-env.sh down
