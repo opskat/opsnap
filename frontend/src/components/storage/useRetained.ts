@@ -9,3 +9,15 @@ export function useRetained<T>(value: T | undefined): T | undefined {
   if (value !== undefined && value !== last) setLast(value);
   return value ?? last;
 }
+
+/**
+ * 对话框每次打开时调用 reset 清空上一次留下的状态。
+ * 关闭时不清空，退场动画期间内容保持不变；下次打开时在首次渲染前就已清空，不会闪现旧内容。
+ */
+export function useResetOnOpen(open: boolean, reset: () => void) {
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) reset();
+  }
+}

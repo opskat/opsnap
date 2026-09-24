@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { listDirs, makeDir, type Dir, type DirStatus } from "@/lib/storage";
 import { cn } from "@/lib/utils";
 
+import { useResetOnOpen } from "./useRetained";
+
 type Listing = { path: string; parent: string; dirs: Dir[] };
 
 const statusStyle: Record<DirStatus, string> = {
@@ -49,7 +51,7 @@ export function FolderPickerDialog({
   const path = target ?? start;
 
   useEffect(() => {
-    if (path === undefined) return;
+    if (!open || path === undefined) return;
     let cancelled = false;
     listDirs(path)
       .then((l) => {
@@ -61,21 +63,21 @@ export function FolderPickerDialog({
     return () => {
       cancelled = true;
     };
-  }, [path]);
+  }, [open, path]);
 
   const go = (p: string) => {
     setMkdirError(undefined);
     setTarget(p);
   };
 
-  const close = () => {
+  // 打开时从头开始；关闭时不清空，退场期间仍显示所选目录
+  useResetOnOpen(open, () => {
     setTarget(undefined);
     setListing(undefined);
     setError(undefined);
     setNewName("");
     setMkdirError(undefined);
-    onClose();
-  };
+  });
 
   const create = async (e: FormEvent) => {
     e.preventDefault();
@@ -94,7 +96,7 @@ export function FolderPickerDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(next) => !next && !creating && close()}>
+    <Dialog open={open} onOpenChange={(next) => !next && !creating && onClose()}>
       <DialogContent className="gap-0 bg-card p-0 sm:max-w-lg">
         <DialogHeader className="border-b px-5 py-4 text-left">
           <DialogTitle>{t("storage.picker.title")}</DialogTitle>
@@ -200,7 +202,7 @@ export function FolderPickerDialog({
             {listing?.path}
           </code>
           <div className="flex gap-2">
-            <Button type="button" variant="outline" disabled={creating} onClick={close}>
+            <Button type="button" variant="outline" disabled={creating} onClick={onClose}>
               {t("common.cancel")}
             </Button>
             <Button
@@ -209,7 +211,7 @@ export function FolderPickerDialog({
               onClick={() => {
                 if (!listing) return;
                 onPick(listing.path);
-                close();
+                onClose();
               }}
             >
               {t("storage.picker.choose")}

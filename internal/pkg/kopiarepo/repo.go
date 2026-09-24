@@ -33,7 +33,10 @@ var (
 // Encryption 新建仓库使用的加密算法
 const Encryption = encryption.DefaultAlgorithm
 
-// Manager 管理每个存储在本机的 kopia 连接配置，目录为 <root>/<存储 ID>/
+// tmpVerifyPrefix 新建存储尚未保存时，校验所用一次性目录的前缀
+const tmpVerifyPrefix = "tmp-verify-"
+
+// Manager 管理每个存储在本机的 kopia 连接配置（只在校验期间存在），目录为 <root>/<存储 ID>/
 type Manager struct {
 	root string
 
@@ -42,8 +45,20 @@ type Manager struct {
 	locks map[int64]*sync.Mutex
 }
 
-// NewManager root 通常为 <数据目录>/kopia
+// configName 校验时 kopia 写入的连接配置文件名，其中有明文的存储凭据
+const configName = "repository.config"
+
+// NewManager root 通常为 <数据目录>/kopia。
+// 启动时清理上次进程在校验途中退出留下的连接配置，不让其中的明文凭据留在磁盘上。
 func NewManager(root string) *Manager {
+	stale, _ := filepath.Glob(filepath.Join(root, "*", configName))
+	for _, p := range stale {
+		_ = os.Remove(p)
+	}
+	tmp, _ := filepath.Glob(filepath.Join(root, tmpVerifyPrefix+"*"))
+	for _, p := range tmp {
+		_ = os.RemoveAll(p)
+	}
 	return &Manager{root: root, locks: map[int64]*sync.Mutex{}}
 }
 
@@ -109,7 +124,7 @@ func (m *Manager) Verify(ctx context.Context, id int64, loc Location, password s
 		if err := os.MkdirAll(m.root, 0o700); err != nil {
 			return 0, err
 		}
-		tmp, err := os.MkdirTemp(m.root, "tmp-verify-")
+		tmp, err := os.MkdirTemp(m.root, tmpVerifyPrefix)
 		if err != nil {
 			return 0, err
 		}
@@ -122,7 +137,7 @@ func (m *Manager) Verify(ctx context.Context, id int64, loc Location, password s
 			return 0, err
 		}
 	}
-	cfg := filepath.Join(dir, "repository.config")
+	cfg := filepath.Join(dir, configName)
 	// 每次都按当前参数与密钥重新连接，避免沿用旧位置或旧密钥
 	if err := os.Remove(cfg); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return 0, err

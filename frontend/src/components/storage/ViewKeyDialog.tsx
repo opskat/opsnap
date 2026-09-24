@@ -18,7 +18,7 @@ import { kopiaConnectCommand, locationOf, reauthURL, revealKey, type Storage } f
 
 import { KeyActions } from "./KeyActions";
 import { useDownloadKeyFile } from "./useDownloadKeyFile";
-import { useRetained } from "./useRetained";
+import { useResetOnOpen, useRetained } from "./useRetained";
 
 /** view：查看密钥；download：验证后直接下载密钥文件 */
 export type RevealIntent = "view" | "download";
@@ -104,13 +104,17 @@ export function ViewKeyDialog({ request, onClose }: { request?: RevealRequest; o
     if (request) onOpen(request);
   }, [request]);
 
-  const close = () => {
+  // 每次打开都从验证身份开始；关闭时不清空，退场期间内容不变
+  useResetOnOpen(request !== undefined, () => {
     setAuth(undefined);
     setPassword("");
     setPasswordError(undefined);
     setError(undefined);
     setRevealed(undefined);
     setSubmitting(false);
+  });
+
+  const close = () => {
     started.current = undefined;
     session.current += 1;
     onClose();

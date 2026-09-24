@@ -108,6 +108,24 @@ func TestCreateAndVerifyLocal(t *testing.T) {
 		assert.Empty(t, left)
 	})
 
+	t.Run("启动时清理上次校验中途退出留下的连接配置", func(t *testing.T) {
+		root := t.TempDir()
+		stale := []string{
+			filepath.Join(root, "3", "repository.config"),
+			filepath.Join(root, "tmp-verify-123", "repository.config"),
+		}
+		for _, p := range stale {
+			require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o700))
+			require.NoError(t, os.WriteFile(p, []byte(`{"storage":{"config":{"secretAccessKey":"x"}}}`), 0o600))
+		}
+		NewManager(root)
+		for _, p := range stale {
+			assert.NoFileExists(t, p)
+		}
+		assert.NoDirExists(t, filepath.Join(root, "tmp-verify-123"))
+		assert.DirExists(t, filepath.Join(root, "3"))
+	})
+
 	t.Run("错误密钥返回 ErrInvalidPassword", func(t *testing.T) {
 		dir := t.TempDir()
 		require.NoError(t, Create(ctx, localAt(dir), testKey))

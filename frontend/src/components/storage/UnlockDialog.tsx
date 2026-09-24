@@ -18,7 +18,7 @@ import { ErrorCode } from "@/lib/auth";
 import { formatDateTime } from "@/lib/format";
 import { parseKeyFile } from "@/lib/storage";
 
-import { useRetained } from "./useRetained";
+import { useResetOnOpen, useRetained } from "./useRetained";
 
 type Source = "paste" | "file";
 
@@ -64,10 +64,11 @@ export function UnlockDialog({
     setSnapshots(undefined);
   };
 
+  // 打开时清零：失败次数只统计本次对话框内的尝试；关闭时不清空，退场期间内容不变
+  useResetOnOpen(target !== undefined, reset);
+
   const close = () => {
-    const done = snapshots !== undefined;
-    reset();
-    if (done) onDone();
+    if (snapshots !== undefined) onDone();
     else onClose();
   };
 

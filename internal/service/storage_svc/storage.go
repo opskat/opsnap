@@ -246,7 +246,7 @@ func (s *storageSvc) probe(ctx context.Context, loc kopiarepo.Location) (*kopiar
 	return res, nil
 }
 
-// verify 用密钥打开仓库并返回快照数；id 为 0 时不保留连接配置
+// verify 用密钥打开仓库并返回快照数；连接配置只在校验期间存在，结束即删除
 func (s *storageSvc) verify(ctx context.Context, id int64, loc kopiarepo.Location, key string) (int, error) {
 	ctx, cancel := context.WithTimeout(ctx, opTimeout)
 	defer cancel()
@@ -282,7 +282,7 @@ func (s *storageSvc) savedLocation(ctx context.Context, st *storage_entity.Stora
 	return st.Location(secretKey), nil
 }
 
-// save 保存存储；它在测试或解锁期间已被删除时返回“不存在”，并清理这次操作在本机留下的连接配置
+// save 保存存储；它在测试或解锁期间已被删除时返回“不存在”，并清理这次操作在本机留下的目录
 func (s *storageSvc) save(ctx context.Context, st *storage_entity.Storage) error {
 	err := storage_repo.Storage().Save(ctx, st)
 	if !errors.Is(err, storage_repo.ErrNotFound) {

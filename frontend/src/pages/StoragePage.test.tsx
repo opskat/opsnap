@@ -91,22 +91,26 @@ function renderPage(entry = "/storage") {
 }
 
 /**
- * 执行关闭对话框的操作，返回对话框卸载前出现过的所有文本。
+ * 执行关闭最上层对话框的操作，返回它卸载前出现过的所有文本。
  * jsdom 没有退场动画，对话框随即卸载，只能从 DOM 变化记录中看到关闭过程中的中间内容。
+ * 返回值同时带上卸载前被移除的文本（removed，不含对话框本身整体卸载）。
  */
 async function textsWhileClosing(close: () => Promise<void>) {
   const texts: string[] = [];
+  const removed: string[] = [];
+  const dialog = screen.getAllByRole("dialog").at(-1)!;
   const observer = new MutationObserver((records) =>
     records.forEach((r) => {
       if (r.type === "characterData") texts.push(r.target.textContent ?? "");
       r.addedNodes.forEach((n) => texts.push(n.textContent ?? ""));
+      r.removedNodes.forEach((n) => !n.contains(dialog) && removed.push(n.textContent ?? ""));
     })
   );
   observer.observe(document.body, { subtree: true, childList: true, characterData: true });
   await close();
-  await vi.waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  await vi.waitFor(() => expect(dialog).not.toBeInTheDocument());
   observer.disconnect();
-  return texts;
+  return Object.assign(texts, { removed });
 }
 
 async function openCreate() {
@@ -514,6 +518,50 @@ describe("存储页 · 编辑与删除", () => {
     expect(whileClosingDelete.join("\n")).not.toContain("「」");
   });
 
+  it("关闭对话框的过程中内容保持不变：设置密钥、解锁成功、选择目录", async () => {
+    respond(ok({ items: [] }));
+    renderPage();
+    let dialog = await openCreate();
+    await fillLocal(dialog, "a", "/data/new");
+    respond(
+      ok({ state: "empty", created_at: 0, location: "/data/new", location_changed: false }),
+      ok({ key: "Q7nT-4mK2-9ZxP-1bR8-VcE5-3jHw", fingerprint: "3F9A···C218", encryption: "AES256-GCM-HMAC-SHA256" })
+    );
+    await userEvent.click(within(dialog).getByRole("button", { name: "下一步" }));
+    const setKey = await screen.findByRole("dialog", { name: "设置加密密钥" });
+    await within(setKey).findByText("Q7nT-4mK2-9ZxP-1bR8-VcE5-3jHw");
+    const whileClosingSetKey = await textsWhileClosing(() =>
+      userEvent.click(within(setKey).getByRole("button", { name: "取消" }))
+    );
+    expect(whileClosingSetKey).not.toContain("加载中…");
+
+    dialog = await openCreate();
+    await fillLocal(dialog, "a", "/data/repo");
+    respond(ok({ state: "repository", created_at: 0, location: "/data/repo", location_changed: false }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "下一步" }));
+    const unlock = await screen.findByRole("dialog", { name: "解锁已有仓库" });
+    await userEvent.type(within(unlock).getByLabelText("密钥"), "right-key");
+    respond(ok({ item: base, snapshots: 3 }));
+    await userEvent.click(within(unlock).getByRole("button", { name: "解锁并继续" }));
+    await within(unlock).findByText("已解锁，仓库中有 3 个快照。");
+    respond(ok({ items: [base] }));
+    const whileClosingUnlock = await textsWhileClosing(() =>
+      userEvent.click(within(unlock).getByRole("button", { name: "完成" }))
+    );
+    expect(whileClosingUnlock.join("\n")).not.toContain("解锁并继续");
+
+    dialog = await openCreate();
+    respond(ok({ path: "/srv/backups", parent: "/srv", dirs: [] }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "浏览…" }));
+    const picker = await screen.findByRole("dialog", { name: "选择目录" });
+    await within(picker).findByText("这里没有子目录");
+    const whileClosingPicker = await textsWhileClosing(() =>
+      userEvent.click(within(picker).getByRole("button", { name: "选择此目录" }))
+    );
+    expect(whileClosingPicker.removed.join("\n")).not.toContain("/srv/backups");
+    expect(within(dialog).getByLabelText("目录路径")).toHaveValue("/srv/backups");
+  });
+
   it("位置变了：先确认，新位置为空时用当前密钥保存", async () => {
     respond(ok({ items: [base] }));
     renderPage();
@@ -730,6 +778,30 @@ describe("存储页 · 查看密钥", () => {
     expect(call(3)).toMatchObject({ url: "/api/v1/storages/1/reveal", body: { password: "correct-horse-battery" } });
 
     await userEvent.click(within(shown).getByRole("button", { name: "完成" }));
+    expect(screen.queryByText("Q7nT-4mK2-9ZxP-1bR8-VcE5-3jHw")).not.toBeInTheDocument();
+  });
+
+  it("关闭已显示密钥的对话框时不闪回验证身份；再次打开仍要验证", async () => {
+    respond(ok({ items: [base] }));
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "本地备份盘 的更多操作" }));
+    respond(ok(status(true)));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "查看密钥" }));
+    const dialog = await screen.findByRole("dialog", { name: "查看「本地备份盘」的密钥" });
+    await userEvent.type(await within(dialog).findByLabelText("当前登录密码"), "correct-horse-battery");
+    respond(ok({ key: "Q7nT-4mK2-9ZxP-1bR8-VcE5-3jHw", fingerprint: "3F9A···C218" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "验证并查看" }));
+    const shown = await screen.findByRole("dialog", { name: "「本地备份盘」的仓库密钥" });
+    const whileClosing = await textsWhileClosing(() =>
+      userEvent.click(within(shown).getByRole("button", { name: "完成" }))
+    );
+    expect(whileClosing.join("\n")).not.toContain("查看「本地备份盘」的密钥");
+
+    await userEvent.click(screen.getByRole("button", { name: "本地备份盘 的更多操作" }));
+    respond(ok(status(true)));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "查看密钥" }));
+    const again = await screen.findByRole("dialog", { name: "查看「本地备份盘」的密钥" });
+    expect(await within(again).findByLabelText("当前登录密码")).toHaveValue("");
     expect(screen.queryByText("Q7nT-4mK2-9ZxP-1bR8-VcE5-3jHw")).not.toBeInTheDocument();
   });
 
