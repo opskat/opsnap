@@ -26,10 +26,12 @@ import (
 	"github.com/opskat/opsnap/internal/repository/oidc_repo"
 	"github.com/opskat/opsnap/internal/repository/session_repo"
 	"github.com/opskat/opsnap/internal/repository/setting_repo"
+	"github.com/opskat/opsnap/internal/repository/storage_repo"
 	"github.com/opskat/opsnap/internal/repository/system_repo"
 	"github.com/opskat/opsnap/internal/repository/token_repo"
 	"github.com/opskat/opsnap/internal/service/auth_svc"
 	"github.com/opskat/opsnap/internal/service/secret_svc"
+	"github.com/opskat/opsnap/internal/service/storage_svc"
 	"github.com/opskat/opsnap/internal/web"
 	"github.com/opskat/opsnap/migrations"
 )
@@ -81,6 +83,11 @@ func main() {
 			return migrations.RunMigrations(db.Default())
 		})).
 		Registry(cago.FuncComponent(initSecret)).
+		Registry(cago.FuncComponent(func(ctx context.Context, cfg *configs.Config) error {
+			// 各存储的 kopia 连接配置与缓存放在 <数据目录>/kopia，删除存储时一并清理
+			storage_svc.SetDataDir(dataDir(ctx, cfg))
+			return nil
+		})).
 		Registry(cago.FuncComponent(printSetupCode)).
 		RegistryCancel(mux.HTTP(api.Router)).
 		Start()
@@ -136,4 +143,5 @@ func registerRepositories() {
 	session_repo.RegisterSession(session_repo.NewSession())
 	token_repo.RegisterToken(token_repo.NewToken())
 	oidc_repo.RegisterOIDC(oidc_repo.NewOIDC())
+	storage_repo.RegisterStorage(storage_repo.NewStorage())
 }

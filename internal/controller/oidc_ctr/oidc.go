@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/cago-frame/cago/pkg/utils/httputils"
 	"github.com/gin-gonic/gin"
@@ -77,6 +78,23 @@ func (o *OIDC) Bind(c *gin.Context, _ *api.BindRequest) error {
 	return nil
 }
 
+// Reauth 发起再次验证身份（浏览器跳转）；发起失败时回到 next 所在页面并带上错误
+func (o *OIDC) Reauth(c *gin.Context, req *api.ReauthRequest) error {
+	authURL, err := oidc_svc.OIDC().BeginReauth(c.Request.Context(), req.Next)
+	if err != nil {
+		redirectWithError(c, pagePath(req.Next), beginErrorKind(err), "")
+		return nil
+	}
+	c.Redirect(http.StatusFound, authURL)
+	return nil
+}
+
+// pagePath 去掉查询参数的站内路径，用于带错误信息跳回原页面；站外地址回到首页
+func pagePath(next string) string {
+	path, _, _ := strings.Cut(oidc_svc.SafeNext(next), "?")
+	return path
+}
+
 // Login 发起 OIDC 登录（公开，浏览器跳转）
 func (o *OIDC) Login(c *gin.Context, req *api.LoginRequest) error {
 	authURL, err := oidc_svc.OIDC().BeginLogin(c.Request.Context(), req.Next)
@@ -93,15 +111,22 @@ func (o *OIDC) Callback(c *gin.Context, req *api.CallbackRequest) error {
 	res := oidc_svc.OIDC().Callback(c.Request.Context(), req,
 		auth_svc.ClientMeta{IP: c.ClientIP(), UserAgent: c.Request.UserAgent()})
 	page := "/login"
-	if res.Mode == oidc_svc.ModeBind {
+	switch res.Mode {
+	case oidc_svc.ModeBind:
 		page = "/settings"
+	case oidc_svc.ModeReauth:
+		page = pagePath(res.Next)
 	}
 	if res.ErrorKind != "" {
 		redirectWithError(c, page, res.ErrorKind, res.ErrorDescription)
 		return nil
 	}
-	if res.Mode == oidc_svc.ModeBind {
+	switch res.Mode {
+	case oidc_svc.ModeBind:
 		c.Redirect(http.StatusFound, "/settings?oidc=bound")
+		return nil
+	case oidc_svc.ModeReauth:
+		c.Redirect(http.StatusFound, res.Next)
 		return nil
 	}
 	middleware.SetSessionCookie(c, res.Session.Token, res.Session.Expires)

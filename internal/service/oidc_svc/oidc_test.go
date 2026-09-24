@@ -436,7 +436,7 @@ func TestSafeNext(t *testing.T) {
 		"/jobs\x00":    "/",
 	}
 	for in, want := range cases {
-		assert.Equal(t, want, safeNext(in), "next=%q", in)
+		assert.Equal(t, want, SafeNext(in), "next=%q", in)
 	}
 }
 
@@ -455,4 +455,63 @@ func TestPendingBounded(t *testing.T) {
 	// 新发起的登录不会被挤掉
 	res := e.s.Callback(e.ctx, callbackReq(followAuthorize(t, authURL)), meta)
 	assert.Empty(t, res.ErrorKind)
+}
+
+func TestOIDCReauth(t *testing.T) {
+	convey.Convey("用 OIDC 再次验证身份（密码登录关闭时查看密钥）", t, func() {
+		e := setupOIDCTest(t)
+		_, err := e.save(t)
+		require.NoError(t, err)
+		sessionID := authctx.From(e.sess).SessionID
+
+		convey.Convey("未绑定时不能发起", func() {
+			_, err := e.s.BeginReauth(e.sess, "/storage")
+			assert.Equal(t, code.OIDCNotConfigured, errCode(err))
+		})
+
+		convey.Convey("已绑定", func() {
+			e.bind(t)
+
+			convey.Convey("只能由浏览器会话发起", func() {
+				_, err := e.s.BeginReauth(e.ctx, "/storage")
+				assert.Equal(t, code.SessionRequired, errCode(err))
+			})
+
+			convey.Convey("要求 IdP 重新登录，不能靠已有的 IdP 会话静默通过", func() {
+				authURL, err := e.s.BeginReauth(e.sess, "/storage")
+				require.NoError(t, err)
+				u, err := url.Parse(authURL)
+				require.NoError(t, err)
+				assert.Equal(t, "login", u.Query().Get("prompt"))
+
+				loginURL, err := e.s.BeginLogin(e.ctx, "/")
+				require.NoError(t, err)
+				u, err = url.Parse(loginURL)
+				require.NoError(t, err)
+				assert.Empty(t, u.Query().Get("prompt"), "普通登录不强制重新登录")
+			})
+
+			reauth := func(next string) *CallbackResult {
+				authURL, err := e.s.BeginReauth(e.sess, next)
+				require.NoError(t, err)
+				return e.s.Callback(e.ctx, callbackReq(followAuthorize(t, authURL)), meta)
+			}
+
+			convey.Convey("绑定的身份回来后：回到 next，发起的会话获得一次查看授权，不创建新会话", func() {
+				res := reauth("/storage?reveal=3")
+				require.Empty(t, res.ErrorKind, res.ErrorDescription)
+				assert.Equal(t, ModeReauth, res.Mode)
+				assert.Equal(t, "/storage?reveal=3", res.Next)
+				assert.Nil(t, res.Session)
+				assert.True(t, auth_svc.Auth().ConsumeReauth(sessionID))
+			})
+
+			convey.Convey("其他身份回来：未绑定，不授权", func() {
+				e.idp.SetNext(fakeidp.Behavior{Subject: "someone-else", Email: "x@example.com"})
+				res := reauth("/storage")
+				assert.Equal(t, ErrNotBound, res.ErrorKind)
+				assert.False(t, auth_svc.Auth().ConsumeReauth(sessionID))
+			})
+		})
+	})
 }

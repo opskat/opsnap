@@ -19,7 +19,8 @@ const jsx = (className: string) => `export const JobList = () => <div className=
 const PAGE = "src/pages/Foo.tsx";
 
 describe("守护规则", () => {
-  beforeAll(() => ruleIdsAt("export const x = 1;\n", PAGE));
+  // 首次加载配置与类型信息较慢，机器负载高时会超过默认的 10 秒 hook 超时
+  beforeAll(() => ruleIdsAt("export const x = 1;\n", PAGE), 60_000);
 
   describe("opsnap/no-raw-color", () => {
     const RULE = "opsnap/no-raw-color";

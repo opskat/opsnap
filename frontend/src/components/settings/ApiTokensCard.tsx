@@ -1,7 +1,6 @@
 import { Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { TFunction } from "i18next";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -12,7 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { formatDate } from "@/lib/format";
+import { formatDate, relativeTime } from "@/lib/format";
 import { listTokens, revokeToken, type ApiToken } from "@/lib/tokens";
 import { cn } from "@/lib/utils";
 
@@ -22,14 +21,6 @@ import { SettingsCard } from "./SettingsCard";
 type State = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; items: ApiToken[] };
 
 const columns = "grid grid-cols-[minmax(0,1fr)_9rem_8rem_8rem_8rem_4.5rem] items-center gap-3 px-4.5";
-
-function relativeTime(t: TFunction, unix: number) {
-  const minutes = Math.floor((Date.now() / 1000 - unix) / 60);
-  if (minutes < 1) return t("tokens.justNow");
-  if (minutes < 60) return t("tokens.minutesAgo", { count: minutes });
-  if (minutes < 24 * 60) return t("tokens.hoursAgo", { count: Math.floor(minutes / 60) });
-  return formatDate(unix);
-}
 
 export function ApiTokensCard() {
   const { t } = useTranslation();

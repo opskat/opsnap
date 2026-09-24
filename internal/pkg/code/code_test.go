@@ -34,9 +34,16 @@ func TestFrontendErrorCodesInSync(t *testing.T) {
 		"TooManyAttempts":          TooManyAttempts,
 		"CurrentPasswordWrong":     CurrentPasswordWrong,
 		"SessionRequired":          SessionRequired,
+		"ReauthPasswordWrong":      ReauthPasswordWrong,
 		"TokenNameInvalid":         TokenNameInvalid,
 		"TokenNameDuplicate":       TokenNameDuplicate,
 		"OIDCResetConfirmRequired": OIDCResetConfirmRequired,
+		"StorageNameInvalid":       StorageNameInvalid,
+		"StorageNameDuplicate":     StorageNameDuplicate,
+		"StoragePathRelative":      StoragePathRelative,
+		"StorageEndpointScheme":    StorageEndpointScheme,
+		"StorageKeyInvalid":        StorageKeyInvalid,
+		"StorageAlreadyRepository": StorageAlreadyRepository,
 	}
 	src, err := os.ReadFile("../../../frontend/src/lib/auth.ts")
 	require.NoError(t, err)

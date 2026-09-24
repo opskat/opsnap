@@ -13,6 +13,7 @@ func RunMigrations(db *gorm.DB) error {
 		t20260923Settings,
 		t20260923Auth,
 		t20260923APITokens,
+		t20260924Storages,
 	)
 }
 

@@ -25,6 +25,32 @@ Under Settings → Sign-in methods, configure one OIDC provider (display name, i
 
 Generate a token under Settings → API tokens and send it as `Authorization: Bearer <token>`. A token can call every business API but cannot manage tokens, change the password or change sign-in methods. It is shown only once; revoke it if lost.
 
+## Storage
+
+Under Storage, add a local directory on the OpsNap host or an S3-compatible bucket (OpsNap never creates buckets). Each storage is a standard, encrypted [kopia](https://kopia.io) repository (AES256-GCM-HMAC-SHA256):
+
+- An empty location gets a new repository. Its key is generated for you (or you set your own password of at least 12 characters); copy it or download the key file and keep it offline.
+- A location that already holds a kopia repository can only be unlocked with its key. A non-empty location that is not a kopia repository is refused, so existing data is never overwritten.
+- OpsNap keeps an encrypted copy of each key (under the master key) for scheduled jobs. You can view or download it again under Storage → ⋯ → View key, after re-entering your password (or re-verifying with OIDC when password sign-in is off). API tokens cannot read keys.
+- Deleting a storage removes only OpsNap's record, its copy of the key and its local cache. The repository data stays where it is; adding the location again requires the key.
+
+### Restoring without OpsNap
+
+The repository key is the kopia repository password, so the official kopia CLI (0.23 or later) can open a repository with nothing but the key:
+
+```bash
+# local directory
+kopia repository connect filesystem --path /var/backups/opsnap
+# S3-compatible storage (add --disable-tls for plain HTTP, --region if needed)
+kopia repository connect s3 --endpoint minio.lan:9000 --bucket opsnap-backup --prefix prod/ \
+  --access-key <Access Key> --secret-access-key <Secret Key>
+
+kopia snapshot list --all
+kopia restore <snapshot-id> /restore/target
+```
+
+Enter the key when asked for the password. The key file downloaded from OpsNap contains the key (on the `Key:` line) and the connect command for that storage.
+
 ## Forgotten password
 
 On the server, run:
@@ -40,7 +66,7 @@ For Docker, use `docker exec -it <container> opsnap admin reset-password`. Every
 
 OpsNap encrypts stored credentials with a master key. On first start it creates `master.key` (mode 0600) next to the SQLite database. To supply the key yourself, set `OPSNAP_MASTER_KEY` to 32 random bytes in base64 (for example `openssl rand -base64 32`); the file is then neither read nor written.
 
-**When moving or restoring OpsNap, keep `master.key` (or the `OPSNAP_MASTER_KEY` value) together with the database.** Without it the stored credentials cannot be decrypted, and OpsNap refuses to start rather than generate a new key.
+**When moving or restoring OpsNap, keep `master.key` (or the `OPSNAP_MASTER_KEY` value) together with the database.** Without it the stored credentials and storage keys cannot be decrypted, and OpsNap refuses to start rather than generate a new key. Your offline copies of the storage keys still open the repositories with the kopia CLI.
 
 ## Documentation
 

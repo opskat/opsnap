@@ -11,9 +11,16 @@ export const ErrorCode = {
   TooManyAttempts: 10105,
   CurrentPasswordWrong: 10106,
   SessionRequired: 10108,
+  ReauthPasswordWrong: 10110,
   TokenNameInvalid: 10203,
   TokenNameDuplicate: 10204,
   OIDCResetConfirmRequired: 10304,
+  StorageNameInvalid: 10401,
+  StorageNameDuplicate: 10402,
+  StoragePathRelative: 10403,
+  StorageEndpointScheme: 10405,
+  StorageKeyInvalid: 10417,
+  StorageAlreadyRepository: 10421,
 } as const;
 
 export const MIN_PASSWORD_LENGTH = 12;

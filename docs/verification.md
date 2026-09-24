@@ -27,6 +27,8 @@ scripts/test-env.sh destroy   # remove containers, volumes and the remote direct
 Constraints:
 
 - **Other projects' containers run on the same host**, including a MySQL, PostgreSQL and Redis on 3306, 5432 and 6379. Only ever operate on the `opsnap-test` project.
+- MinIO has no buckets for OpsNap by default, and OpsNap never creates one. Create a bucket per verification run in the MinIO console (or with `mc mb`) and use a fresh prefix, so runs do not see each other's repositories.
+- Storage requirements are confirmed with the official kopia CLI at the same version OpsNap embeds (0.23.1, `brew install kopia` on the dev machine): a repository OpsNap created must open with only the key (`kopia repository connect filesystem|s3 ...`), using a separate `--config-file` so the CLI does not touch any other kopia setup.
 - The host has about 7.8 GiB of memory. Start services as needed; do not keep every engine version running.
 - Images are pulled through the `katch.ggnb.top/` mirror (`<mirror>/docker.io/...`, `<mirror>/quay.io/...`). On another host set `OPSNAP_TEST_REGISTRY_MIRROR`; an empty value pulls directly.
 - MongoDB, Redis, Kafka and the LVM SSH target (privileged container with a loop device) are not deployed yet; they are added to the compose file in the rounds that need them.

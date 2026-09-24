@@ -35,6 +35,11 @@ var sessionOnlyRoutes = map[string]bool{
 	"POST /api/v1/auth/oidc/unbind":   true,
 	"GET /api/v1/auth/oidc/bind":      true,
 	"PUT /api/v1/auth/password-login": true,
+	"GET /api/v1/auth/oidc/reauth":    true,
+	// docs/specs/2026-09-24-storage.md：查看密钥与浏览、新建目录只允许浏览器会话
+	"POST /api/v1/storages/:id/reveal": true,
+	"GET /api/v1/storages/dirs":        true,
+	"POST /api/v1/storages/dirs":       true,
 }
 
 // 把两个认证中间件换成哨兵：

@@ -69,6 +69,13 @@ type BindRequest struct {
 	mux.Meta `path:"/auth/oidc/bind" method:"GET"`
 }
 
+// ReauthRequest 浏览器跳转（仅浏览器会话）：再次验证身份，成功后回到 next，
+// 当前会话在 5 分钟内可以查看一次密钥（密码登录关闭时使用）
+type ReauthRequest struct {
+	mux.Meta `path:"/auth/oidc/reauth" method:"GET"`
+	Next     string `form:"next"`
+}
+
 // LoginRequest 浏览器跳转（公开）：发起 OIDC 登录
 type LoginRequest struct {
 	mux.Meta `path:"/auth/oidc/login" method:"GET"`

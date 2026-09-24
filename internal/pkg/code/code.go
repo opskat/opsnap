@@ -29,6 +29,7 @@ const (
 	NotInitialized
 	SessionRequired
 	PasswordLoginDisabled
+	ReauthPasswordWrong
 )
 
 // API 令牌
@@ -52,6 +53,38 @@ const (
 	OIDCNotConfigured
 	OIDCAlreadyBound
 	PasswordLoginDisableNotAllowed
+)
+
+// 存储
+const (
+	StorageNotFound = iota + 10400
+	StorageNameInvalid
+	StorageNameDuplicate
+	StoragePathRelative
+	StorageS3FieldRequired
+	StorageEndpointScheme
+	StorageLocationInUse
+	StorageLocationNotEmpty
+	StorageUnreachable
+	StorageNotWritable
+	StorageNotDirectory
+	StorageNoAccess
+	StorageBucketNotFound
+	StorageAccessDenied
+	StorageKeyRequired
+	StorageKeyTooShort
+	StorageKeyNotConfirmed
+	StorageKeyInvalid
+	StorageManagedKeyInvalid
+	StorageNotRepository
+	StorageLocationChangeConfirm
+	StorageAlreadyRepository
+	StorageReauthRequired
+	StorageDirNameInvalid
+	StorageDirExists
+	StorageDirNoPermission
+	StorageDirNoAccess
+	StorageDirCreateFailed
 )
 
 func init() {

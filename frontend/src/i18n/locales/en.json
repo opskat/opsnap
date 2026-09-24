@@ -28,6 +28,11 @@
     "copy": "Copy",
     "copied": "Copied"
   },
+  "time": {
+    "justNow": "Just now",
+    "minutesAgo": "{{count}} min ago",
+    "hoursAgo": "{{count}} h ago"
+  },
   "overview": {
     "subtitle": "Status of all backup and sync jobs",
     "systemStatus": "System status",
@@ -106,9 +111,6 @@
     "expiresAt": "Expires",
     "actions": "Actions",
     "neverUsed": "Never used",
-    "justNow": "Just now",
-    "minutesAgo": "{{count}} min ago",
-    "hoursAgo": "{{count}} h ago",
     "expired": "Expired",
     "revoked": "Revoked",
     "revoke": "Revoke",
@@ -117,6 +119,158 @@
     "revokeHint": "Requests using “{{name}}” will fail immediately. This cannot be undone.",
     "empty": "No API tokens yet",
     "loadFailed": "Could not load tokens: {{message}}"
+  },
+  "storage": {
+    "subtitle": "Where backups are stored. Each storage is an encrypted kopia repository whose key all its jobs share.",
+    "create": "New storage",
+    "loadFailed": "Could not load storages: {{message}}",
+    "empty": "No storage yet",
+    "emptyHint": "Add a local directory or S3-compatible storage as a destination for backups.",
+    "kind": {
+      "local": "Local directory",
+      "s3": "S3-compatible"
+    },
+    "status": {
+      "ok": "OK",
+      "wrong_key": "Wrong key",
+      "unreachable": "Unreachable"
+    },
+    "list": {
+      "name": "Name",
+      "location": "Location",
+      "key": "Encryption key",
+      "status": "Status",
+      "actions": "Actions",
+      "host": "OpsNap host",
+      "checked": "Tested {{time}}",
+      "unlock": "Unlock again",
+      "testNamed": "Test connection to {{name}}",
+      "edit": "Edit",
+      "editNamed": "Edit {{name}}",
+      "more": "More actions for {{name}}",
+      "revealKey": "View key"
+    },
+    "form": {
+      "createTitle": "New storage",
+      "editTitle": "Edit storage",
+      "hint": "The connection is tested before saving. An empty location gets a new encrypted repository; an existing kopia repository must be unlocked.",
+      "kind": "Storage type",
+      "name": "Name",
+      "path": "Directory path",
+      "pathHint": "Absolute path on the OpsNap host; a missing directory is created with mode 0700.",
+      "browse": "Browse…",
+      "endpointHint": "No https://; a port is allowed, e.g. minio.lan:9000",
+      "prefix": "Path prefix",
+      "finalLocation": "Final location: {{location}}",
+      "secretKeep": "Saved (encrypted). Leave blank to keep it",
+      "useTLS": "Use HTTPS",
+      "useTLSHint": "Off means plain HTTP; only for internal networks",
+      "skipVerify": "Skip certificate verification",
+      "skipVerifyHint": "For self-signed certificates; weakens transport security",
+      "optional": "optional",
+      "test": "Test connection",
+      "testing": "Testing…",
+      "next": "Next",
+      "nextSetKey": "Next: set encryption key",
+      "nextUnlock": "Next: unlock repository"
+    },
+    "probe": {
+      "notEmpty": "The location is not empty and is not a kopia repository. Choose an empty directory or an existing kopia repository.",
+      "sameRepository": "Connected. Saving checks that the current key still opens this repository.",
+      "notRepository": "The location is no longer a kopia repository and cannot be saved.",
+      "empty": "Connected. The location is empty; next, set its encryption key.",
+      "emptyMove": "Connected. The new location is empty; saving creates a repository there with the current key.",
+      "createdAt": " (created {{time}})",
+      "repository": "Connected. The location is already a kopia repository{{created}}; next, enter its key to unlock it.",
+      "repositoryMove": "Connected. The new location is already a kopia repository{{created}}; saving asks for its key."
+    },
+    "key": {
+      "setTitle": "Set encryption key",
+      "setHint": "This key belongs to storage \"{{name}}\" and is shared by all backup jobs that use it.",
+      "mode": "Key source",
+      "generated": "Generate (recommended)",
+      "custom": "Use my own password",
+      "label": "Key",
+      "regenerate": "Regenerate",
+      "fingerprintLine": "Fingerprint {{fingerprint}} · {{encryption}}",
+      "customPassword": "Password",
+      "customConfirm": "Repeat password",
+      "tooShort": "At least {{min}} characters",
+      "mismatch": "The passwords do not match",
+      "warning": "Save this key in a password manager or offline. OpsNap keeps an encrypted copy for scheduled jobs and restores, but if the server is lost, reinstalled or wiped, only your copy can decrypt the backups, and we cannot recover it for you.",
+      "confirmSaved": "I have saved this key and understand that losing it makes the data unrecoverable",
+      "enable": "Enable encryption",
+      "download": "Download key file"
+    },
+    "keyFile": {
+      "title": "OpsNap repository key (keep it offline)",
+      "storage": "Storage",
+      "location": "Location",
+      "fingerprint": "Fingerprint",
+      "command": "Connect to this repository with the kopia CLI (enter the key above when asked for the password):"
+    },
+    "unlock": {
+      "title": "Unlock existing repository",
+      "hint": "{{location}} already holds a kopia repository. Its key is needed to keep using it.",
+      "hintCreated": "{{location}} already holds a kopia repository (created {{time}}). Its key is needed to keep using it.",
+      "done": "Unlocked. Snapshots in the repository: {{count}}.",
+      "finish": "Done",
+      "source": "Key source",
+      "paste": "Paste key",
+      "upload": "Upload key file",
+      "chooseFile": "Choose file…",
+      "fileRead": "Read {{name}}",
+      "fileHint": "A key file exported by OpsNap, or a text file that holds only the key",
+      "wrongKey": "Wrong key: it cannot open this repository. Failed attempts in a row: {{count}}.",
+      "notice": "If this repository is not yours or its key is lost, create a new repository in an empty location instead. Existing snapshots are not deleted, but they can no longer be read.",
+      "submit": "Unlock and continue"
+    },
+    "move": {
+      "title": "Change storage location?",
+      "hint": "The location changes from {{from}} to {{to}}.",
+      "keepOld": "The repository at {{from}} is left untouched, but this storage will no longer see its snapshots.",
+      "empty": "New location empty: a repository is created there with the current key.",
+      "repository": "New location holds a kopia repository: enter that repository's key to unlock it; this storage then uses that key.",
+      "notEmpty": "New location not empty and not a kopia repository: cannot be saved.",
+      "confirm": "Confirm and continue"
+    },
+    "delete": {
+      "title": "Delete storage \"{{name}}\"?",
+      "hint": "Only this record and the key held by OpsNap are deleted. The backup data in the storage is kept.",
+      "warning": "After deletion OpsNap no longer holds its key. To add this location again you must provide the key to unlock it. Make sure you have saved the key offline.",
+      "downloadFirst": "Download key file first",
+      "needsVerify": "Requires verification",
+      "confirm": "Delete storage"
+    },
+    "reveal": {
+      "title": "View key of \"{{name}}\"",
+      "shownTitle": "Repository key of \"{{name}}\"",
+      "hint": "Verify your identity again to view the repository key.",
+      "shownHint": "This is the password of this storage's kopia repository. With it and the official kopia CLI you can open the repository outside OpsNap.",
+      "cli": "Connect with the kopia CLI and enter the key above when prompted:",
+      "password": "Current sign-in password",
+      "oidcHint": "Password sign-in is off. Verify again with {{provider}} below and return within 5 minutes to view the key.",
+      "verify": "Verify and view",
+      "reauth": "Verify with {{provider}}"
+    },
+    "picker": {
+      "title": "Choose directory",
+      "path": "Current path",
+      "up": "Up one level",
+      "dirs": "Subdirectories",
+      "noDirs": "No subdirectories here",
+      "newFolderName": "New folder name",
+      "newFolder": "New folder",
+      "selected": "Selected",
+      "choose": "Choose this directory",
+      "status": {
+        "empty": "Empty",
+        "repository": "kopia repository",
+        "not_empty": "Not empty",
+        "not_writable": "Not writable",
+        "no_access": "No access"
+      }
+    }
   },
   "oidc": {
     "error": {
