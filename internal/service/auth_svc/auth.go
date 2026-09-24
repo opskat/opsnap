@@ -70,6 +70,12 @@ type AuthSvc interface {
 	PasswordLoginEnabled(ctx context.Context) (bool, error)
 	// SetPasswordLoginEnabled 只负责保存开关；关闭的前置条件由调用方（登录方式）检查
 	SetPasswordLoginEnabled(ctx context.Context, enabled bool) error
+	// VerifyPassword 查看密钥等敏感操作前再次校验管理员密码：错误计入登录保护，锁定期间拒绝；密码登录关闭时不接受
+	VerifyPassword(ctx context.Context, password string, meta ClientMeta) error
+	// GrantReauth 会话通过 OIDC 重新验证身份后，在 reauthTTL 内获得一次敏感操作授权
+	GrantReauth(sessionID int64)
+	// ConsumeReauth 使用该会话的授权；没有或已过期时返回 false
+	ConsumeReauth(sessionID int64) bool
 }
 
 // ResetResult 命令行重置的结果
@@ -86,6 +92,8 @@ type authSvc struct {
 	guard     *loginGuard
 	mu        sync.Mutex
 	setupCode string
+	// reauth 会话 ID → OIDC 重新验证的授权过期时间，只在内存中
+	reauth map[int64]time.Time
 }
 
 var defaultAuth = newAuth()
@@ -95,7 +103,7 @@ func Auth() AuthSvc {
 }
 
 func newAuth() *authSvc {
-	return &authSvc{now: time.Now, guard: newLoginGuard()}
+	return &authSvc{now: time.Now, guard: newLoginGuard(), reauth: map[int64]time.Time{}}
 }
 
 // 设置码字母表去掉了容易混淆的 0/O、1/I/L

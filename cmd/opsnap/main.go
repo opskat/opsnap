@@ -84,8 +84,8 @@ func main() {
 		})).
 		Registry(cago.FuncComponent(initSecret)).
 		Registry(cago.FuncComponent(func(ctx context.Context, cfg *configs.Config) error {
-			// 各存储的 kopia 连接配置与缓存；删除存储时一并清理
-			storage_svc.SetKopiaDir(filepath.Join(dataDir(ctx, cfg), "kopia"))
+			// 各存储的 kopia 连接配置与缓存放在 <数据目录>/kopia，删除存储时一并清理
+			storage_svc.SetDataDir(dataDir(ctx, cfg))
 			return nil
 		})).
 		Registry(cago.FuncComponent(printSetupCode)).

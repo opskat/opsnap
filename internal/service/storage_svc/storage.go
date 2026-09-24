@@ -5,6 +5,9 @@ package storage_svc
 import (
 	"context"
 	"errors"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -16,9 +19,11 @@ import (
 
 	api "github.com/opskat/opsnap/internal/api/storage"
 	"github.com/opskat/opsnap/internal/model/entity/storage_entity"
+	"github.com/opskat/opsnap/internal/pkg/authctx"
 	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/kopiarepo"
 	"github.com/opskat/opsnap/internal/repository/storage_repo"
+	"github.com/opskat/opsnap/internal/service/auth_svc"
 	"github.com/opskat/opsnap/internal/service/secret_svc"
 )
 
@@ -39,6 +44,10 @@ type StorageSvc interface {
 	Unlock(ctx context.Context, req *api.UnlockRequest) (*api.UnlockResponse, error)
 	Delete(ctx context.Context, req *api.DeleteRequest) (*api.DeleteResponse, error)
 	Key(ctx context.Context, req *api.KeyRequest) (*api.KeyResponse, error)
+	// Reveal 再次验证身份后返回仓库密钥；调用方保证是浏览器会话
+	Reveal(ctx context.Context, req *api.RevealRequest, meta auth_svc.ClientMeta) (*api.RevealResponse, error)
+	ListDirs(ctx context.Context, req *api.ListDirsRequest) (*api.ListDirsResponse, error)
+	MakeDir(ctx context.Context, req *api.MakeDirRequest) (*api.MakeDirResponse, error)
 }
 
 type storageSvc struct {
@@ -46,6 +55,8 @@ type storageSvc struct {
 
 	mu    sync.RWMutex
 	kopia *kopiarepo.Manager
+	// browseStart 目录浏览的默认位置：数据目录的上级目录
+	browseStart string
 }
 
 var defaultStorage = &storageSvc{now: time.Now}
@@ -54,11 +65,15 @@ func Storage() StorageSvc {
 	return defaultStorage
 }
 
-// SetKopiaDir 设置各存储 kopia 配置与缓存的根目录（<数据目录>/kopia），启动时调用
-func SetKopiaDir(dir string) {
+// SetDataDir 启动时调用：各存储的 kopia 配置与缓存放在 <数据目录>/kopia，目录浏览默认打开数据目录的上级目录
+func SetDataDir(dir string) {
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
 	defaultStorage.mu.Lock()
 	defer defaultStorage.mu.Unlock()
-	defaultStorage.kopia = kopiarepo.NewManager(dir)
+	defaultStorage.kopia = kopiarepo.NewManager(filepath.Join(dir, "kopia"))
+	defaultStorage.browseStart = filepath.Dir(dir)
 }
 
 func (s *storageSvc) manager() *kopiarepo.Manager {
@@ -555,4 +570,74 @@ func (s *storageSvc) Key(_ context.Context, req *api.KeyRequest) (*api.KeyRespon
 	}
 	key = strings.TrimSpace(key)
 	return &api.KeyResponse{Key: key, Fingerprint: kopiarepo.Fingerprint(key), Encryption: kopiarepo.Encryption}, nil
+}
+
+func (s *storageSvc) Reveal(ctx context.Context, req *api.RevealRequest, meta auth_svc.ClientMeta) (*api.RevealResponse, error) {
+	p := authctx.From(ctx)
+	if p == nil || p.Via != authctx.ViaSession {
+		return nil, i18n.NewForbiddenError(ctx, code.SessionRequired)
+	}
+	st, err := s.find(ctx, req.ID)
+	if err != nil {
+		return nil, err
+	}
+	enabled, err := auth_svc.Auth().PasswordLoginEnabled(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if enabled {
+		if err := auth_svc.Auth().VerifyPassword(ctx, req.Password, meta); err != nil {
+			return nil, err
+		}
+	} else if !auth_svc.Auth().ConsumeReauth(p.SessionID) {
+		return nil, i18n.NewForbiddenError(ctx, code.StorageReauthRequired)
+	}
+	key, err := secret_svc.Secret().Decrypt(ctx, st.RepoKey)
+	if err != nil {
+		return nil, err
+	}
+	logger.Ctx(ctx).Info("查看了存储的仓库密钥", zap.Int64("storage_id", st.ID), zap.Int64("session_id", p.SessionID))
+	return &api.RevealResponse{Key: key, Fingerprint: st.Fingerprint}, nil
+}
+
+func (s *storageSvc) ListDirs(ctx context.Context, req *api.ListDirsRequest) (*api.ListDirsResponse, error) {
+	path := strings.TrimSpace(req.Path)
+	if fi, err := os.Stat(path); path == "" || !filepath.IsAbs(path) || err != nil || !fi.IsDir() {
+		s.mu.RLock()
+		path = s.browseStart
+		s.mu.RUnlock()
+	}
+	path = filepath.Clean(path)
+	dirs, err := kopiarepo.ListDirs(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrPermission) {
+			return nil, i18n.NewError(ctx, code.StorageDirNoAccess)
+		}
+		return nil, err
+	}
+	resp := &api.ListDirsResponse{Path: path, Dirs: make([]*api.Dir, 0, len(dirs))}
+	if parent := filepath.Dir(path); parent != path {
+		resp.Parent = parent
+	}
+	for _, d := range dirs {
+		resp.Dirs = append(resp.Dirs, &api.Dir{Name: d.Name, Path: d.Path, Status: string(d.Status)})
+	}
+	return resp, nil
+}
+
+func (s *storageSvc) MakeDir(ctx context.Context, req *api.MakeDirRequest) (*api.MakeDirResponse, error) {
+	path, err := kopiarepo.Mkdir(strings.TrimSpace(req.Parent), req.Name)
+	switch {
+	case err == nil:
+		return &api.MakeDirResponse{Path: path}, nil
+	case errors.Is(err, kopiarepo.ErrRelativePath):
+		return nil, i18n.NewError(ctx, code.StoragePathRelative)
+	case errors.Is(err, kopiarepo.ErrInvalidDirName):
+		return nil, i18n.NewError(ctx, code.StorageDirNameInvalid)
+	case errors.Is(err, fs.ErrExist):
+		return nil, i18n.NewError(ctx, code.StorageDirExists)
+	case errors.Is(err, fs.ErrPermission):
+		return nil, i18n.NewError(ctx, code.StorageDirNoPermission)
+	}
+	return nil, i18n.NewError(ctx, code.StorageDirCreateFailed, err.Error())
 }

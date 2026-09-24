@@ -4,7 +4,10 @@ package storage_ctr
 import (
 	"context"
 
+	"github.com/gin-gonic/gin"
+
 	api "github.com/opskat/opsnap/internal/api/storage"
+	"github.com/opskat/opsnap/internal/service/auth_svc"
 	"github.com/opskat/opsnap/internal/service/storage_svc"
 )
 
@@ -52,4 +55,20 @@ func (s *Storage) Delete(ctx context.Context, req *api.DeleteRequest) (*api.Dele
 // Key 生成密钥或计算指纹
 func (s *Storage) Key(ctx context.Context, req *api.KeyRequest) (*api.KeyResponse, error) {
 	return storage_svc.Storage().Key(ctx, req)
+}
+
+// Reveal 再次验证身份后查看密钥（仅浏览器会话）；密码错误按来源 IP 计入登录保护
+func (s *Storage) Reveal(c *gin.Context, req *api.RevealRequest) (*api.RevealResponse, error) {
+	return storage_svc.Storage().Reveal(c.Request.Context(), req,
+		auth_svc.ClientMeta{IP: c.ClientIP(), UserAgent: c.Request.UserAgent()})
+}
+
+// ListDirs 浏览本地目录（仅浏览器会话）
+func (s *Storage) ListDirs(ctx context.Context, req *api.ListDirsRequest) (*api.ListDirsResponse, error) {
+	return storage_svc.Storage().ListDirs(ctx, req)
+}
+
+// MakeDir 新建文件夹（仅浏览器会话）
+func (s *Storage) MakeDir(ctx context.Context, req *api.MakeDirRequest) (*api.MakeDirResponse, error) {
+	return storage_svc.Storage().MakeDir(ctx, req)
 }

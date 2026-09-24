@@ -29,6 +29,7 @@ const (
 	NotInitialized
 	SessionRequired
 	PasswordLoginDisabled
+	ReauthPasswordWrong
 )
 
 // API 令牌
@@ -78,6 +79,12 @@ const (
 	StorageNotRepository
 	StorageLocationChangeConfirm
 	StorageAlreadyRepository
+	StorageReauthRequired
+	StorageDirNameInvalid
+	StorageDirExists
+	StorageDirNoPermission
+	StorageDirNoAccess
+	StorageDirCreateFailed
 )
 
 func init() {

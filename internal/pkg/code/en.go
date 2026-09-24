@@ -15,6 +15,7 @@ var en = map[int]string{ //nolint:gosec // 错误文案中的 “token”“pass
 	NotInitialized:        "No administrator yet. Finish first-run setup in the web console",
 	SessionRequired:       "This action requires signing in with a browser; API tokens cannot call it",
 	PasswordLoginDisabled: "Password sign-in is disabled",
+	ReauthPasswordWrong:   "Wrong sign-in password",
 
 	TokenInvalid:       "Invalid token",
 	TokenRevoked:       "Token has been revoked",
@@ -55,4 +56,10 @@ var en = map[int]string{ //nolint:gosec // 错误文案中的 “token”“pass
 	StorageNotRepository:         "The location is not a kopia repository",
 	StorageLocationChangeConfirm: "Changing the storage location needs confirmation",
 	StorageAlreadyRepository:     "The location became a kopia repository after the test and was left untouched. Test the connection again",
+	StorageReauthRequired:        "Verify your identity first",
+	StorageDirNameInvalid:        "The folder name cannot be empty or contain /",
+	StorageDirExists:             "A folder with this name already exists",
+	StorageDirNoPermission:       "No write permission to create a folder here",
+	StorageDirNoAccess:           "No permission to open this directory",
+	StorageDirCreateFailed:       "Could not create the folder: %s",
 }

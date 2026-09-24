@@ -23,7 +23,7 @@ var (
 // Router 所有业务接口统一挂在 /api/v1 下；其余路径交给前端单页应用（见 internal/web）。分组：
 //   - public：未登录可访问，只允许 docs/specs/2026-09-23-admin-auth.md「公开接口」列出的接口
 //   - authed：浏览器会话或 API 令牌均可（业务接口默认放这里）
-//   - account：只允许浏览器会话（修改密码、令牌管理、登录方式），API 令牌返回 403
+//   - account：只允许浏览器会话（修改密码、令牌管理、登录方式、查看仓库密钥、浏览主机目录），API 令牌返回 403
 func Router(ctx context.Context, root *mux.Router) error {
 	r := root.Group("/api/v1", middleware.SameOrigin())
 
@@ -42,6 +42,7 @@ func Router(ctx context.Context, root *mux.Router) error {
 
 	account := authed.Group("/", requireSession())
 	account.Bind(auth.ChangePassword, token.List, token.Create, token.Revoke,
-		oidc.GetConfig, oidc.SaveConfig, oidc.Unbind, oidc.Bind, oidc.SetPasswordLogin)
+		oidc.GetConfig, oidc.SaveConfig, oidc.Unbind, oidc.Bind, oidc.SetPasswordLogin, oidc.Reauth,
+		storage.Reveal, storage.ListDirs, storage.MakeDir)
 	return nil
 }

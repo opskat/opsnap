@@ -36,15 +36,20 @@ import (
 	"github.com/opskat/opsnap/internal/service/token_svc"
 )
 
+const adminPassword = "correct-horse-battery"
+
 const (
 	keyA = "Abcd-Efgh-Ijkl-Mnop-Qrst-Uvwx"
 	keyB = "Zyxw-Vuts-Rqpo-Nmlk-Jihg-Fedc"
 )
 
 type env struct {
-	ctx   context.Context
-	mux   *muxtest.TestMux
-	token string // API 令牌
+	ctx       context.Context
+	mux       *muxtest.TestMux
+	token     string // API 令牌
+	session   string // 浏览器会话
+	sessionID int64
+	dataDir   string
 }
 
 func setupStorageTest(t *testing.T) *env {
@@ -56,24 +61,34 @@ func setupStorageTest(t *testing.T) *env {
 	storage_repo.RegisterStorage(storage_repo.NewStorage())
 	_, err := secret_svc.Secret().Init(ctx, secret_svc.InitOptions{DataDir: t.TempDir()})
 	require.NoError(t, err)
-	storage_svc.SetKopiaDir(t.TempDir())
+	dataDir := t.TempDir()
+	storage_svc.SetDataDir(dataDir)
 
 	setupCode, _ := auth_svc.Auth().PrepareSetupCode(ctx)
-	_, _, err = auth_svc.Auth().Setup(ctx, &authapi.SetupRequest{SetupCode: setupCode, Username: "admin", Password: "correct-horse-battery"},
+	_, issued, err := auth_svc.Auth().Setup(ctx, &authapi.SetupRequest{SetupCode: setupCode, Username: "admin", Password: adminPassword},
 		auth_svc.ClientMeta{IP: "192.0.2.1"})
+	require.NoError(t, err)
+	p, _, err := auth_svc.Auth().AuthenticateSession(ctx, issued.Token)
 	require.NoError(t, err)
 	tok, err := token_svc.Token().Create(ctx, &tokenapi.CreateRequest{Name: "ci"})
 	require.NoError(t, err)
 
 	testMux := muxtest.NewTestMux(muxtest.WithBaseUrl("http://opsnap.test/api/v1"))
 	ctr := NewStorage()
-	testMux.Group("/api/v1", middleware.SameOrigin()).Group("/", middleware.Auth()).
-		Bind(ctr.List, ctr.Probe, ctr.Create, ctr.Update, ctr.Test, ctr.Unlock, ctr.Delete, ctr.Key)
-	return &env{ctx: ctx, mux: testMux, token: tok.Token}
+	authed := testMux.Group("/api/v1", middleware.SameOrigin()).Group("/", middleware.Auth())
+	authed.Bind(ctr.List, ctr.Probe, ctr.Create, ctr.Update, ctr.Test, ctr.Unlock, ctr.Delete, ctr.Key)
+	authed.Group("/", middleware.RequireSession()).Bind(ctr.Reveal, ctr.ListDirs, ctr.MakeDir)
+	return &env{ctx: ctx, mux: testMux, token: tok.Token, session: issued.Token, sessionID: p.SessionID, dataDir: dataDir}
 }
 
+// do 用 API 令牌调用
 func (e *env) do(req, resp any) error {
 	return e.mux.Do(e.ctx, req, resp, muxclient.WithHeader(http.Header{"Authorization": {"Bearer " + e.token}}))
+}
+
+// browser 用浏览器会话调用
+func (e *env) browser(req, resp any) error {
+	return e.mux.Do(e.ctx, req, resp, muxclient.WithHeader(http.Header{"Cookie": {middleware.SessionCookie + "=" + e.session}}))
 }
 
 func errCode(err error) int {
@@ -338,4 +353,105 @@ func swapRepo(t *testing.T, ctx context.Context, dir, key string) {
 	t.Helper()
 	require.NoError(t, os.RemoveAll(dir))
 	require.NoError(t, kopiarepo.Create(ctx, kopiarepo.Location{Kind: kopiarepo.KindLocal, Path: dir}, key))
+}
+
+func TestSessionOnly(t *testing.T) {
+	convey.Convey("查看密钥与浏览目录只允许浏览器会话", t, func() {
+		e := setupStorageTest(t)
+		id := e.create(t, "a", t.TempDir(), keyA).Item.ID
+		for _, req := range []any{
+			&api.RevealRequest{ID: id, Password: adminPassword},
+			&api.ListDirsRequest{Path: "/"},
+			&api.MakeDirRequest{Parent: t.TempDir(), Name: "x"},
+		} {
+			err := e.do(req, &struct{}{})
+			assert.Equal(t, code.SessionRequired, errCode(err), "%T", req)
+		}
+	})
+}
+
+func TestReveal(t *testing.T) {
+	convey.Convey("查看密钥", t, func() {
+		e := setupStorageTest(t)
+		id := e.create(t, "a", t.TempDir(), keyA).Item.ID
+
+		convey.Convey("密码登录开启时：密码错误被拒绝，正确时返回密钥与指纹", func() {
+			err := e.browser(&api.RevealRequest{ID: id, Password: "wrong"}, &api.RevealResponse{})
+			assert.Equal(t, code.ReauthPasswordWrong, errCode(err))
+
+			resp := &api.RevealResponse{}
+			require.NoError(t, e.browser(&api.RevealRequest{ID: id, Password: adminPassword}, resp))
+			assert.Equal(t, keyA, resp.Key)
+			assert.Equal(t, kopiarepo.Fingerprint(keyA), resp.Fingerprint)
+		})
+
+		convey.Convey("密码登录关闭时：需要本会话在 5 分钟内完成 OIDC 重新验证，每次查看用掉一次", func() {
+			require.NoError(t, auth_svc.Auth().SetPasswordLoginEnabled(e.ctx, false))
+			err := e.browser(&api.RevealRequest{ID: id, Password: adminPassword}, &api.RevealResponse{})
+			assert.Equal(t, code.StorageReauthRequired, errCode(err))
+
+			auth_svc.Auth().GrantReauth(e.sessionID)
+			resp := &api.RevealResponse{}
+			require.NoError(t, e.browser(&api.RevealRequest{ID: id}, resp))
+			assert.Equal(t, keyA, resp.Key)
+
+			err = e.browser(&api.RevealRequest{ID: id}, &api.RevealResponse{})
+			assert.Equal(t, code.StorageReauthRequired, errCode(err))
+		})
+
+		convey.Convey("不存在的存储", func() {
+			err := e.browser(&api.RevealRequest{ID: 99, Password: adminPassword}, &api.RevealResponse{})
+			assert.Equal(t, code.StorageNotFound, errCode(err))
+		})
+	})
+}
+
+func TestDirs(t *testing.T) {
+	convey.Convey("浏览本地目录", t, func() {
+		e := setupStorageTest(t)
+
+		convey.Convey("未指定或路径不存在时打开数据目录的上级目录", func() {
+			for _, p := range []string{"", filepath.Join(e.dataDir, "missing", "x")} {
+				resp := &api.ListDirsResponse{}
+				require.NoError(t, e.browser(&api.ListDirsRequest{Path: p}, resp))
+				assert.Equal(t, filepath.Dir(e.dataDir), resp.Path)
+				assert.Equal(t, filepath.Dir(filepath.Dir(e.dataDir)), resp.Parent)
+				names := make([]string, 0, len(resp.Dirs))
+				for _, d := range resp.Dirs {
+					names = append(names, d.Name)
+				}
+				assert.Contains(t, names, filepath.Base(e.dataDir))
+			}
+		})
+
+		convey.Convey("列出子目录及状态；根目录没有上一级", func() {
+			root := t.TempDir()
+			require.NoError(t, os.Mkdir(filepath.Join(root, "empty"), 0o700))
+			resp := &api.ListDirsResponse{}
+			require.NoError(t, e.browser(&api.ListDirsRequest{Path: root}, resp))
+			require.Len(t, resp.Dirs, 1)
+			assert.Equal(t, "empty", resp.Dirs[0].Name)
+			assert.Equal(t, filepath.Join(root, "empty"), resp.Dirs[0].Path)
+			assert.Equal(t, "empty", resp.Dirs[0].Status)
+
+			require.NoError(t, e.browser(&api.ListDirsRequest{Path: "/"}, resp))
+			assert.Equal(t, "/", resp.Path)
+			assert.Equal(t, "", resp.Parent)
+		})
+
+		convey.Convey("新建文件夹", func() {
+			root := t.TempDir()
+			resp := &api.MakeDirResponse{}
+			require.NoError(t, e.browser(&api.MakeDirRequest{Parent: root, Name: "backups"}, resp))
+			assert.Equal(t, filepath.Join(root, "backups"), resp.Path)
+			assert.DirExists(t, resp.Path)
+
+			err := e.browser(&api.MakeDirRequest{Parent: root, Name: "backups"}, &api.MakeDirResponse{})
+			assert.Equal(t, code.StorageDirExists, errCode(err))
+			err = e.browser(&api.MakeDirRequest{Parent: root, Name: "a/b"}, &api.MakeDirResponse{})
+			assert.Equal(t, code.StorageDirNameInvalid, errCode(err))
+			err = e.browser(&api.MakeDirRequest{Parent: "relative", Name: "x"}, &api.MakeDirResponse{})
+			assert.Equal(t, code.StoragePathRelative, errCode(err))
+		})
+	})
 }

@@ -15,6 +15,7 @@ var zhCN = map[int]string{ //nolint:gosec // 错误文案中的“密码”字�
 	NotInitialized:        "尚未创建管理员，请通过网页完成首次设置",
 	SessionRequired:       "该操作只能在浏览器登录后进行，API 令牌无权调用",
 	PasswordLoginDisabled: "密码登录已关闭",
+	ReauthPasswordWrong:   "登录密码不正确",
 
 	TokenInvalid:       "令牌无效",
 	TokenRevoked:       "令牌已吊销",
@@ -55,4 +56,10 @@ var zhCN = map[int]string{ //nolint:gosec // 错误文案中的“密码”字�
 	StorageNotRepository:         "目标位置不是 kopia 仓库",
 	StorageLocationChangeConfirm: "更改存储位置需要确认",
 	StorageAlreadyRepository:     "目标位置在测试之后已变成 kopia 仓库，没有覆盖它；请重新测试连接",
+	StorageReauthRequired:        "请先验证身份",
+	StorageDirNameInvalid:        "文件夹名称不能为空，也不能包含 /",
+	StorageDirExists:             "已有同名的文件夹",
+	StorageDirNoPermission:       "没有写权限，无法在这里新建文件夹",
+	StorageDirNoAccess:           "无权访问这个目录",
+	StorageDirCreateFailed:       "新建文件夹失败：%s",
 }

@@ -151,3 +151,49 @@ type KeyResponse struct {
 	Fingerprint string `json:"fingerprint"`
 	Encryption  string `json:"encryption"`
 }
+
+// RevealRequest 查看密钥（仅浏览器会话）：密码登录开启时需提交管理员密码；
+// 关闭时需本会话在 5 分钟内完成 OIDC 再次验证（GET /auth/oidc/reauth），每次查看用掉一次
+type RevealRequest struct {
+	mux.Meta `path:"/storages/:id/reveal" method:"POST"`
+	ID       int64  `uri:"id" binding:"required"`
+	Password string `json:"password"`
+}
+
+type RevealResponse struct {
+	Key         string `json:"key"`
+	Fingerprint string `json:"fingerprint"`
+}
+
+// ListDirsRequest 浏览 OpsNap 主机上的目录（仅浏览器会话）。Path 为空或不存在时打开数据目录的上级目录
+type ListDirsRequest struct {
+	mux.Meta `path:"/storages/dirs" method:"GET"`
+	Path     string `form:"path"`
+}
+
+type ListDirsResponse struct {
+	// Path 实际打开的目录
+	Path string `json:"path"`
+	// Parent 上一级目录，已在根目录时为空
+	Parent string `json:"parent"`
+	Dirs   []*Dir `json:"dirs"`
+}
+
+// Dir 一个子目录
+type Dir struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+	// Status empty / repository / not_empty / not_writable / no_access
+	Status string `json:"status"`
+}
+
+// MakeDirRequest 在 Parent 下新建文件夹（权限 0700，仅浏览器会话）
+type MakeDirRequest struct {
+	mux.Meta `path:"/storages/dirs" method:"POST"`
+	Parent   string `json:"parent"`
+	Name     string `json:"name"`
+}
+
+type MakeDirResponse struct {
+	Path string `json:"path"`
+}

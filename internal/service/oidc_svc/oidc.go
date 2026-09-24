@@ -42,6 +42,8 @@ var defaultScopes = []string{oidc.ScopeOpenID, "profile", "email"}
 const (
 	ModeLogin = "login"
 	ModeBind  = "bind"
+	// ModeReauth 已登录的会话再次验证身份（密码登录关闭时查看密钥），成功后该会话获得一次授权
+	ModeReauth = "reauth"
 )
 
 // 回调失败的原因，前端按它显示对应文案（spec「OIDC · 登录」四类错误）
@@ -71,17 +73,21 @@ type OIDCSvc interface {
 	BeginLogin(ctx context.Context, next string) (string, error)
 	// BeginBind 返回 IdP 授权地址；已绑定时报错
 	BeginBind(ctx context.Context) (string, error)
+	// BeginReauth 当前浏览器会话再次验证身份，返回 IdP 授权地址；未绑定时报错
+	BeginReauth(ctx context.Context, next string) (string, error)
 	Callback(ctx context.Context, req *api.CallbackRequest, meta auth_svc.ClientMeta) *CallbackResult
 	// SetPasswordLogin 关闭密码登录前要求已绑定并通过 OIDC 登录过
 	SetPasswordLogin(ctx context.Context, req *api.SetPasswordLoginRequest) (*api.SetPasswordLoginResponse, error)
 }
 
 type pending struct {
-	mode     string
-	nonce    string
-	verifier string
-	next     string
-	created  time.Time
+	mode string
+	// sessionID 发起再次验证的会话，只有它获得授权
+	sessionID int64
+	nonce     string
+	verifier  string
+	next      string
+	created   time.Time
 }
 
 type oidcSvc struct {
@@ -113,9 +119,9 @@ func randomString() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
-// safeNext 只接受站内路径，防止登录后被带去其他站点。含控制字符的一律拒绝：
+// SafeNext 只接受站内路径，防止登录后被带去其他站点。含控制字符的一律拒绝：
 // 浏览器解析跳转地址时会删掉制表符与换行，"/\t/evil.com" 会变成 "//evil.com"
-func safeNext(next string) string {
+func SafeNext(next string) string {
 	if strings.ContainsFunc(next, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
 		return "/"
 	}
@@ -286,7 +292,7 @@ func (s *oidcSvc) oauthConfig(ctx context.Context, p *oidc_entity.Provider, prov
 	}, nil
 }
 
-func (s *oidcSvc) begin(ctx context.Context, mode, next string) (string, error) {
+func (s *oidcSvc) begin(ctx context.Context, mode, next string, sessionID int64) (string, error) {
 	p, err := oidc_repo.OIDC().GetProvider(ctx)
 	if err != nil {
 		return "", err
@@ -322,7 +328,7 @@ func (s *oidcSvc) begin(ctx context.Context, mode, next string) (string, error) 
 	for len(s.pending) >= maxPending {
 		s.dropOldest()
 	}
-	s.pending[state] = &pending{mode: mode, nonce: nonce, verifier: verifier, next: safeNext(next), created: now}
+	s.pending[state] = &pending{mode: mode, sessionID: sessionID, nonce: nonce, verifier: verifier, next: SafeNext(next), created: now}
 	s.mu.Unlock()
 	return cfg.AuthCodeURL(state, oidc.Nonce(nonce), oauth2.S256ChallengeOption(verifier)), nil
 }
@@ -347,7 +353,7 @@ func (s *oidcSvc) BeginLogin(ctx context.Context, next string) (string, error) {
 	if b == nil {
 		return "", i18n.NewError(ctx, code.OIDCNotConfigured)
 	}
-	return s.begin(ctx, ModeLogin, next)
+	return s.begin(ctx, ModeLogin, next, 0)
 }
 
 func (s *oidcSvc) BeginBind(ctx context.Context) (string, error) {
@@ -361,7 +367,22 @@ func (s *oidcSvc) BeginBind(ctx context.Context) (string, error) {
 	if b != nil {
 		return "", i18n.NewError(ctx, code.OIDCAlreadyBound)
 	}
-	return s.begin(ctx, ModeBind, "/settings")
+	return s.begin(ctx, ModeBind, "/settings", 0)
+}
+
+func (s *oidcSvc) BeginReauth(ctx context.Context, next string) (string, error) {
+	p := authctx.From(ctx)
+	if p == nil || p.Via != authctx.ViaSession {
+		return "", i18n.NewForbiddenError(ctx, code.SessionRequired)
+	}
+	b, err := oidc_repo.OIDC().GetBinding(ctx)
+	if err != nil {
+		return "", err
+	}
+	if b == nil {
+		return "", i18n.NewError(ctx, code.OIDCNotConfigured)
+	}
+	return s.begin(ctx, ModeReauth, next, p.SessionID)
 }
 
 func (s *oidcSvc) take(state string) *pending {
@@ -465,6 +486,10 @@ func (s *oidcSvc) Callback(ctx context.Context, req *api.CallbackRequest, meta a
 	}
 	if !binding.Matches(idToken.Issuer, idToken.Subject) {
 		return fail(ErrNotBound, nil)
+	}
+	if pend.mode == ModeReauth {
+		auth_svc.Auth().GrantReauth(pend.sessionID)
+		return res
 	}
 	binding.LastLoginAt = now
 	if err := oidc_repo.OIDC().SaveBinding(ctx, binding); err != nil {
