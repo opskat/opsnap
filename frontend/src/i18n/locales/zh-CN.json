@@ -28,6 +28,11 @@
     "copy": "复制",
     "copied": "已复制"
   },
+  "time": {
+    "justNow": "刚刚",
+    "minutesAgo": "{{count}} 分钟前",
+    "hoursAgo": "{{count}} 小时前"
+  },
   "overview": {
     "subtitle": "所有备份与同步任务的运行状态",
     "systemStatus": "系统状态",
@@ -106,9 +111,6 @@
     "expiresAt": "过期时间",
     "actions": "操作",
     "neverUsed": "从未使用",
-    "justNow": "刚刚",
-    "minutesAgo": "{{count}} 分钟前",
-    "hoursAgo": "{{count}} 小时前",
     "expired": "已过期",
     "revoked": "已吊销",
     "revoke": "吊销",
@@ -117,6 +119,129 @@
     "revokeHint": "吊销「{{name}}」后，使用它的请求会立即失败。此操作不能撤销。",
     "empty": "还没有 API 令牌",
     "loadFailed": "无法加载令牌列表：{{message}}"
+  },
+  "storage": {
+    "subtitle": "备份数据存放的位置。每个存储对应一个加密的 kopia 仓库，存储下的所有任务共用它的密钥。",
+    "create": "新建存储",
+    "loadFailed": "无法加载存储列表：{{message}}",
+    "empty": "还没有存储",
+    "emptyHint": "新建一个本地目录或 S3 兼容存储，作为备份数据的目的地。",
+    "kind": {
+      "local": "本地目录",
+      "s3": "S3 兼容存储"
+    },
+    "status": {
+      "ok": "正常",
+      "wrong_key": "密钥不正确",
+      "unreachable": "无法连接"
+    },
+    "list": {
+      "name": "名称",
+      "location": "位置",
+      "key": "加密密钥",
+      "status": "状态",
+      "actions": "操作",
+      "host": "OpsNap 主机",
+      "checked": "{{time}}测试",
+      "unlock": "重新解锁",
+      "testNamed": "测试连接 {{name}}",
+      "edit": "编辑",
+      "editNamed": "编辑 {{name}}",
+      "more": "{{name}} 的更多操作",
+      "revealKey": "查看密钥"
+    },
+    "form": {
+      "createTitle": "新建存储",
+      "editTitle": "编辑存储",
+      "hint": "保存前会测试连接，并检查目标位置：为空则新建加密仓库，已有 kopia 仓库则需要解锁。",
+      "kind": "存储类型",
+      "name": "名称",
+      "path": "目录路径",
+      "pathHint": "OpsNap 主机上的绝对路径；目录不存在时会自动创建（权限 0700）。",
+      "browse": "浏览…",
+      "endpointHint": "不含 https://，可带端口，如 minio.lan:9000",
+      "prefix": "路径前缀",
+      "finalLocation": "最终位置：{{location}}",
+      "secretKeep": "已保存（加密存储），留空表示不修改",
+      "useTLS": "使用 HTTPS",
+      "useTLSHint": "关闭后以明文 HTTP 连接，仅建议在内网使用",
+      "skipVerify": "跳过证书校验",
+      "skipVerifyHint": "用于自签名证书；会降低传输安全性",
+      "optional": "可选",
+      "test": "测试连接",
+      "testing": "测试中…",
+      "next": "下一步",
+      "nextSetKey": "下一步：设置加密密钥",
+      "nextUnlock": "下一步：解锁仓库"
+    },
+    "probe": {
+      "notEmpty": "目标位置不为空，且不是 kopia 仓库。请换一个空目录，或指向已有的 kopia 仓库。",
+      "sameRepository": "连接成功。保存时会确认当前密钥仍能打开这个仓库。",
+      "notRepository": "目标位置已不是 kopia 仓库，无法保存。",
+      "empty": "连接成功，目标位置为空。下一步为它设置加密密钥。",
+      "emptyMove": "连接成功，新位置为空。保存后会用当前密钥在新位置新建仓库。",
+      "createdAt": "（创建于 {{time}}）",
+      "repository": "连接成功，目标位置已是 kopia 仓库{{created}}。下一步需要输入它的密钥解锁。",
+      "repositoryMove": "连接成功，新位置已是 kopia 仓库{{created}}。保存时需要输入它的密钥解锁。"
+    },
+    "key": {
+      "setTitle": "设置加密密钥",
+      "setHint": "这把密钥属于存储「{{name}}」，该存储下的所有备份任务共用它。",
+      "mode": "密钥来源",
+      "generated": "系统生成（推荐）",
+      "custom": "我自己设密码",
+      "label": "密钥",
+      "regenerate": "重新生成",
+      "fingerprintLine": "指纹 {{fingerprint}} · {{encryption}}",
+      "customPassword": "密码",
+      "customConfirm": "再次输入密码",
+      "tooShort": "至少 {{min}} 个字符",
+      "mismatch": "两次输入不一致",
+      "warning": "请把密钥另存到密码管理器或离线介质。OpsNap 会加密保存一份用于定时任务和恢复，但服务器损坏、重装或被清空后，只有你手上的这份能解开备份，我们也无法帮你找回。",
+      "confirmSaved": "我已保存这把密钥，并明白丢失后数据无法恢复",
+      "enable": "启用加密",
+      "download": "下载密钥文件"
+    },
+    "keyFile": {
+      "title": "OpsNap 仓库密钥（请离线保存）",
+      "storage": "存储",
+      "location": "位置",
+      "fingerprint": "指纹",
+      "command": "用 kopia 命令行连接这个仓库（提示输入密码时填写上面的密钥）："
+    },
+    "unlock": {
+      "title": "解锁已有仓库",
+      "hint": "{{location}} 里已经有一个 kopia 仓库，需要它的密钥才能继续使用。",
+      "hintCreated": "{{location}} 里已经有一个 kopia 仓库（创建于 {{time}}），需要它的密钥才能继续使用。",
+      "done": "已解锁，仓库中有 {{count}} 个快照。",
+      "finish": "完成",
+      "source": "密钥来源",
+      "paste": "粘贴密钥",
+      "upload": "上传密钥文件",
+      "chooseFile": "选择文件…",
+      "fileRead": "已读取 {{name}}",
+      "fileHint": "OpsNap 导出的密钥文件，或只含密钥的文本文件",
+      "wrongKey": "密钥不正确，无法解开这个仓库。已连续 {{count}} 次失败。",
+      "notice": "如果这个仓库不是你的，或者密钥已经丢失，可以换一个空的位置新建仓库；已有的快照不会被删除，但无法再读取。",
+      "submit": "解锁并继续"
+    },
+    "move": {
+      "title": "更改存储位置？",
+      "hint": "位置从 {{from}} 改为 {{to}}。",
+      "keepOld": "原位置 {{from}} 的仓库保持不动，但此存储之后看不到其中的快照。",
+      "empty": "新位置为空：用当前密钥在新位置新建仓库。",
+      "repository": "新位置已有 kopia 仓库：需要输入那个仓库的密钥解锁，之后此存储改用该密钥。",
+      "notEmpty": "新位置不为空且不是 kopia 仓库：无法保存。",
+      "confirm": "确认并继续"
+    },
+    "delete": {
+      "title": "删除存储「{{name}}」？",
+      "hint": "只会删除 OpsNap 中的这条记录和托管的密钥，存储里的备份数据不会被删除。",
+      "warning": "删除后 OpsNap 不再保存它的密钥。以后想重新添加这个位置，必须提供密钥才能解锁。请先确认你已离线保存密钥。",
+      "downloadFirst": "先下载密钥文件",
+      "needsVerify": "需要验证身份",
+      "confirm": "删除存储"
+    }
   },
   "oidc": {
     "error": {

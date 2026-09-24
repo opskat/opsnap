@@ -14,6 +14,11 @@ export const ErrorCode = {
   TokenNameInvalid: 10203,
   TokenNameDuplicate: 10204,
   OIDCResetConfirmRequired: 10304,
+  StorageNameInvalid: 10401,
+  StorageNameDuplicate: 10402,
+  StoragePathRelative: 10403,
+  StorageEndpointScheme: 10405,
+  StorageKeyInvalid: 10417,
 } as const;
 
 export const MIN_PASSWORD_LENGTH = 12;

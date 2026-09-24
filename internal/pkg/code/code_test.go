@@ -37,6 +37,11 @@ func TestFrontendErrorCodesInSync(t *testing.T) {
 		"TokenNameInvalid":         TokenNameInvalid,
 		"TokenNameDuplicate":       TokenNameDuplicate,
 		"OIDCResetConfirmRequired": OIDCResetConfirmRequired,
+		"StorageNameInvalid":       StorageNameInvalid,
+		"StorageNameDuplicate":     StorageNameDuplicate,
+		"StoragePathRelative":      StoragePathRelative,
+		"StorageEndpointScheme":    StorageEndpointScheme,
+		"StorageKeyInvalid":        StorageKeyInvalid,
 	}
 	src, err := os.ReadFile("../../../frontend/src/lib/auth.ts")
 	require.NoError(t, err)

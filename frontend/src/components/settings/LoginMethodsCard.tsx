@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router";
 
+import { Switch } from "@/components/form/Switch";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -14,7 +15,6 @@ import {
 } from "@/components/ui/dialog";
 import { OIDC_BIND_URL, getOidcConfig, setPasswordLogin, unbindOidc, type OidcConfig } from "@/lib/oidc";
 import { useOidcErrorMessage } from "@/lib/useOidcError";
-import { cn } from "@/lib/utils";
 
 import { OidcConfigDialog } from "./OidcConfigDialog";
 import { SettingsCard, SettingsRow } from "./SettingsCard";
@@ -197,20 +197,12 @@ export function LoginMethodsCard() {
         {config && (
           <SettingsRow label={t("oidc.passwordLogin")}>
             <span className="flex items-center gap-2.5">
-              <button
-                type="button"
-                role="switch"
-                aria-checked={config.password_login}
+              <Switch
+                checked={config.password_login}
                 aria-label={t("oidc.passwordLogin")}
                 disabled={config.password_login && !config.can_disable_password_login}
-                onClick={() => (config.password_login ? setDisabling(true) : void togglePasswordLogin(true))}
-                className={cn(
-                  "flex h-4.5 w-8 shrink-0 items-center rounded-full p-0.5 transition-colors disabled:opacity-50",
-                  config.password_login ? "justify-end bg-primary" : "justify-start bg-track"
-                )}
-              >
-                <span className="size-3.5 rounded-full bg-primary-foreground" />
-              </button>
+                onCheckedChange={(on) => (on ? void togglePasswordLogin(true) : setDisabling(true))}
+              />
               <span className="text-muted-foreground">
                 {!config.password_login
                   ? t("oidc.passwordLoginOff")

@@ -8,6 +8,7 @@ import { LoginPage } from "@/pages/LoginPage";
 import { OverviewPage } from "@/pages/OverviewPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { SetupPage } from "@/pages/SetupPage";
+import { StoragePage } from "@/pages/StoragePage";
 
 const router = createBrowserRouter([
   { path: "/setup", element: <SetupPage /> },
@@ -20,8 +21,9 @@ const router = createBrowserRouter([
         children: [
           { index: true, element: <OverviewPage /> },
           { path: "/settings", element: <SettingsPage /> },
+          { path: "/storage", element: <StoragePage /> },
           ...[...mainNav, ...systemNav]
-            .filter((item) => item.path !== "/" && item.path !== "/settings")
+            .filter((item) => !["/", "/settings", "/storage"].includes(item.path))
             .map((item) => ({ path: item.path, element: <ComingSoonPage title={item.label} /> })),
         ],
       },
