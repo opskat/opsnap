@@ -18,6 +18,7 @@ import { kopiaConnectCommand, locationOf, reauthURL, revealKey, type Storage } f
 
 import { KeyActions } from "./KeyActions";
 import { useDownloadKeyFile } from "./useDownloadKeyFile";
+import { useRetained } from "./useRetained";
 
 /** view：查看密钥；download：验证后直接下载密钥文件 */
 export type RevealIntent = "view" | "download";
@@ -45,7 +46,7 @@ export function ViewKeyDialog({ request, onClose }: { request?: RevealRequest; o
   const started = useRef<string>(undefined);
   // 每次关闭加一：关闭前发出的请求迟到时丢弃结果，不显示在下一次打开的对话框中
   const session = useRef(0);
-  const storage = request?.storage;
+  const storage = useRetained(request?.storage);
   const downloadKeyFile = useDownloadKeyFile();
 
   const onRevealed = (req: RevealRequest, res: { key: string; fingerprint: string }) => {

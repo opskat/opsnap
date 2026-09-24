@@ -19,6 +19,7 @@ import { createStorage, keyInfo, MIN_KEY_LENGTH, type KeyInfo, type Storage } fr
 
 import { KeyActions } from "./KeyActions";
 import type { StorageDraft } from "./StorageFormDialog";
+import { useRetained } from "./useRetained";
 
 type Mode = "generated" | "custom";
 
@@ -48,6 +49,7 @@ export function SetKeyDialog({
   const [submitting, setSubmitting] = useState(false);
   const [generation, setGeneration] = useState(0);
   const open = draft !== undefined;
+  const shown = useRetained(draft);
 
   useEffect(() => {
     if (!open) return;
@@ -117,7 +119,7 @@ export function SetKeyDialog({
       <DialogContent className="gap-0 bg-card p-0 sm:max-w-lg">
         <DialogHeader className="gap-1.5 border-b px-5 py-4 text-left">
           <DialogTitle>{t("storage.key.setTitle")}</DialogTitle>
-          <DialogDescription>{t("storage.key.setHint", { name: draft?.name ?? "" })}</DialogDescription>
+          <DialogDescription>{t("storage.key.setHint", { name: shown?.name ?? "" })}</DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-4 p-5">
           <Segmented
@@ -137,11 +139,11 @@ export function SetKeyDialog({
               <code aria-label={t("storage.key.label")} className="font-mono text-md break-all">
                 {generated?.key ?? t("common.loading")}
               </code>
-              {generated && draft && (
+              {generated && shown && (
                 <div className="flex flex-wrap gap-2">
                   <KeyActions
-                    name={draft.name}
-                    location={draft.location}
+                    name={shown.name}
+                    location={shown.location}
                     keyText={generated.key}
                     fingerprint={generated.fingerprint}
                   />

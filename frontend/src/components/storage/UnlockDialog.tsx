@@ -18,6 +18,8 @@ import { ErrorCode } from "@/lib/auth";
 import { formatDateTime } from "@/lib/format";
 import { parseKeyFile } from "@/lib/storage";
 
+import { useRetained } from "./useRetained";
+
 type Source = "paste" | "file";
 
 export interface UnlockTarget {
@@ -51,6 +53,7 @@ export function UnlockDialog({
   const [submitting, setSubmitting] = useState(false);
   const [snapshots, setSnapshots] = useState<number>();
   const fileInput = useRef<HTMLInputElement>(null);
+  const shown = useRetained(target);
 
   const reset = () => {
     setSource("paste");
@@ -100,9 +103,9 @@ export function UnlockDialog({
         <DialogHeader className="gap-1.5 border-b px-5 py-4 text-left">
           <DialogTitle>{t("storage.unlock.title")}</DialogTitle>
           <DialogDescription>
-            {target?.createdAt
-              ? t("storage.unlock.hintCreated", { location: target.location, time: formatDateTime(target.createdAt) })
-              : t("storage.unlock.hint", { location: target?.location ?? "" })}
+            {shown?.createdAt
+              ? t("storage.unlock.hintCreated", { location: shown.location, time: formatDateTime(shown.createdAt) })
+              : t("storage.unlock.hint", { location: shown?.location ?? "" })}
           </DialogDescription>
         </DialogHeader>
         {snapshots !== undefined ? (

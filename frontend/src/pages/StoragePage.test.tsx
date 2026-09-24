@@ -90,6 +90,25 @@ function renderPage(entry = "/storage") {
   );
 }
 
+/**
+ * 执行关闭对话框的操作，返回对话框卸载前出现过的所有文本。
+ * jsdom 没有退场动画，对话框随即卸载，只能从 DOM 变化记录中看到关闭过程中的中间内容。
+ */
+async function textsWhileClosing(close: () => Promise<void>) {
+  const texts: string[] = [];
+  const observer = new MutationObserver((records) =>
+    records.forEach((r) => {
+      if (r.type === "characterData") texts.push(r.target.textContent ?? "");
+      r.addedNodes.forEach((n) => texts.push(n.textContent ?? ""));
+    })
+  );
+  observer.observe(document.body, { subtree: true, childList: true, characterData: true });
+  await close();
+  await vi.waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  observer.disconnect();
+  return texts;
+}
+
 async function openCreate() {
   await userEvent.click((await screen.findAllByRole("button", { name: "新建存储" }))[0]);
   return screen.findByRole("dialog", { name: "新建存储" });
@@ -474,6 +493,25 @@ describe("存储页 · 编辑与删除", () => {
       method: "PUT",
       body: { confirm_location_change: false },
     });
+  });
+
+  it("关闭对话框的过程中内容保持不变：编辑不闪现“新建存储”，删除不闪现空名称", async () => {
+    respond(ok({ items: [base] }));
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "编辑 本地备份盘" }));
+    const edit = await screen.findByRole("dialog", { name: "编辑存储" });
+    const whileClosingEdit = await textsWhileClosing(() =>
+      userEvent.click(within(edit).getByRole("button", { name: "取消" }))
+    );
+    expect(whileClosingEdit).not.toContain("新建存储");
+
+    await userEvent.click(screen.getByRole("button", { name: "本地备份盘 的更多操作" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "删除存储" }));
+    const del = await screen.findByRole("dialog", { name: "删除存储「本地备份盘」？" });
+    const whileClosingDelete = await textsWhileClosing(() =>
+      userEvent.click(within(del).getByRole("button", { name: "取消" }))
+    );
+    expect(whileClosingDelete.join("\n")).not.toContain("「」");
   });
 
   it("位置变了：先确认，新位置为空时用当前密钥保存", async () => {

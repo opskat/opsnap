@@ -13,6 +13,8 @@ import {
 } from "@/components/ui/dialog";
 import { deleteStorage, type Storage } from "@/lib/storage";
 
+import { useRetained } from "./useRetained";
+
 /** 更改存储位置前的二次确认：原位置的仓库保持不动，按新位置的情况继续 */
 export function ChangeLocationDialog({
   change,
@@ -30,17 +32,18 @@ export function ChangeLocationDialog({
   onConfirm: () => void;
 }) {
   const { t } = useTranslation();
+  const shown = useRetained(change);
   return (
     <Dialog open={change !== undefined} onOpenChange={(next) => !next && !busy && onCancel()}>
       <DialogContent className="gap-0 bg-card p-0 sm:max-w-lg">
         <DialogHeader className="gap-1.5 border-b px-5 py-4 text-left">
           <DialogTitle>{t("storage.move.title")}</DialogTitle>
           <DialogDescription>
-            {t("storage.move.hint", { from: change?.from ?? "", to: change?.to ?? "" })}
+            {t("storage.move.hint", { from: shown?.from ?? "", to: shown?.to ?? "" })}
           </DialogDescription>
         </DialogHeader>
         <ul className="flex flex-col gap-2.5 p-5 text-sm">
-          <Line icon={<Archive />}>{t("storage.move.keepOld", { from: change?.from ?? "" })}</Line>
+          <Line icon={<Archive />}>{t("storage.move.keepOld", { from: shown?.from ?? "" })}</Line>
           <Line icon={<FolderPlus />}>{t("storage.move.empty")}</Line>
           <Line icon={<Lock />}>{t("storage.move.repository")}</Line>
           <Line icon={<Ban />}>{t("storage.move.notEmpty")}</Line>
@@ -88,6 +91,7 @@ export function DeleteStorageDialog({
   const { t } = useTranslation();
   const [error, setError] = useState<string>();
   const [deleting, setDeleting] = useState(false);
+  const shown = useRetained(storage);
 
   const cancel = () => {
     setError(undefined);
@@ -112,7 +116,7 @@ export function DeleteStorageDialog({
     <Dialog open={storage !== undefined} onOpenChange={(next) => !next && !deleting && cancel()}>
       <DialogContent className="gap-0 bg-card p-0 sm:max-w-md">
         <DialogHeader className="gap-1.5 border-b px-5 py-4 text-left">
-          <DialogTitle>{t("storage.delete.title", { name: storage?.name ?? "" })}</DialogTitle>
+          <DialogTitle>{t("storage.delete.title", { name: shown?.name ?? "" })}</DialogTitle>
           <DialogDescription>{t("storage.delete.hint")}</DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-3 p-5">
@@ -120,9 +124,9 @@ export function DeleteStorageDialog({
             <TriangleAlert className="mt-0.5 size-4 shrink-0" />
             {t("storage.delete.warning")}
           </p>
-          {downloadKey && storage && (
+          {downloadKey && shown && (
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={() => downloadKey(storage)}>
+              <Button variant="outline" size="sm" onClick={() => downloadKey(shown)}>
                 {t("storage.delete.downloadFirst")}
               </Button>
               <span className="text-xs text-faint-foreground">{t("storage.delete.needsVerify")}</span>

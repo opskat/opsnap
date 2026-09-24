@@ -101,7 +101,7 @@ func Create(ctx context.Context, loc Location, password string) error {
 }
 
 // Verify 用密钥以只读方式连接并打开仓库，返回其中的快照数。仓库本身不做任何改动。
-// id 为存储 ID，连接配置保存在该存储的目录下，同一存储的校验依次进行；
+// id 为存储 ID，连接配置临时放在该存储的目录下、校验结束即删除，同一存储的校验依次进行；
 // id 为 0 时用一次性目录，用完即删（新建存储尚未保存时）。
 func (m *Manager) Verify(ctx context.Context, id int64, loc Location, password string) (int, error) {
 	var dir string
@@ -127,6 +127,8 @@ func (m *Manager) Verify(ctx context.Context, id int64, loc Location, password s
 	if err := os.Remove(cfg); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return 0, err
 	}
+	// 连接配置里有明文的存储凭据（如 S3 Secret Key），用完即删，不留在磁盘上
+	defer func() { _ = os.Remove(cfg) }()
 
 	st, err := openStorage(ctx, loc, false)
 	if err != nil {

@@ -2,6 +2,7 @@ package kopiarepo
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -88,7 +89,23 @@ func TestCreateAndVerifyLocal(t *testing.T) {
 		n, err := m.Verify(ctx, 1, localAt(dir), testKey)
 		require.NoError(t, err)
 		assert.Equal(t, 0, n)
-		assert.DirExists(t, filepath.Join(m.root, "1"))
+	})
+
+	t.Run("校验后本机不留下连接配置（S3 时其中含明文 Secret Key）", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, Create(ctx, localAt(dir), testKey))
+		_, err := m.Verify(ctx, 7, localAt(dir), testKey)
+		require.NoError(t, err)
+		_, err = m.Verify(ctx, 7, localAt(dir), "wrong-key-wrong-key")
+		require.ErrorIs(t, err, ErrInvalidPassword)
+		var left []string
+		require.NoError(t, filepath.WalkDir(m.root, func(p string, d fs.DirEntry, err error) error {
+			if err == nil && !d.IsDir() {
+				left = append(left, p)
+			}
+			return err
+		}))
+		assert.Empty(t, left)
 	})
 
 	t.Run("错误密钥返回 ErrInvalidPassword", func(t *testing.T) {

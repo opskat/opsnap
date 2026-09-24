@@ -42,7 +42,9 @@ export function StoragePage() {
   const { t } = useTranslation();
   const [state, setState] = useState<State>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
-  const [form, setForm] = useState<{ editing?: Storage }>();
+  // 表单内容与开关分开：关闭时保留内容，退场动画期间不会变成“新建存储”
+  const [form, setForm] = useState<{ editing?: Storage }>({});
+  const [formOpen, setFormOpen] = useState(false);
   const [formKey, setFormKey] = useState(0);
   const [setKeyDraft, setSetKeyDraft] = useState<StorageDraft>();
   const [unlock, setUnlock] = useState<UnlockTarget>();
@@ -85,6 +87,7 @@ export function StoragePage() {
   const openForm = (editing?: Storage) => {
     setFormKey((n) => n + 1);
     setForm({ editing });
+    setFormOpen(true);
   };
 
   const createUnlock = (draft: StorageDraft, probe: ProbeResult): UnlockTarget => ({
@@ -108,8 +111,8 @@ export function StoragePage() {
 
   // 新建：空位置设置密钥；已有仓库解锁
   const next = (draft: StorageDraft, probe: ProbeResult) => {
-    const editing = form?.editing;
-    setForm(undefined);
+    const editing = form.editing;
+    setFormOpen(false);
     if (editing) {
       setMoveError(undefined);
       setMove({ storage: editing, draft, probe });
@@ -253,13 +256,13 @@ export function StoragePage() {
 
       <StorageFormDialog
         key={formKey}
-        open={form !== undefined}
-        editing={form?.editing}
-        onOpenChange={(open) => !open && setForm(undefined)}
+        open={formOpen}
+        editing={form.editing}
+        onOpenChange={setFormOpen}
         onNext={next}
         onSaved={(item) => {
           replace(item);
-          setForm(undefined);
+          setFormOpen(false);
         }}
         browse={(start, pick) => setPicker({ start, pick })}
       />
