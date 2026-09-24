@@ -4,12 +4,18 @@ go 1.26.0
 
 require (
 	github.com/cago-frame/cago v0.0.0-20260904093313-91f5dd45559c
+	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/gin-gonic/gin v1.12.0
+	github.com/glebarez/sqlite v1.11.0
 	github.com/go-gormigrate/gormigrate/v2 v2.1.6
+	github.com/go-jose/go-jose/v4 v4.1.5
 	github.com/smartystreets/goconvey v1.8.1
 	github.com/stretchr/testify v1.11.1
 	go.uber.org/mock v0.6.0
 	go.uber.org/zap v1.28.0
+	golang.org/x/crypto v0.54.0
+	golang.org/x/oauth2 v0.37.0
+	golang.org/x/term v0.45.0
 	gorm.io/gorm v1.31.2
 )
 
@@ -35,7 +41,6 @@ require (
 	github.com/gabriel-vasile/mimetype v1.4.13 // indirect
 	github.com/gin-contrib/sse v1.1.1 // indirect
 	github.com/glebarez/go-sqlite v1.22.0 // indirect
-	github.com/glebarez/sqlite v1.11.0 // indirect
 	github.com/go-faster/city v1.0.1 // indirect
 	github.com/go-faster/errors v0.7.1 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
@@ -130,7 +135,6 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/arch v0.29.0 // indirect
-	golang.org/x/crypto v0.54.0 // indirect
 	golang.org/x/mod v0.38.0 // indirect
 	golang.org/x/net v0.57.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect

@@ -3,7 +3,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X github.com/cago-frame/cago/configs.Version=$(VERSION)
 BIN := bin/opsnap
 
-.PHONY: install dev-server dev-web build build-web build-server generate lint lint-fix test test-cover e2e verify clean
+.PHONY: install dev-server dev-web build build-web build-server build-fakeidp generate lint lint-fix test test-cover e2e verify clean
 
 install: ## 安装前端依赖与 e2e 浏览器
 	pnpm -C frontend install --frozen-lockfile
@@ -48,7 +48,10 @@ test-cover:
 	go test -coverprofile=coverage.out ./...
 	go tool cover -func=coverage.out | tail -1
 
-e2e: build ## 冒烟 e2e：临时目录 + 专用端口启动 bin/opsnap，用 Playwright 驱动
+build-fakeidp:
+	CGO_ENABLED=0 go build -trimpath -o bin/fakeidp ./tools/fakeidp
+
+e2e: build build-fakeidp ## 冒烟 e2e：临时目录 + 专用端口启动 bin/opsnap 与假 OIDC 提供方，用 Playwright 驱动
 	pnpm -C e2e test
 
 verify: lint test e2e ## 提交前的完整验证

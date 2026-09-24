@@ -6,6 +6,9 @@ debug: true
 http:
   address:
     - "127.0.0.1:8210"
+  # 反向代理的地址（IP 或 CIDR）。只有来自这些地址的请求才采用 X-Forwarded-For 作为客户端 IP，
+  # 登录限速按客户端 IP 计算；留空表示不信任任何代理
+  trustedProxies: []
 
 logger:
   level: info

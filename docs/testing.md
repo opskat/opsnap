@@ -37,7 +37,7 @@ Do not multiply ordinary samples down the same branch. A bug regression test sta
 ## Assertions, mocks and fixtures
 
 - Assert returned, rendered, persisted or emitted behaviour. Assert a collaborator call only when that call is the contract.
-- Go: repositories are mocked with `go.uber.org/mock` (generated into `internal/repository/*/mock/`) and registered with `RegisterXxx` inside `setupXxxTest`. Structure scenarios with GoConvey (`convey.Convey` nesting) and assert with testify. For database-level tests use cago's `testutils.Database(t)` (sqlmock).
+- Go: repositories are mocked with `go.uber.org/mock` (generated into `internal/repository/*/mock/`) and registered with `RegisterXxx` inside `setupXxxTest`. Structure scenarios with GoConvey (`convey.Convey` nesting) and assert with testify. For service and repository tests against real SQLite, call `testdb.New(t)` (`internal/pkg/testdb`): it creates a temporary database, runs every migration and sets it as cago's default database (see `internal/service/secret_svc/secret_test.go`). OIDC tests use the in-process fake provider `internal/pkg/fakeidp` (`httptest` server; `SetNext` injects cancellation, wrong audience or nonce, expired tokens).
 - Frontend: stub HTTP with `vi.stubGlobal("fetch", ...)`, which works because every request goes through `request()`. Assert what the page shows, not what the mock returned.
 - Keep fixtures minimal and able to tell right from wrong.
 

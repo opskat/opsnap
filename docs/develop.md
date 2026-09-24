@@ -38,6 +38,8 @@ internal/
   controller/          controllers that only forward, <name>_ctr/
   service/             business logic: interface + singleton getter, <name>_svc/
   repository/          data access: interface + Register/getter, <name>_repo/, mocks in mock/
+  middleware/          global Gin middleware (request language)
+  pkg/                 shared helpers: code/ (error codes + zh/en text), secret/ (master key, AES-GCM), testdb/ (SQLite for tests)
   web/                 embedded frontend (dist/ is build output; only .gitkeep is tracked)
   archtest/            layering guard tests
 migrations/            metadata database migrations (append-only)
@@ -59,6 +61,7 @@ docs/                  contributor docs and specs
 
 | Rule | Correct form | Gate and exemption |
 |---|---|---|
+| Every non-public endpoint requires sign-in; account endpoints reject API tokens | bind business endpoints in the `authed` group and account endpoints (password, tokens, sign-in methods) in `account` in `internal/api/router.go`; public or session-only endpoints must be listed in the spec first | `internal/api/router_test.go` (sentinel middlewares); the public and session-only lists live in that test |
 | Controllers do not import repositories | call the matching service | `internal/archtest`; exempt: `*_test.go` (tests register mock repositories) |
 | Services and repositories do not import upper layers | controller → service → repository | `internal/archtest` |
 | `internal/api` holds only request/response types | register routes in `internal/api/router.go` | `internal/archtest`; exempt: `internal/api/router.go` |
@@ -71,6 +74,7 @@ docs/                  contributor docs and specs
 | No arbitrary font sizes | type scale ([`design.md`](design.md#typography)) | ESLint `opsnap/no-arbitrary-font-size`; exempt: test files |
 | No `dark:` variants in app code | put theme differences in token values | ESLint `opsnap/no-dark-variant`; exempt: `src/components/ui/**` (shadcn output), test files |
 | No Chinese literals in JSX | `t("key")` with entries in `frontend/src/i18n/locales/*.json` | ESLint `i18next/no-literal-string` (text and visible attributes containing Han characters); exempt: test files |
+| Frontend error codes match the backend | copy the number from `internal/pkg/code` into `ErrorCode` in `frontend/src/lib/auth.ts` and add the name to the test's map | `internal/pkg/code/code_test.go` `TestFrontendErrorCodesInSync` |
 | Locale files agree; literal `t("a.b")` keys exist | edit `zh-CN.json` and `en.json` together | `frontend/scripts/check-i18n.mjs` (part of `pnpm lint`) |
 | No direct `fetch` | `request()` in `frontend/src/lib/api.ts` | ESLint `no-restricted-globals`; exempt: `src/lib/api.ts`, test files |
 | React 19 APIs | `ref` as a prop, `<Context value>`, `use(Context)` | ESLint `react-x/no-forward-ref`, `no-context-provider`, `no-use-context` |
@@ -78,6 +82,7 @@ docs/                  contributor docs and specs
 Guard tests run each rule through the real configuration and assert that violations are reported while compliant and exempt code is not:
 
 - Go layering: `internal/archtest/archtest_test.go`
+- Authenticated routes: `internal/api/router_test.go`
 - ESLint: `frontend/src/__tests__/eslint-harness.test.ts`
 - i18n key check: `frontend/scripts/check-i18n.test.mjs`
 

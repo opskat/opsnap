@@ -1,18 +1,30 @@
 import { createBrowserRouter, RouterProvider } from "react-router";
 
+import { AuthGate } from "@/components/auth/AuthGate";
 import { AppShell } from "@/components/layout/AppShell";
 import { mainNav, systemNav } from "@/components/layout/nav";
 import { ComingSoonPage } from "@/pages/ComingSoonPage";
+import { LoginPage } from "@/pages/LoginPage";
 import { OverviewPage } from "@/pages/OverviewPage";
+import { SettingsPage } from "@/pages/SettingsPage";
+import { SetupPage } from "@/pages/SetupPage";
 
 const router = createBrowserRouter([
+  { path: "/setup", element: <SetupPage /> },
+  { path: "/login", element: <LoginPage /> },
   {
-    element: <AppShell />,
+    element: <AuthGate />,
     children: [
-      { index: true, element: <OverviewPage /> },
-      ...[...mainNav, ...systemNav]
-        .filter((item) => item.path !== "/")
-        .map((item) => ({ path: item.path, element: <ComingSoonPage title={item.label} /> })),
+      {
+        element: <AppShell />,
+        children: [
+          { index: true, element: <OverviewPage /> },
+          { path: "/settings", element: <SettingsPage /> },
+          ...[...mainNav, ...systemNav]
+            .filter((item) => item.path !== "/" && item.path !== "/settings")
+            .map((item) => ({ path: item.path, element: <ComingSoonPage title={item.label} /> })),
+        ],
+      },
     ],
   },
 ]);

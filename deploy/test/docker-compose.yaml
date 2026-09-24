@@ -55,6 +55,25 @@ services:
       interval: 5s
       retries: 30
 
+  keycloak:
+    # OIDC 真实验证用的 IdP：realm opsnap、客户端 opsnap（Secret 与用户 ops/other 的密码均为 OPSNAP_TEST_PASSWORD），
+    # 回调地址见 keycloak/opsnap-realm.json。仅用于测试，start-dev 模式、无持久化
+    image: ${REGISTRY_MIRROR:-}docker.io/keycloak/keycloak:26.4
+    command: ["start-dev", "--import-realm", "--http-port=8080", "--health-enabled=true"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${OPSNAP_TEST_PASSWORD:?缺少 OPSNAP_TEST_PASSWORD}
+      OPSNAP_TEST_PASSWORD: ${OPSNAP_TEST_PASSWORD:?缺少 OPSNAP_TEST_PASSWORD}
+      JAVA_OPTS_KC_HEAP: "-Xms256m -Xmx512m"
+    ports:
+      - "18080:8080"
+    volumes:
+      - ./keycloak/opsnap-realm.json:/opt/keycloak/data/import/opsnap-realm.json:ro
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q UP <&3"]
+      interval: 5s
+      retries: 60
+
 volumes:
   mysql80:
   pg16:
