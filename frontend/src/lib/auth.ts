@@ -20,6 +20,7 @@ export const ErrorCode = {
   StoragePathRelative: 10403,
   StorageEndpointScheme: 10405,
   StorageKeyInvalid: 10417,
+  StorageAlreadyRepository: 10421,
 } as const;
 
 export const MIN_PASSWORD_LENGTH = 12;

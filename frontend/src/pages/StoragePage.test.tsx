@@ -110,6 +110,7 @@ describe("存储页 · 列表", () => {
     expect(s3.getByText("minio.lan:9000")).toBeInTheDocument();
     expect(s3.getByText("密钥不正确")).toBeInTheDocument();
     expect(s3.getByRole("button", { name: "重新解锁" })).toBeInTheDocument();
+    expect(s3.getByRole("button", { name: "测试连接 MinIO 测试" })).toBeInTheDocument();
 
     const broken = within(rows[3]);
     expect(broken.getByText("无法连接")).toBeInTheDocument();
@@ -176,6 +177,36 @@ describe("存储页 · 新建", () => {
       body: { name: "本地备份盘", key: "Q7nT-4mK2-9ZxP-1bR8-VcE5-3jHw", confirm_saved: true },
     });
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("启用加密时位置在测试之后已变成仓库：不覆盖，重新判断后进入解锁", async () => {
+    respond(ok({ items: [] }));
+    renderPage();
+    const dialog = await openCreate();
+    await fillLocal(dialog, "a", "/data/a");
+    respond(
+      ok({ state: "empty", created_at: 0, location: "/data/a", location_changed: false }),
+      ok({ key: "Q7nT-4mK2-9ZxP-1bR8-VcE5-3jHw", fingerprint: "3F9A···C218", encryption: "AES256-GCM-HMAC-SHA256" })
+    );
+    await userEvent.click(within(dialog).getByRole("button", { name: "下一步" }));
+    const setKey = await screen.findByRole("dialog", { name: "设置加密密钥" });
+    await within(setKey).findByText("Q7nT-4mK2-9ZxP-1bR8-VcE5-3jHw");
+    await userEvent.click(within(setKey).getByRole("checkbox", { name: /我已保存这把密钥/ }));
+    respond(
+      fail(10421, "目标位置在测试之后已变成 kopia 仓库，没有覆盖它；请重新测试连接"),
+      ok({ state: "repository", created_at: now() - 86400, location: "/data/a", location_changed: false })
+    );
+    await userEvent.click(within(setKey).getByRole("button", { name: "启用加密" }));
+    const unlock = await screen.findByRole("dialog", { name: "解锁已有仓库" });
+    expect(unlock).toHaveTextContent("创建于");
+    expect(screen.queryByRole("dialog", { name: "设置加密密钥" })).not.toBeInTheDocument();
+    expect(call(4)).toMatchObject({ url: "/api/v1/storages/probe", method: "POST", body: { name: "a" } });
+
+    await userEvent.type(within(unlock).getByLabelText("密钥"), "their-key");
+    respond(ok({ item: base, snapshots: 2 }));
+    await userEvent.click(within(unlock).getByRole("button", { name: "解锁并继续" }));
+    expect(await within(unlock).findByText("已解锁，仓库中有 2 个快照。")).toBeInTheDocument();
+    expect(call(5)).toMatchObject({ url: "/api/v1/storages", method: "POST", body: { key: "their-key" } });
   });
 
   it("自设密码：至少 12 个字符且两次一致", async () => {
@@ -273,6 +304,30 @@ describe("存储页 · 新建", () => {
     expect(await screen.findByText("3F9A···C218")).toBeInTheDocument();
   });
 
+  it("失败次数只在关闭对话框时清零，切换密钥来源不清零", async () => {
+    respond(ok({ items: [] }));
+    renderPage();
+    const dialog = await openCreate();
+    await fillLocal(dialog, "a", "/data/repo");
+    respond(ok({ state: "repository", created_at: 0, location: "/data/repo", location_changed: false }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "下一步" }));
+    const unlock = await screen.findByRole("dialog", { name: "解锁已有仓库" });
+    await userEvent.type(within(unlock).getByLabelText("密钥"), "wrong-key");
+    respond(fail(10417, "密钥不正确，无法解开这个仓库"));
+    await userEvent.click(within(unlock).getByRole("button", { name: "解锁并继续" }));
+    await within(unlock).findByText("密钥不正确，无法解开这个仓库。已连续 1 次失败。");
+
+    await userEvent.click(within(unlock).getByRole("radio", { name: "上传密钥文件" }));
+    const file = new File(["other-key-5678\n"], "key.txt", { type: "text/plain" });
+    await userEvent.upload(within(unlock).getByLabelText("上传密钥文件"), file);
+    await within(unlock).findByText("已读取 key.txt");
+    respond(fail(10417, "密钥不正确，无法解开这个仓库"));
+    await userEvent.click(within(unlock).getByRole("button", { name: "解锁并继续" }));
+    expect(await within(unlock).findByText("密钥不正确，无法解开这个仓库。已连续 2 次失败。")).toBeInTheDocument();
+    await userEvent.click(within(unlock).getByRole("radio", { name: "粘贴密钥" }));
+    expect(within(unlock).getByText("密钥不正确，无法解开这个仓库。已连续 2 次失败。")).toBeInTheDocument();
+  });
+
   it("已有仓库：上传 OpsNap 导出的密钥文件", async () => {
     respond(ok({ items: [] }));
     renderPage();
@@ -343,6 +398,50 @@ describe("存储页 · 编辑与删除", () => {
     });
   });
 
+  it("位置变了：保存时确认按钮显示加载状态，失败时在确认框中显示原因", async () => {
+    respond(ok({ items: [base] }));
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "编辑 本地备份盘" }));
+    const dialog = await screen.findByRole("dialog", { name: "编辑存储" });
+    await userEvent.clear(within(dialog).getByLabelText("目录路径"));
+    await userEvent.type(within(dialog).getByLabelText("目录路径"), "/data/new");
+    respond(ok({ state: "empty", created_at: 0, location: "/data/new", location_changed: true }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "保存" }));
+    const confirm = await screen.findByRole("dialog", { name: "更改存储位置？" });
+    let finish: (r: Response) => void = () => {};
+    fetchMock.mockReturnValueOnce(new Promise<Response>((r) => (finish = r)));
+    await userEvent.click(within(confirm).getByRole("button", { name: "确认并继续" }));
+    expect(within(confirm).getByRole("button", { name: "提交中…" })).toBeDisabled();
+    finish(fail(10407, "目标位置不为空，且不是 kopia 仓库"));
+    expect(await within(confirm).findByRole("alert")).toHaveTextContent("目标位置不为空，且不是 kopia 仓库");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("位置变了、新位置在测试之后已变成仓库：不覆盖，重新判断后进入解锁", async () => {
+    respond(ok({ items: [base] }));
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "编辑 本地备份盘" }));
+    const dialog = await screen.findByRole("dialog", { name: "编辑存储" });
+    await userEvent.clear(within(dialog).getByLabelText("目录路径"));
+    await userEvent.type(within(dialog).getByLabelText("目录路径"), "/data/new");
+    respond(ok({ state: "empty", created_at: 0, location: "/data/new", location_changed: true }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "保存" }));
+    const confirm = await screen.findByRole("dialog", { name: "更改存储位置？" });
+    respond(
+      fail(10421, "目标位置在测试之后已变成 kopia 仓库，没有覆盖它；请重新测试连接"),
+      ok({ state: "repository", created_at: 0, location: "/data/new", location_changed: true })
+    );
+    await userEvent.click(within(confirm).getByRole("button", { name: "确认并继续" }));
+    const unlock = await screen.findByRole("dialog", { name: "解锁已有仓库" });
+    expect(unlock).toHaveTextContent("/data/new");
+    expect(call(3)).toMatchObject({ url: "/api/v1/storages/probe", body: { id: 1 } });
+    await userEvent.type(within(unlock).getByLabelText("密钥"), "other-key");
+    respond(ok({ item: base, snapshots: 1 }));
+    await userEvent.click(within(unlock).getByRole("button", { name: "解锁并继续" }));
+    await within(unlock).findByText("已解锁，仓库中有 1 个快照。");
+    expect(call(4)).toMatchObject({ method: "PUT", body: { key: "other-key", confirm_location_change: true } });
+  });
+
   it("位置变了且新位置是仓库：确认后解锁", async () => {
     respond(ok({ items: [base] }));
     renderPage();
@@ -363,17 +462,23 @@ describe("存储页 · 编辑与删除", () => {
     expect(call(2)).toMatchObject({ method: "PUT", body: { key: "other-key", confirm_location_change: true } });
   });
 
-  it("重新解锁：成功后改用新密钥", async () => {
+  it("重新解锁：显示仓库创建时间，成功后改用新密钥", async () => {
     respond(ok({ items: [minio] }));
     renderPage();
+    respond(ok({ state: "repository", created_at: now() - 86400, location: minio.location, location_changed: false }));
     await userEvent.click(await screen.findByRole("button", { name: "重新解锁" }));
     const unlock = await screen.findByRole("dialog", { name: "解锁已有仓库" });
     expect(unlock).toHaveTextContent("s3://opsnap-backup/prod/");
+    expect(unlock).toHaveTextContent("创建于");
+    expect(call(1)).toMatchObject({
+      url: "/api/v1/storages/probe",
+      body: { id: 2, name: "MinIO 测试", location: { bucket: "opsnap-backup", secret_key: "" } },
+    });
     await userEvent.type(within(unlock).getByLabelText("密钥"), "new-key");
     respond(ok({ item: { ...minio, status: "ok" }, snapshots: 7 }));
     await userEvent.click(within(unlock).getByRole("button", { name: "解锁并继续" }));
     expect(await within(unlock).findByText("已解锁，仓库中有 7 个快照。")).toBeInTheDocument();
-    expect(call(1)).toMatchObject({ url: "/api/v1/storages/2/unlock", body: { key: "new-key" } });
+    expect(call(2)).toMatchObject({ url: "/api/v1/storages/2/unlock", body: { key: "new-key" } });
   });
 
   it("删除：说明数据保留，确认后从列表移除", async () => {

@@ -90,7 +90,6 @@ export function UnlockDialog({
   const readFile = async (f: File | undefined) => {
     if (!f) return;
     setFile({ name: f.name, key: parseKeyFile(await f.text()) });
-    setFailures(0);
   };
 
   const keyError = failures > 0 ? t("storage.unlock.wrongKey", { count: failures }) : undefined;
@@ -136,10 +135,7 @@ export function UnlockDialog({
                   { value: "file" as Source, label: t("storage.unlock.upload") },
                 ]}
                 value={source}
-                onChange={(s) => {
-                  setSource(s);
-                  setFailures(0);
-                }}
+                onChange={setSource}
               />
               {source === "paste" ? (
                 <FormField

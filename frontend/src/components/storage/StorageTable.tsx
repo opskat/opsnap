@@ -76,21 +76,20 @@ export function StorageTable({ items, testing, actions }: { items: Storage[]; te
             </span>
           </span>
           <span role="cell" className="flex items-center justify-end gap-1">
-            {s.status === "wrong_key" ? (
+            {s.status === "wrong_key" && (
               <Button variant="ghost" size="sm" className="text-warning" onClick={() => actions.onUnlock(s)}>
                 {t("storage.list.unlock")}
               </Button>
-            ) : (
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={testing === s.id}
-                aria-label={t("storage.list.testNamed", { name: s.name })}
-                onClick={() => actions.onTest(s)}
-              >
-                {testing === s.id ? t("storage.form.testing") : t("storage.form.test")}
-              </Button>
             )}
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={testing === s.id}
+              aria-label={t("storage.list.testNamed", { name: s.name })}
+              onClick={() => actions.onTest(s)}
+            >
+              {testing === s.id ? t("storage.form.testing") : t("storage.form.test")}
+            </Button>
             <Button
               variant="ghost"
               size="sm"

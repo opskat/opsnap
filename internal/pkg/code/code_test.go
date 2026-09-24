@@ -43,6 +43,7 @@ func TestFrontendErrorCodesInSync(t *testing.T) {
 		"StoragePathRelative":      StoragePathRelative,
 		"StorageEndpointScheme":    StorageEndpointScheme,
 		"StorageKeyInvalid":        StorageKeyInvalid,
+		"StorageAlreadyRepository": StorageAlreadyRepository,
 	}
 	src, err := os.ReadFile("../../../frontend/src/lib/auth.ts")
 	require.NoError(t, err)

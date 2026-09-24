@@ -16,16 +16,22 @@ import { deleteStorage, type Storage } from "@/lib/storage";
 /** 更改存储位置前的二次确认：原位置的仓库保持不动，按新位置的情况继续 */
 export function ChangeLocationDialog({
   change,
+  busy = false,
+  error,
   onCancel,
   onConfirm,
 }: {
   change?: { from: string; to: string };
+  /** 正在按新位置保存：按钮显示加载状态并禁止重复提交 */
+  busy?: boolean;
+  /** 保存失败的原因，显示在确认框中 */
+  error?: string;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
   const { t } = useTranslation();
   return (
-    <Dialog open={change !== undefined} onOpenChange={(next) => !next && onCancel()}>
+    <Dialog open={change !== undefined} onOpenChange={(next) => !next && !busy && onCancel()}>
       <DialogContent className="gap-0 bg-card p-0 sm:max-w-lg">
         <DialogHeader className="gap-1.5 border-b px-5 py-4 text-left">
           <DialogTitle>{t("storage.move.title")}</DialogTitle>
@@ -39,11 +45,18 @@ export function ChangeLocationDialog({
           <Line icon={<Lock />}>{t("storage.move.repository")}</Line>
           <Line icon={<Ban />}>{t("storage.move.notEmpty")}</Line>
         </ul>
+        {error && (
+          <p role="alert" className="mx-5 mb-5 rounded-md bg-destructive-soft px-3 py-2.5 text-sm text-destructive">
+            {error}
+          </p>
+        )}
         <DialogFooter className="border-t bg-sidebar px-5 py-3.5">
-          <Button variant="outline" onClick={onCancel}>
+          <Button variant="outline" disabled={busy} onClick={onCancel}>
             {t("common.cancel")}
           </Button>
-          <Button onClick={onConfirm}>{t("storage.move.confirm")}</Button>
+          <Button disabled={busy} onClick={onConfirm}>
+            {busy ? t("common.submitting") : t("storage.move.confirm")}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

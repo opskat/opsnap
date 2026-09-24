@@ -12,9 +12,13 @@ import { StorageTable } from "@/components/storage/StorageTable";
 import { UnlockDialog, type UnlockTarget } from "@/components/storage/UnlockDialog";
 import { ViewKeyDialog, type RevealIntent, type RevealRequest } from "@/components/storage/ViewKeyDialog";
 import { Button } from "@/components/ui/button";
+import { ApiError } from "@/lib/api";
+import { ErrorCode } from "@/lib/auth";
 import {
   createStorage,
   listStorages,
+  locationOf,
+  probeStorage,
   testStorage,
   unlockStorage,
   updateStorage,
@@ -24,6 +28,8 @@ import {
 import { useOidcErrorMessage } from "@/lib/useOidcError";
 
 type State = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; items: Storage[] };
+
+const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 /** 编辑时位置变化、等待确认的内容 */
 interface PendingMove {
@@ -41,6 +47,8 @@ export function StoragePage() {
   const [setKeyDraft, setSetKeyDraft] = useState<StorageDraft>();
   const [unlock, setUnlock] = useState<UnlockTarget>();
   const [move, setMove] = useState<PendingMove>();
+  const [moving, setMoving] = useState(false);
+  const [moveError, setMoveError] = useState<string>();
   const [deleting, setDeleting] = useState<Storage>();
   const [testing, setTesting] = useState<number>();
   const [actionError, setActionError] = useState<string>();
@@ -78,11 +86,31 @@ export function StoragePage() {
     setForm({ editing });
   };
 
+  const createUnlock = (draft: StorageDraft, probe: ProbeResult): UnlockTarget => ({
+    location: probe.location,
+    createdAt: probe.created_at,
+    unlock: async (key) => (await createStorage({ ...draft, key, confirm_saved: false })).snapshots,
+  });
+  const moveUnlock = (storage: Storage, draft: StorageDraft, probe: ProbeResult): UnlockTarget => ({
+    location: probe.location,
+    createdAt: probe.created_at,
+    unlock: async (key) =>
+      (await updateStorage(storage.id, { ...draft, key, confirm_location_change: true })).snapshots,
+  });
+
+  // 建库时位置在测试之后已变成 kopia 仓库（服务端没有覆盖）：重新探测，按第二步的规则判断
+  const reprobe = async (draft: StorageDraft, id?: number) => {
+    const probe = await probeStorage({ id, name: draft.name, location: draft.location });
+    if (probe.state === "not_empty") throw new Error(t("storage.probe.notEmpty"));
+    return probe.state === "repository" ? probe : undefined;
+  };
+
   // 新建：空位置设置密钥；已有仓库解锁
   const next = (draft: StorageDraft, probe: ProbeResult) => {
     const editing = form?.editing;
     setForm(undefined);
     if (editing) {
+      setMoveError(undefined);
       setMove({ storage: editing, draft, probe });
       return;
     }
@@ -90,32 +118,49 @@ export function StoragePage() {
       setSetKeyDraft(draft);
       return;
     }
-    setUnlock({
-      location: probe.location,
-      createdAt: probe.created_at,
-      unlock: async (key) => (await createStorage({ ...draft, key, confirm_saved: false })).snapshots,
-    });
+    setUnlock(createUnlock(draft, probe));
+  };
+
+  const createBecameRepository = async (draft: StorageDraft) => {
+    const probe = await reprobe(draft);
+    if (!probe) return false;
+    setSetKeyDraft(undefined);
+    setUnlock(createUnlock(draft, probe));
+    return true;
   };
 
   // 编辑且位置变化：确认后空位置直接保存（沿用托管密钥建库），已有仓库先解锁
   const confirmMove = async () => {
-    if (!move) return;
+    if (!move || moving) return;
     const { storage, draft, probe } = move;
-    setMove(undefined);
     if (probe.state === "repository") {
-      setUnlock({
-        location: probe.location,
-        createdAt: probe.created_at,
-        unlock: async (key) =>
-          (await updateStorage(storage.id, { ...draft, key, confirm_location_change: true })).snapshots,
-      });
+      setMove(undefined);
+      setUnlock(moveUnlock(storage, draft, probe));
       return;
     }
+    setMoving(true);
+    setMoveError(undefined);
     try {
       await updateStorage(storage.id, { ...draft, confirm_location_change: true });
+      setMove(undefined);
       reload();
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : String(err));
+      try {
+        const again =
+          err instanceof ApiError && err.code === ErrorCode.StorageAlreadyRepository
+            ? await reprobe(draft, storage.id)
+            : undefined;
+        if (again) {
+          setMove(undefined);
+          setUnlock(moveUnlock(storage, draft, again));
+          return;
+        }
+        setMoveError(errorText(err));
+      } catch (probeErr) {
+        setMoveError(errorText(probeErr));
+      }
+    } finally {
+      setMoving(false);
     }
   };
 
@@ -125,18 +170,27 @@ export function StoragePage() {
     try {
       replace((await testStorage(s.id)).item);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : String(err));
+      setActionError(errorText(err));
     } finally {
       setTesting(undefined);
     }
   };
 
-  const reunlock = (s: Storage) =>
+  // 重新解锁：先探测一次以显示仓库的创建时间，取不到时不显示
+  const reunlock = async (s: Storage) => {
+    let createdAt = 0;
+    try {
+      const probe = await probeStorage({ id: s.id, name: s.name, location: locationOf(s) });
+      if (probe.state === "repository") createdAt = probe.created_at;
+    } catch {
+      // 探测失败不影响解锁：提交时服务端会再检查并给出原因
+    }
     setUnlock({
       location: s.location,
-      createdAt: 0,
+      createdAt,
       unlock: async (key) => (await unlockStorage(s.id, key)).snapshots,
     });
+  };
 
   return (
     <>
@@ -183,7 +237,7 @@ export function StoragePage() {
             actions={{
               onTest: (s) => void test(s),
               onEdit: (s) => openForm(s),
-              onUnlock: reunlock,
+              onUnlock: (s) => void reunlock(s),
               onDelete: setDeleting,
               onRevealKey: (storage) => setReveal({ storage, intent: "view" }),
               onDownloadKey: (storage) => setReveal({ storage, intent: "download" }),
@@ -223,6 +277,7 @@ export function StoragePage() {
           setSetKeyDraft(undefined);
           reload();
         }}
+        onBecameRepository={createBecameRepository}
       />
       <UnlockDialog
         target={unlock}
@@ -234,6 +289,8 @@ export function StoragePage() {
       />
       <ChangeLocationDialog
         change={move && { from: move.storage.location, to: move.probe.location }}
+        busy={moving}
+        error={moveError}
         onCancel={() => setMove(undefined)}
         onConfirm={() => void confirmMove()}
       />

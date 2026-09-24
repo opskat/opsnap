@@ -13,6 +13,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { ApiError } from "@/lib/api";
+import { ErrorCode } from "@/lib/auth";
 import { createStorage, keyInfo, MIN_KEY_LENGTH, type KeyInfo, type Storage } from "@/lib/storage";
 
 import { KeyActions } from "./KeyActions";
@@ -25,11 +27,17 @@ export function SetKeyDialog({
   draft,
   onCancel,
   onCreated,
+  onBecameRepository,
 }: {
   /** 为空时对话框关闭 */
   draft?: StorageDraft;
   onCancel: () => void;
   onCreated: (item: Storage) => void;
+  /**
+   * 启用时发现位置在测试之后已变成 kopia 仓库（没有覆盖）：由调用方重新判断位置。
+   * 返回 true 表示已转入下一步（此对话框随之关闭）；抛出的错误显示在对话框中
+   */
+  onBecameRepository?: (draft: StorageDraft) => Promise<boolean>;
 }) {
   const { t } = useTranslation();
   const [mode, setMode] = useState<Mode>("generated");
@@ -85,7 +93,20 @@ export function SetKeyDialog({
       reset();
       onCreated(res.item);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      try {
+        if (
+          err instanceof ApiError &&
+          err.code === ErrorCode.StorageAlreadyRepository &&
+          onBecameRepository &&
+          (await onBecameRepository(draft))
+        ) {
+          reset();
+          return;
+        }
+        setError(err instanceof Error ? err.message : String(err));
+      } catch (again) {
+        setError(again instanceof Error ? again.message : String(again));
+      }
     } finally {
       setSubmitting(false);
     }
