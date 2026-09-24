@@ -4,10 +4,8 @@ package auth_svc
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -24,6 +22,7 @@ import (
 	"github.com/opskat/opsnap/internal/pkg/authctx"
 	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/password"
+	"github.com/opskat/opsnap/internal/pkg/secret"
 	"github.com/opskat/opsnap/internal/repository/admin_repo"
 	"github.com/opskat/opsnap/internal/repository/oidc_repo"
 	"github.com/opskat/opsnap/internal/repository/session_repo"
@@ -272,11 +271,6 @@ func (s *authSvc) IssueSession(ctx context.Context, meta ClientMeta) (*IssuedSes
 	return s.startSession(ctx, admin, meta)
 }
 
-func hashToken(token string) string {
-	sum := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(sum[:])
-}
-
 func (s *authSvc) startSession(ctx context.Context, admin *admin_entity.Admin, meta ClientMeta) (*IssuedSession, error) {
 	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {
@@ -286,7 +280,7 @@ func (s *authSvc) startSession(ctx context.Context, admin *admin_entity.Admin, m
 	now := s.now()
 	expires := now.Add(admin_entity.SessionTTL)
 	if err := session_repo.Session().Create(ctx, &admin_entity.Session{
-		TokenHash:  hashToken(token),
+		TokenHash:  secret.HashToken(token),
 		AdminID:    admin.ID,
 		UserAgent:  meta.UserAgent,
 		IP:         meta.IP,
@@ -303,7 +297,7 @@ func (s *authSvc) AuthenticateSession(ctx context.Context, token string) (*authc
 	if token == "" {
 		return nil, nil, i18n.NewUnauthorizedError(ctx, code.Unauthorized)
 	}
-	sess, err := session_repo.Session().FindByTokenHash(ctx, hashToken(token))
+	sess, err := session_repo.Session().FindByTokenHash(ctx, secret.HashToken(token))
 	if err != nil {
 		return nil, nil, err
 	}

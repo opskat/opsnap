@@ -4,9 +4,7 @@ package token_svc
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -18,6 +16,7 @@ import (
 	"github.com/opskat/opsnap/internal/model/entity/token_entity"
 	"github.com/opskat/opsnap/internal/pkg/authctx"
 	"github.com/opskat/opsnap/internal/pkg/code"
+	"github.com/opskat/opsnap/internal/pkg/secret"
 	"github.com/opskat/opsnap/internal/repository/admin_repo"
 	"github.com/opskat/opsnap/internal/repository/token_repo"
 )
@@ -53,11 +52,6 @@ func Token() TokenSvc {
 
 func newToken() *tokenSvc {
 	return &tokenSvc{now: time.Now}
-}
-
-func hashToken(token string) string {
-	sum := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(sum[:])
 }
 
 func (s *tokenSvc) toItem(t *token_entity.Token) *api.Item {
@@ -112,7 +106,7 @@ func (s *tokenSvc) Create(ctx context.Context, req *api.CreateRequest) (*api.Cre
 	t := &token_entity.Token{
 		Name:       name,
 		Prefix:     raw[:displayPrefixLen],
-		TokenHash:  hashToken(raw),
+		TokenHash:  secret.HashToken(raw),
 		Createtime: now.Unix(),
 	}
 	if req.ExpiresInDays > 0 {
@@ -142,7 +136,7 @@ func (s *tokenSvc) Authenticate(ctx context.Context, token string) (*authctx.Pri
 	if !strings.HasPrefix(token, TokenPrefix) {
 		return nil, i18n.NewUnauthorizedError(ctx, code.TokenInvalid)
 	}
-	t, err := token_repo.Token().FindByHash(ctx, hashToken(token))
+	t, err := token_repo.Token().FindByHash(ctx, secret.HashToken(token))
 	if err != nil {
 		return nil, err
 	}
