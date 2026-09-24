@@ -139,6 +139,10 @@ func TestKey(t *testing.T) {
 		own := &api.KeyResponse{}
 		require.NoError(t, e.do(&api.KeyRequest{Key: "my own password 1"}, own))
 		assert.Equal(t, kopiarepo.Fingerprint("my own password 1"), own.Fingerprint)
+
+		blank := &api.KeyResponse{}
+		require.NoError(t, e.do(&api.KeyRequest{Key: "   "}, blank))
+		assert.Regexp(t, `^[A-Za-z0-9]{4}(-[A-Za-z0-9]{4}){5}$`, blank.Key, "只含空白的自设密码按未填写处理，生成新密钥")
 	})
 }
 

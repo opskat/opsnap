@@ -477,6 +477,20 @@ func TestOIDCReauth(t *testing.T) {
 				assert.Equal(t, code.SessionRequired, errCode(err))
 			})
 
+			convey.Convey("要求 IdP 重新登录，不能靠已有的 IdP 会话静默通过", func() {
+				authURL, err := e.s.BeginReauth(e.sess, "/storage")
+				require.NoError(t, err)
+				u, err := url.Parse(authURL)
+				require.NoError(t, err)
+				assert.Equal(t, "login", u.Query().Get("prompt"))
+
+				loginURL, err := e.s.BeginLogin(e.ctx, "/")
+				require.NoError(t, err)
+				u, err = url.Parse(loginURL)
+				require.NoError(t, err)
+				assert.Empty(t, u.Query().Get("prompt"), "普通登录不强制重新登录")
+			})
+
 			reauth := func(next string) *CallbackResult {
 				authURL, err := e.s.BeginReauth(e.sess, next)
 				require.NoError(t, err)

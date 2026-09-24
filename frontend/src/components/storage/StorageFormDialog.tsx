@@ -179,7 +179,7 @@ export function StorageFormDialog({
         : t("storage.form.next");
 
   return (
-    <Dialog open={open} onOpenChange={(next) => !next && close()}>
+    <Dialog open={open} onOpenChange={(next) => !next && busy !== "next" && close()}>
       <DialogContent className="gap-0 bg-card p-0 sm:max-w-xl">
         <form onSubmit={(e) => void submit(e)} noValidate>
           <DialogHeader className="gap-1.5 border-b px-5 py-4 text-left">
@@ -304,7 +304,7 @@ export function StorageFormDialog({
               {busy === "test" ? t("storage.form.testing") : t("storage.form.test")}
             </Button>
             <div className="flex gap-2">
-              <Button type="button" variant="outline" onClick={close}>
+              <Button type="button" variant="outline" disabled={busy === "next"} onClick={close}>
                 {t("common.cancel")}
               </Button>
               <Button type="submit" disabled={busy !== undefined}>

@@ -136,6 +136,24 @@ func TestCreateAndVerifyLocal(t *testing.T) {
 		assert.NoError(t, err)
 	})
 
+	t.Run("同一存储的并发校验互不干扰", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, Create(ctx, localAt(dir), testKey))
+		const n = 16
+		errs := make(chan error, n)
+		for i := range n {
+			go func() {
+				// 错开开始时间，让一次校验的删除配置落在另一次的连接与打开之间
+				time.Sleep(time.Duration(i) * 3 * time.Millisecond)
+				_, err := m.Verify(ctx, 6, localAt(dir), testKey)
+				errs <- err
+			}()
+		}
+		for range n {
+			assert.NoError(t, <-errs)
+		}
+	})
+
 	t.Run("Remove 清理该存储的配置与缓存", func(t *testing.T) {
 		dir := t.TempDir()
 		require.NoError(t, Create(ctx, localAt(dir), testKey))

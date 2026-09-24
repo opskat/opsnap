@@ -3,6 +3,7 @@ package storage_repo
 
 import (
 	"context"
+	"errors"
 
 	"github.com/cago-frame/cago/database/db"
 
@@ -13,7 +14,7 @@ import (
 
 type StorageRepo interface {
 	Create(ctx context.Context, s *storage_entity.Storage) error
-	// Save 按 ID 保存全部字段
+	// Save 按 ID 更新全部字段；记录已被删除时返回 ErrNotFound，不会重新插入
 	Save(ctx context.Context, s *storage_entity.Storage) error
 	// List 按创建时间正序
 	List(ctx context.Context) ([]*storage_entity.Storage, error)
@@ -25,6 +26,9 @@ type StorageRepo interface {
 	FindByLocationKey(ctx context.Context, key string) (*storage_entity.Storage, error)
 	Delete(ctx context.Context, id int64) error
 }
+
+// ErrNotFound 保存时记录已不存在（已被删除）
+var ErrNotFound = errors.New("storage not found")
 
 var defaultStorage StorageRepo
 
@@ -47,7 +51,15 @@ func (r *storageRepo) Create(ctx context.Context, s *storage_entity.Storage) err
 }
 
 func (r *storageRepo) Save(ctx context.Context, s *storage_entity.Storage) error {
-	return db.Ctx(ctx).Save(s).Error
+	// 不用 gorm 的 Save：它在没有匹配行时会改为插入，把刚删除的存储重新写回
+	res := db.Ctx(ctx).Model(s).Select("*").Updates(s)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (r *storageRepo) List(ctx context.Context) ([]*storage_entity.Storage, error) {

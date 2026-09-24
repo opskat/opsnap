@@ -109,7 +109,7 @@ export function DeleteStorageDialog({
   };
 
   return (
-    <Dialog open={storage !== undefined} onOpenChange={(next) => !next && cancel()}>
+    <Dialog open={storage !== undefined} onOpenChange={(next) => !next && !deleting && cancel()}>
       <DialogContent className="gap-0 bg-card p-0 sm:max-w-md">
         <DialogHeader className="gap-1.5 border-b px-5 py-4 text-left">
           <DialogTitle>{t("storage.delete.title", { name: storage?.name ?? "" })}</DialogTitle>
@@ -135,7 +135,7 @@ export function DeleteStorageDialog({
           )}
         </div>
         <DialogFooter className="border-t bg-sidebar px-5 py-3.5">
-          <Button variant="outline" onClick={cancel}>
+          <Button variant="outline" disabled={deleting} onClick={cancel}>
             {t("common.cancel")}
           </Button>
           <Button variant="destructive" disabled={deleting} onClick={() => void confirm()}>

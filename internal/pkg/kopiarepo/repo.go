@@ -8,12 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 
 	"github.com/kopia/kopia/repo"
 	"github.com/kopia/kopia/repo/blob"
 	"github.com/kopia/kopia/repo/blob/filesystem"
 	"github.com/kopia/kopia/repo/blob/s3"
-	"github.com/kopia/kopia/repo/content"
 	"github.com/kopia/kopia/repo/encryption"
 	"github.com/kopia/kopia/repo/format"
 	"github.com/kopia/kopia/snapshot"
@@ -33,18 +33,35 @@ var (
 // Encryption 新建仓库使用的加密算法
 const Encryption = encryption.DefaultAlgorithm
 
-// Manager 管理每个存储在本机的 kopia 配置与缓存，目录为 <root>/<存储 ID>/
+// Manager 管理每个存储在本机的 kopia 连接配置，目录为 <root>/<存储 ID>/
 type Manager struct {
 	root string
+
+	mu sync.Mutex
+	// locks 每个存储一把锁：同一存储的连接配置同一时间只由一个操作改写
+	locks map[int64]*sync.Mutex
 }
 
 // NewManager root 通常为 <数据目录>/kopia
 func NewManager(root string) *Manager {
-	return &Manager{root: root}
+	return &Manager{root: root, locks: map[int64]*sync.Mutex{}}
 }
 
 func (m *Manager) dir(id int64) string {
 	return filepath.Join(m.root, strconv.FormatInt(id, 10))
+}
+
+// lock 锁住该存储的本机目录，返回解锁函数
+func (m *Manager) lock(id int64) func() {
+	m.mu.Lock()
+	l, ok := m.locks[id]
+	if !ok {
+		l = &sync.Mutex{}
+		m.locks[id] = l
+	}
+	m.mu.Unlock()
+	l.Lock()
+	return l.Unlock
 }
 
 // Create 用密钥作为密码在空位置创建加密的 kopia 仓库；本地目录不存在时以 0700 创建。
@@ -83,8 +100,9 @@ func Create(ctx context.Context, loc Location, password string) error {
 	return nil
 }
 
-// Verify 用密钥连接并打开仓库，返回其中的快照数。仓库本身不做任何改动。
-// id 为存储 ID，连接配置与缓存保存在该存储的目录下；id 为 0 时用一次性目录，用完即删（新建存储尚未保存时）。
+// Verify 用密钥以只读方式连接并打开仓库，返回其中的快照数。仓库本身不做任何改动。
+// id 为存储 ID，连接配置保存在该存储的目录下，同一存储的校验依次进行；
+// id 为 0 时用一次性目录，用完即删（新建存储尚未保存时）。
 func (m *Manager) Verify(ctx context.Context, id int64, loc Location, password string) (int, error) {
 	var dir string
 	if id == 0 {
@@ -98,6 +116,7 @@ func (m *Manager) Verify(ctx context.Context, id int64, loc Location, password s
 		defer func() { _ = os.RemoveAll(tmp) }()
 		dir = tmp
 	} else {
+		defer m.lock(id)()
 		dir = m.dir(id)
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return 0, err
@@ -115,7 +134,7 @@ func (m *Manager) Verify(ctx context.Context, id int64, loc Location, password s
 	}
 	defer func() { _ = st.Close(ctx) }()
 	err = repo.Connect(ctx, cfg, st, password, &repo.ConnectOptions{
-		CachingOptions: content.CachingOptions{CacheDirectory: filepath.Join(dir, "cache")},
+		ClientOptions: repo.ClientOptions{ReadOnly: true},
 	})
 	if err != nil {
 		return 0, connectError(err)
@@ -136,8 +155,9 @@ func (m *Manager) Verify(ctx context.Context, id int64, loc Location, password s
 	return len(ids), nil
 }
 
-// Remove 清理该存储在本机的 kopia 配置与缓存；不触碰存储中的数据
+// Remove 清理该存储在本机的 kopia 配置；不触碰存储中的数据
 func (m *Manager) Remove(id int64) error {
+	defer m.lock(id)()
 	return os.RemoveAll(m.dir(id))
 }
 

@@ -14,18 +14,10 @@ import {
 } from "@/components/ui/dialog";
 import { ApiError } from "@/lib/api";
 import { ErrorCode, getAuthStatus, type AuthStatus } from "@/lib/auth";
-import {
-  downloadText,
-  keyFileContent,
-  keyFileName,
-  kopiaConnectCommand,
-  locationOf,
-  reauthURL,
-  revealKey,
-  type Storage,
-} from "@/lib/storage";
+import { kopiaConnectCommand, locationOf, reauthURL, revealKey, type Storage } from "@/lib/storage";
 
 import { KeyActions } from "./KeyActions";
+import { useDownloadKeyFile } from "./useDownloadKeyFile";
 
 /** view：查看密钥；download：验证后直接下载密钥文件 */
 export type RevealIntent = "view" | "download";
@@ -51,28 +43,20 @@ export function ViewKeyDialog({ request, onClose }: { request?: RevealRequest; o
   const [revealed, setRevealed] = useState<{ key: string; fingerprint: string }>();
   // 已处理的请求（存储、意图与方式）；列表刷新会换掉请求对象，但不能因此再查看一次
   const started = useRef<string>(undefined);
+  // 每次关闭加一：关闭前发出的请求迟到时丢弃结果，不显示在下一次打开的对话框中
+  const session = useRef(0);
   const storage = request?.storage;
-
-  const labels = () => ({
-    title: t("storage.keyFile.title"),
-    storage: t("storage.keyFile.storage"),
-    location: t("storage.keyFile.location"),
-    fingerprint: t("storage.keyFile.fingerprint"),
-    command: t("storage.keyFile.command"),
-  });
+  const downloadKeyFile = useDownloadKeyFile();
 
   const onRevealed = (req: RevealRequest, res: { key: string; fingerprint: string }) => {
     setRevealed(res);
     if (req.intent === "download") {
-      downloadText(
-        keyFileName(req.storage.name),
-        keyFileContent(labels(), {
-          name: req.storage.name,
-          location: locationOf(req.storage),
-          key: res.key,
-          fingerprint: res.fingerprint,
-        })
-      );
+      downloadKeyFile({
+        name: req.storage.name,
+        location: locationOf(req.storage),
+        key: res.key,
+        fingerprint: res.fingerprint,
+      });
     }
   };
 
@@ -83,15 +67,17 @@ export function ViewKeyDialog({ request, onClose }: { request?: RevealRequest; o
 
   const verify = async () => {
     if (!request) return;
+    const current = session.current;
     setSubmitting(true);
     setError(undefined);
     setPasswordError(undefined);
     try {
-      onRevealed(request, await revealKey(request.storage.id, password));
+      const res = await revealKey(request.storage.id, password);
+      if (session.current === current) onRevealed(request, res);
     } catch (err) {
-      onFailed(err);
+      if (session.current === current) onFailed(err);
     } finally {
-      setSubmitting(false);
+      if (session.current === current) setSubmitting(false);
     }
   };
 
@@ -100,13 +86,17 @@ export function ViewKeyDialog({ request, onClose }: { request?: RevealRequest; o
     const key = `${req.storage.id}:${req.intent}:${req.afterReauth ? "reauth" : "ask"}`;
     if (started.current === key) return;
     started.current = key;
+    const current = session.current;
+    const fresh = () => session.current === current;
     if (req.afterReauth) {
       revealKey(req.storage.id)
-        .then((res) => onRevealed(req, res))
-        .catch(onFailed);
+        .then((res) => fresh() && onRevealed(req, res))
+        .catch((err: unknown) => fresh() && onFailed(err));
       return;
     }
-    getAuthStatus().then(setAuth).catch(onFailed);
+    getAuthStatus()
+      .then((s) => fresh() && setAuth(s))
+      .catch((err: unknown) => fresh() && onFailed(err));
   });
 
   useEffect(() => {
@@ -119,7 +109,9 @@ export function ViewKeyDialog({ request, onClose }: { request?: RevealRequest; o
     setPasswordError(undefined);
     setError(undefined);
     setRevealed(undefined);
+    setSubmitting(false);
     started.current = undefined;
+    session.current += 1;
     onClose();
   };
 

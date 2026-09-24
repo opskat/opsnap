@@ -50,7 +50,8 @@ export function StoragePage() {
   const [moving, setMoving] = useState(false);
   const [moveError, setMoveError] = useState<string>();
   const [deleting, setDeleting] = useState<Storage>();
-  const [testing, setTesting] = useState<number>();
+  // 正在测试连接的存储；可以同时测试多行，每行在完成前不能再次提交
+  const [testing, setTesting] = useState<ReadonlySet<number>>(new Set());
   const [actionError, setActionError] = useState<string>();
   const [picker, setPicker] = useState<{ start: string; pick: (path: string) => void }>();
   const [reveal, setReveal] = useState<RevealRequest>();
@@ -165,14 +166,18 @@ export function StoragePage() {
   };
 
   const test = async (s: Storage) => {
-    setTesting(s.id);
+    setTesting((ids) => new Set(ids).add(s.id));
     setActionError(undefined);
     try {
       replace((await testStorage(s.id)).item);
     } catch (err) {
       setActionError(errorText(err));
     } finally {
-      setTesting(undefined);
+      setTesting((ids) => {
+        const rest = new Set(ids);
+        rest.delete(s.id);
+        return rest;
+      });
     }
   };
 

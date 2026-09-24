@@ -94,7 +94,7 @@ export function FolderPickerDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(next) => !next && close()}>
+    <Dialog open={open} onOpenChange={(next) => !next && !creating && close()}>
       <DialogContent className="gap-0 bg-card p-0 sm:max-w-lg">
         <DialogHeader className="border-b px-5 py-4 text-left">
           <DialogTitle>{t("storage.picker.title")}</DialogTitle>
@@ -200,7 +200,7 @@ export function FolderPickerDialog({
             {listing?.path}
           </code>
           <div className="flex gap-2">
-            <Button type="button" variant="outline" onClick={close}>
+            <Button type="button" variant="outline" disabled={creating} onClick={close}>
               {t("common.cancel")}
             </Button>
             <Button

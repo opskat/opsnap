@@ -113,7 +113,7 @@ export function SetKeyDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(next) => !next && cancel()}>
+    <Dialog open={open} onOpenChange={(next) => !next && !submitting && cancel()}>
       <DialogContent className="gap-0 bg-card p-0 sm:max-w-lg">
         <DialogHeader className="gap-1.5 border-b px-5 py-4 text-left">
           <DialogTitle>{t("storage.key.setTitle")}</DialogTitle>
@@ -210,7 +210,7 @@ export function SetKeyDialog({
           )}
         </div>
         <DialogFooter className="border-t bg-sidebar px-5 py-3.5">
-          <Button type="button" variant="outline" onClick={cancel}>
+          <Button type="button" variant="outline" disabled={submitting} onClick={cancel}>
             {t("common.cancel")}
           </Button>
           <Button type="button" disabled={!ready || submitting} onClick={() => void submit()}>

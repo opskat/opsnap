@@ -330,7 +330,12 @@ func (s *oidcSvc) begin(ctx context.Context, mode, next string, sessionID int64)
 	}
 	s.pending[state] = &pending{mode: mode, sessionID: sessionID, nonce: nonce, verifier: verifier, next: SafeNext(next), created: now}
 	s.mu.Unlock()
-	return cfg.AuthCodeURL(state, oidc.Nonce(nonce), oauth2.S256ChallengeOption(verifier)), nil
+	opts := []oauth2.AuthCodeOption{oidc.Nonce(nonce), oauth2.S256ChallengeOption(verifier)}
+	if mode == ModeReauth {
+		// 再次验证必须真的重新登录：否则 IdP 上仍有效的会话会让它不经询问直接通过
+		opts = append(opts, oauth2.SetAuthURLParam("prompt", "login"))
+	}
+	return cfg.AuthCodeURL(state, opts...), nil
 }
 
 // dropOldest 丢弃最早发起的一条授权请求；调用方持有 s.mu

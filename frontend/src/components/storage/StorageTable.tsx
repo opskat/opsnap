@@ -31,7 +31,16 @@ export interface RowActions {
   onDownloadKey?: (s: Storage) => void;
 }
 
-export function StorageTable({ items, testing, actions }: { items: Storage[]; testing?: number; actions: RowActions }) {
+export function StorageTable({
+  items,
+  testing,
+  actions,
+}: {
+  items: Storage[];
+  /** 正在测试连接的存储 ID */
+  testing?: ReadonlySet<number>;
+  actions: RowActions;
+}) {
   const { t } = useTranslation();
   return (
     <div role="table" aria-label={t("nav.storage")} className="overflow-hidden rounded-lg border bg-card">
@@ -84,11 +93,11 @@ export function StorageTable({ items, testing, actions }: { items: Storage[]; te
             <Button
               variant="ghost"
               size="sm"
-              disabled={testing === s.id}
+              disabled={testing?.has(s.id)}
               aria-label={t("storage.list.testNamed", { name: s.name })}
               onClick={() => actions.onTest(s)}
             >
-              {testing === s.id ? t("storage.form.testing") : t("storage.form.test")}
+              {testing?.has(s.id) ? t("storage.form.testing") : t("storage.form.test")}
             </Button>
             <Button
               variant="ghost"

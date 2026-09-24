@@ -75,6 +75,13 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
+/** 下一次请求挂起，直到调用返回的函数给出响应 */
+function hold() {
+  let finish: (r: Response) => void = () => {};
+  fetchMock.mockReturnValueOnce(new Promise<Response>((r) => (finish = r)));
+  return (r: Response) => finish(r);
+}
+
 function renderPage(entry = "/storage") {
   render(
     <MemoryRouter initialEntries={[entry]}>
@@ -140,6 +147,102 @@ describe("存储页 · 列表", () => {
     );
     expect(await screen.findByText("目标位置不可写：permission denied")).toBeInTheDocument();
     expect(call(1)).toMatchObject({ url: "/api/v1/storages/1/test", method: "POST" });
+  });
+
+  it("测试另一行时，仍在测试的这一行不能再次提交", async () => {
+    respond(ok({ items: [base, nas] }));
+    renderPage();
+    const finishA = hold();
+    await userEvent.click(await screen.findByRole("button", { name: "测试连接 本地备份盘" }));
+    const finishB = hold();
+    await userEvent.click(screen.getByRole("button", { name: "测试连接 旧 NAS" }));
+    expect(screen.getByRole("button", { name: "测试连接 本地备份盘" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "测试连接 旧 NAS" })).toBeDisabled();
+    finishB(ok({ item: nas, snapshots: 0 }));
+    finishA(ok({ item: base, snapshots: 0 }));
+    expect(await screen.findByRole("button", { name: "测试连接 本地备份盘" })).toBeEnabled();
+  });
+});
+
+describe("存储页 · 提交进行中不能关闭对话框", () => {
+  it("新建：测试连接后进入下一步期间", async () => {
+    respond(ok({ items: [] }));
+    renderPage();
+    const dialog = await openCreate();
+    await fillLocal(dialog, "a", "/data/repo");
+    const finish = hold();
+    await userEvent.click(within(dialog).getByRole("button", { name: "下一步" }));
+    expect(within(dialog).getByRole("button", { name: "取消" })).toBeDisabled();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.getByRole("dialog", { name: "新建存储" })).toBeInTheDocument();
+    finish(ok({ state: "not_empty", created_at: 0, location: "/data/repo", location_changed: false }));
+    expect(await within(dialog).findByRole("alert")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "取消" })).toBeEnabled();
+  });
+
+  it("设置密钥：启用加密期间", async () => {
+    respond(ok({ items: [] }));
+    renderPage();
+    const dialog = await openCreate();
+    await fillLocal(dialog, "a", "/data/new");
+    respond(
+      ok({ state: "empty", created_at: 0, location: "/data/new", location_changed: false }),
+      ok({ key: "Q7nT-4mK2-9ZxP-1bR8-VcE5-3jHw", fingerprint: "3F9A···C218", encryption: "AES256-GCM-HMAC-SHA256" })
+    );
+    await userEvent.click(within(dialog).getByRole("button", { name: "下一步" }));
+    const setKey = await screen.findByRole("dialog", { name: "设置加密密钥" });
+    await within(setKey).findByText("Q7nT-4mK2-9ZxP-1bR8-VcE5-3jHw");
+    await userEvent.click(within(setKey).getByRole("checkbox", { name: /我已保存这把密钥/ }));
+    hold();
+    await userEvent.click(within(setKey).getByRole("button", { name: "启用加密" }));
+    expect(within(setKey).getByRole("button", { name: "取消" })).toBeDisabled();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.getByRole("dialog", { name: "设置加密密钥" })).toBeInTheDocument();
+  });
+
+  it("解锁：解锁期间；否则迟到的结果会出现在下一次解锁中", async () => {
+    respond(ok({ items: [] }));
+    renderPage();
+    const dialog = await openCreate();
+    await fillLocal(dialog, "a", "/data/repo");
+    respond(ok({ state: "repository", created_at: 0, location: "/data/repo", location_changed: false }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "下一步" }));
+    const unlock = await screen.findByRole("dialog", { name: "解锁已有仓库" });
+    await userEvent.type(within(unlock).getByLabelText("密钥"), "some-key");
+    hold();
+    await userEvent.click(within(unlock).getByRole("button", { name: "解锁并继续" }));
+    expect(within(unlock).getByRole("button", { name: "取消" })).toBeDisabled();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.getByRole("dialog", { name: "解锁已有仓库" })).toBeInTheDocument();
+  });
+
+  it("删除：删除期间", async () => {
+    respond(ok({ items: [base] }));
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "本地备份盘 的更多操作" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "删除存储" }));
+    const confirm = await screen.findByRole("dialog", { name: "删除存储「本地备份盘」？" });
+    hold();
+    await userEvent.click(within(confirm).getByRole("button", { name: "删除存储" }));
+    expect(within(confirm).getByRole("button", { name: "取消" })).toBeDisabled();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.getByRole("dialog", { name: "删除存储「本地备份盘」？" })).toBeInTheDocument();
+  });
+
+  it("选择目录：新建文件夹期间；否则下次打开会停在新建的文件夹", async () => {
+    respond(ok({ items: [] }));
+    renderPage();
+    const dialog = await openCreate();
+    respond(ok({ path: "/srv", parent: "/", dirs: [] }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "浏览…" }));
+    const picker = await screen.findByRole("dialog", { name: "选择目录" });
+    await within(picker).findByText("这里没有子目录");
+    await userEvent.type(within(picker).getByLabelText("新文件夹名称"), "opsnap");
+    hold();
+    await userEvent.click(within(picker).getByRole("button", { name: "新建文件夹" }));
+    expect(within(picker).getByRole("button", { name: "取消" })).toBeDisabled();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.getByRole("dialog", { name: "选择目录" })).toBeInTheDocument();
   });
 });
 
@@ -627,7 +730,30 @@ describe("存储页 · 查看密钥", () => {
   it("重新验证失败回到页面时显示原因", async () => {
     respond(ok({ items: [base] }));
     renderPage("/storage?oidc_error=not_bound");
-    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent("此 OIDC 账号未绑定到 OpsNap");
+  });
+
+  it("关闭后迟到的验证结果不会显示在另一个存储的对话框中", async () => {
+    respond(ok({ items: [base, nas] }));
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "本地备份盘 的更多操作" }));
+    respond(ok(status(true)));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "查看密钥" }));
+    const first = await screen.findByRole("dialog", { name: "查看「本地备份盘」的密钥" });
+    await userEvent.type(await within(first).findByLabelText("当前登录密码"), "correct-horse-battery");
+    const finish = hold();
+    await userEvent.click(within(first).getByRole("button", { name: "验证并查看" }));
+    await userEvent.click(within(first).getByRole("button", { name: "取消" }));
+
+    await userEvent.click(screen.getByRole("button", { name: "旧 NAS 的更多操作" }));
+    respond(ok(status(true)));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "查看密钥" }));
+    const second = await screen.findByRole("dialog", { name: "查看「旧 NAS」的密钥" });
+    await within(second).findByLabelText("当前登录密码");
+    finish(ok({ key: "Q7nT-4mK2-9ZxP-1bR8-VcE5-3jHw", fingerprint: "3F9A···C218" }));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText("Q7nT-4mK2-9ZxP-1bR8-VcE5-3jHw")).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "查看「旧 NAS」的密钥" })).toBeInTheDocument();
   });
 
   it("删除确认中可以先下载密钥文件（需要验证身份）", async () => {

@@ -282,6 +282,18 @@ func (s *storageSvc) savedLocation(ctx context.Context, st *storage_entity.Stora
 	return st.Location(secretKey), nil
 }
 
+// save 保存存储；它在测试或解锁期间已被删除时返回“不存在”，并清理这次操作在本机留下的连接配置
+func (s *storageSvc) save(ctx context.Context, st *storage_entity.Storage) error {
+	err := storage_repo.Storage().Save(ctx, st)
+	if !errors.Is(err, storage_repo.ErrNotFound) {
+		return err
+	}
+	if rmErr := s.manager().Remove(st.ID); rmErr != nil {
+		logger.Ctx(ctx).Warn("清理存储的本机缓存失败", zap.Int64("storage_id", st.ID), zap.Error(rmErr))
+	}
+	return i18n.NewNotFoundError(ctx, code.StorageNotFound)
+}
+
 // apply 写入位置、Secret Key 与仓库密钥（repoKey 为空表示不变），并标记为测试通过
 func (s *storageSvc) apply(ctx context.Context, st *storage_entity.Storage, name string, loc kopiarepo.Location, repoKey string) error {
 	st.Name = name
@@ -457,7 +469,7 @@ func (s *storageSvc) Update(ctx context.Context, req *api.UpdateRequest) (*api.U
 	if err := s.apply(ctx, st, name, loc, newKey); err != nil {
 		return nil, err
 	}
-	if err := storage_repo.Storage().Save(ctx, st); err != nil {
+	if err := s.save(ctx, st); err != nil {
 		return nil, err
 	}
 	return &api.UpdateResponse{Item: s.toItem(ctx, st), Snapshots: snapshots}, nil
@@ -506,7 +518,7 @@ func (s *storageSvc) Test(ctx context.Context, req *api.TestRequest) (*api.TestR
 
 	st.Status, st.StatusCode, st.StatusDetail = status, statusCode, detail
 	st.Checktime = s.now().Unix()
-	if err := storage_repo.Storage().Save(ctx, st); err != nil {
+	if err := s.save(ctx, st); err != nil {
 		return nil, err
 	}
 	return &api.TestResponse{Item: s.toItem(ctx, st), Snapshots: snapshots}, nil
@@ -539,7 +551,7 @@ func (s *storageSvc) Unlock(ctx context.Context, req *api.UnlockRequest) (*api.U
 	if err := s.apply(ctx, st, st.Name, loc, key); err != nil {
 		return nil, err
 	}
-	if err := storage_repo.Storage().Save(ctx, st); err != nil {
+	if err := s.save(ctx, st); err != nil {
 		return nil, err
 	}
 	return &api.UnlockResponse{Item: s.toItem(ctx, st), Snapshots: snapshots}, nil
@@ -561,14 +573,13 @@ func (s *storageSvc) Delete(ctx context.Context, req *api.DeleteRequest) (*api.D
 }
 
 func (s *storageSvc) Key(_ context.Context, req *api.KeyRequest) (*api.KeyResponse, error) {
-	key := req.Key
+	key := strings.TrimSpace(req.Key)
 	if key == "" {
 		var err error
 		if key, err = kopiarepo.GenerateKey(); err != nil {
 			return nil, err
 		}
 	}
-	key = strings.TrimSpace(key)
 	return &api.KeyResponse{Key: key, Fingerprint: kopiarepo.Fingerprint(key), Encryption: kopiarepo.Encryption}, nil
 }
 

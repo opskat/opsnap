@@ -3,7 +3,9 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
-import { downloadText, keyFileContent, keyFileName, type StorageLocation } from "@/lib/storage";
+import type { StorageLocation } from "@/lib/storage";
+
+import { useDownloadKeyFile } from "./useDownloadKeyFile";
 
 /** 复制密钥与下载密钥文件两个按钮；设置密钥与查看密钥共用 */
 export function KeyActions({
@@ -19,6 +21,7 @@ export function KeyActions({
 }) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
+  const downloadKeyFile = useDownloadKeyFile();
 
   const copy = async () => {
     await navigator.clipboard.writeText(keyText);
@@ -26,20 +29,7 @@ export function KeyActions({
     window.setTimeout(() => setCopied(false), 1500);
   };
 
-  const download = () =>
-    downloadText(
-      keyFileName(name),
-      keyFileContent(
-        {
-          title: t("storage.keyFile.title"),
-          storage: t("storage.keyFile.storage"),
-          location: t("storage.keyFile.location"),
-          fingerprint: t("storage.keyFile.fingerprint"),
-          command: t("storage.keyFile.command"),
-        },
-        { name, location, key: keyText, fingerprint }
-      )
-    );
+  const download = () => downloadKeyFile({ name, location, key: keyText, fingerprint });
 
   return (
     <>

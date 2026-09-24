@@ -95,7 +95,7 @@ export function UnlockDialog({
   const keyError = failures > 0 ? t("storage.unlock.wrongKey", { count: failures }) : undefined;
 
   return (
-    <Dialog open={target !== undefined} onOpenChange={(next) => !next && close()}>
+    <Dialog open={target !== undefined} onOpenChange={(next) => !next && !submitting && close()}>
       <DialogContent className="gap-0 bg-card p-0 sm:max-w-lg">
         <DialogHeader className="gap-1.5 border-b px-5 py-4 text-left">
           <DialogTitle>{t("storage.unlock.title")}</DialogTitle>
@@ -186,7 +186,7 @@ export function UnlockDialog({
               )}
             </div>
             <DialogFooter className="border-t bg-sidebar px-5 py-3.5">
-              <Button type="button" variant="outline" onClick={close}>
+              <Button type="button" variant="outline" disabled={submitting} onClick={close}>
                 {t("common.cancel")}
               </Button>
               <Button type="submit" disabled={!key || submitting}>
