@@ -347,7 +347,7 @@
         "status": "状态",
         "actions": "操作",
         "direct": "直连",
-        "via": "经 {{name}}",
+        "via": "经 {{chain}}",
         "dataSourceCount": "{{count}} 个数据源",
         "channelCount": "{{count}} 个通道",
         "unused": "未被使用",
@@ -405,6 +405,7 @@
         "hint": "首次连接 {{address}}。请与服务器管理员核对下面的指纹，确认后才会继续连接并保存这把密钥。",
         "keyType": "密钥类型",
         "fingerprint": "指纹",
+        "chain": "链路",
         "verifyHint": "在服务器上执行 ssh-keygen -lf <公钥文件> 可以查看这个指纹。",
         "trust": "信任并继续"
       },
@@ -497,7 +498,11 @@
         "hostKeyChangedHint": "这台主机出示的密钥与保存的不一致，请先重新确认。"
       },
       "result": {
-        "testSuccess": "连接成功，保存后将自动探测。"
+        "testSuccess": "连接成功，保存后将自动探测。",
+        "testSuccessWith": "连接成功：{{info}}。保存后将自动探测。",
+        "tlsVerified": "{{version}}，已校验证书",
+        "tlsUnverified": "{{version}}，未校验证书",
+        "noTls": "未加密"
       },
       "delete": {
         "title": "删除数据源「{{name}}」？",

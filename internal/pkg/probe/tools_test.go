@@ -87,6 +87,17 @@ func TestToolVersionParsesLeadingVersion(t *testing.T) {
 	assert.Contains(t, raw, "8.0.40")
 }
 
+// MySQL 5.7 及更早的 mysqldump 先打印工具自身的版本号（Ver 10.13），客户端版本在 Distrib 之后
+func TestToolVersionPrefersDistrib(t *testing.T) {
+	dir := t.TempDir()
+	path := writeFakeTool(t, dir, "mysqldump", "mysqldump  Ver 10.13 Distrib 5.7.44, for Linux (x86_64)")
+
+	major, minor, _, err := toolVersion(context.Background(), path)
+	require.NoError(t, err)
+	assert.Equal(t, 5, major)
+	assert.Equal(t, 7, minor)
+}
+
 func TestToolVersionUnparseable(t *testing.T) {
 	dir := t.TempDir()
 	path := writeFakeTool(t, dir, "mysqldump", "not a version string")

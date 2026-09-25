@@ -41,6 +41,7 @@ import {
   type DataSourceForm,
   type DataSourceItem,
   type DataSourceKind,
+  type DataSourceServerInfo,
   type HostKeyPrompt,
   type TLSMode,
 } from "@/lib/sources";
@@ -165,7 +166,7 @@ export function DataSourceFormDialog({
         askHostKey
       );
       if (!res) return;
-      setResult({ kind: "success", message: t("sources.dataSource.result.testSuccess") });
+      setResult({ kind: "success", message: testSuccessMessage(t, draft.kind, res.server) });
     } catch (err) {
       showError(err);
     } finally {
@@ -358,9 +359,30 @@ export function DataSourceFormDialog({
           </form>
         </DialogContent>
       </Dialog>
-      <HostKeyDialog request={hostKeyRequest} onCancel={cancelHostKey} onTrust={trustHostKey} />
+      <HostKeyDialog request={hostKeyRequest} chain={preview.text} onCancel={cancelHostKey} onTrust={trustHostKey} />
     </>
   );
+}
+
+/** 测试连接成功的提示：报告读到的服务端版本（服务器文件为系统与架构），以及 TLS 版本与是否校验了证书 */
+function testSuccessMessage(
+  t: (key: string, opts?: Record<string, unknown>) => string,
+  kind: DataSourceKind,
+  server: DataSourceServerInfo | null
+) {
+  if (!server) return t("sources.dataSource.result.testSuccess");
+  let parts: string[];
+  if (kind === "server_file") {
+    parts = [server.system];
+  } else {
+    const tls = server.tls
+      ? t(server.tls.verified ? "sources.dataSource.result.tlsVerified" : "sources.dataSource.result.tlsUnverified", {
+          version: server.tls.version,
+        })
+      : t("sources.dataSource.result.noTls");
+    parts = [`${kind === "mysql" ? "MySQL" : "PostgreSQL"} ${server.version}`, tls];
+  }
+  return t("sources.dataSource.result.testSuccessWith", { info: parts.filter(Boolean).join(" · ") });
 }
 
 function KindTabs({ value, onChange }: { value: DataSourceKind; onChange: (kind: DataSourceKind) => void }) {

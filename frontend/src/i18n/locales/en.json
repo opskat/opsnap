@@ -347,7 +347,7 @@
         "status": "Status",
         "actions": "Actions",
         "direct": "Direct",
-        "via": "via {{name}}",
+        "via": "via {{chain}}",
         "dataSourceCount": "{{count}} data sources",
         "channelCount": "{{count}} channels",
         "unused": "Not in use",
@@ -405,6 +405,7 @@
         "hint": "Connecting to {{address}} for the first time. Check the fingerprint below with your server administrator; confirming continues the connection and saves this key.",
         "keyType": "Key type",
         "fingerprint": "Fingerprint",
+        "chain": "Chain",
         "verifyHint": "Run ssh-keygen -lf <public key file> on the server to see this fingerprint.",
         "trust": "Trust and Continue"
       },
@@ -497,7 +498,11 @@
         "hostKeyChangedHint": "This host presented a key that no longer matches the saved one. Reconfirm it first."
       },
       "result": {
-        "testSuccess": "Connected successfully; probing will run automatically after saving."
+        "testSuccess": "Connected successfully; probing will run automatically after saving.",
+        "testSuccessWith": "Connected successfully: {{info}}. Probing will run automatically after saving.",
+        "tlsVerified": "{{version}}, certificate verified",
+        "tlsUnverified": "{{version}}, certificate not verified",
+        "noTls": "not encrypted"
       },
       "delete": {
         "title": "Delete data source \"{{name}}\"?",

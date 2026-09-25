@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router";
@@ -391,6 +391,14 @@ describe("SourcesPage · 网络通道", () => {
     expect(within(oldRow).getByRole("button", { name: "bastion-old 的更多操作" })).toBeInTheDocument();
   });
 
+  it("经由多跳的通道显示完整的经由链路", async () => {
+    respondLists([], [officeSocks, bastionProd, deepSsh]);
+    renderPage();
+    await userEvent.click(await screen.findByRole("tab", { name: /网络通道/ }));
+    const rows = await screen.findAllByRole("row");
+    expect(within(rows[3]).getByText("经 office-socks → bastion-prod · 密码认证")).toBeInTheDocument();
+  });
+
   it("经由选择框排除自己与会成环的通道", async () => {
     respondLists([], [officeSocks, bastionProd, bastionOld, deepSsh]);
     renderPage();
@@ -472,6 +480,8 @@ describe("SourcesPage · 网络通道", () => {
     const confirm = await screen.findByRole("dialog", { name: "确认主机密钥" });
     expect(within(confirm).getByText("ED25519")).toBeInTheDocument();
     expect(within(confirm).getByText("SHA256:3fQ1bWmX0pZrK2sQn8vYt4LhE6cJ9dUa7gRiTfNoa9Kc")).toBeInTheDocument();
+    // 弹窗显示经由的链路（与表单下方的链路预览一致）
+    expect(within(confirm).getByText("OpsNap → bastion.corp:22")).toBeInTheDocument();
 
     respond(ok({ host_key: null, chain: [{ id: 0, name: "bastion-prod", kind: "ssh", address: "bastion.corp:22" }] }));
     await userEvent.click(within(confirm).getByRole("button", { name: "信任并继续" }));
@@ -726,10 +736,65 @@ describe("SourcesPage · 数据源", () => {
 
     respond(ok({ host_key: null, chain: [], server: { version: "", system: "Linux x86_64", tls: null } }));
     await userEvent.click(within(confirm).getByRole("button", { name: "信任并继续" }));
-    await screen.findByText("连接成功，保存后将自动探测。");
+    await screen.findByText("连接成功：Linux x86_64。保存后将自动探测。");
     // call(0) 数据源列表、call(1) 通道列表、call(2) 首次探测、call(3) 带指纹重试
     expect(call(2).body.data_source.host_key).toBe("");
     expect(call(3).body.data_source.host_key).toBe("SHA256:webNewFingerprint");
+  });
+
+  it("测试连接成功时报告服务端版本、TLS 版本与是否校验了证书", async () => {
+    respondLists([], []);
+    renderPage();
+    const dialog = await openCreateDataSource();
+    await userEvent.type(within(dialog).getByLabelText("名称"), "orders");
+    await userEvent.type(within(dialog).getByLabelText("主机"), "10.0.1.11");
+    await userEvent.type(within(dialog).getByLabelText("用户名"), "backup");
+
+    respond(
+      ok({
+        host_key: null,
+        chain: [],
+        server: { version: "8.0.36", system: "", tls: { version: "TLSv1.3", verified: true } },
+      })
+    );
+    await userEvent.click(within(dialog).getByRole("button", { name: "测试连接" }));
+    expect(
+      await within(dialog).findByText("连接成功：MySQL 8.0.36 · TLSv1.3，已校验证书。保存后将自动探测。")
+    ).toBeInTheDocument();
+
+    respond(ok({ host_key: null, chain: [], server: { version: "16.2", system: "", tls: null } }));
+    await userEvent.click(within(dialog).getByRole("radio", { name: "PostgreSQL" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "测试连接" }));
+    expect(
+      await within(dialog).findByText("连接成功：PostgreSQL 16.2 · 未加密。保存后将自动探测。")
+    ).toBeInTheDocument();
+  });
+
+  it("有数据源正在探测时定时刷新列表，探测结束后显示探测摘要", async () => {
+    const probing: DataSourceItem = { ...pgAnalytics, probe: { state: "probing", ok: 0, warn: 0, fail: 0, time: 0 } };
+    // 页面加载后才开始轮询：假定时器在渲染前启用，shouldAdvanceTime 让加载阶段的等待照常推进
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      respondLists([probing], []);
+      renderPage();
+      const rows = await screen.findAllByRole("row");
+      expect(within(rows[1]).getByText("探测中")).toBeInTheDocument();
+
+      respond(ok({ items: [pgAnalytics] }));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6000);
+      });
+      expect(call(2)).toMatchObject({ url: "/api/v1/datasources", method: "GET" });
+      expect(within(screen.getAllByRole("row")[1]).getByText("6 项全部通过")).toBeInTheDocument();
+
+      // 没有正在探测的数据源后不再轮询
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10000);
+      });
+      expect(fetchMock.mock.calls.length).toBe(3);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("编辑时密码显示已保存提示，留空表示不修改", async () => {

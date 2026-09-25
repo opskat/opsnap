@@ -550,11 +550,19 @@ func (s *channelSvc) Update(ctx context.Context, req *api.UpdateRequest) (*api.U
 	if prompt != nil {
 		return &api.UpdateResponse{HostKey: prompt}, nil
 	}
+	oldHostKey := c.HostKey
 	if err := s.apply(ctx, c, d); err != nil {
 		return nil, err
 	}
 	if err := s.save(ctx, c); err != nil {
 		return nil, err
+	}
+	if oldHostKey != "" && c.HostKey != oldHostKey {
+		// 在编辑表单中信任了新的主机密钥：与列表中的“重新确认”一样，重新测试经过这台主机的数据源
+		// （docs/specs/2026-09-25-datasources.md「主机密钥」）
+		if err := s.notify(ctx, confirmedHook, c.ID); err != nil {
+			return nil, err
+		}
 	}
 	item, err := s.item(ctx, c)
 	if err != nil {

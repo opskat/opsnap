@@ -46,9 +46,16 @@ func toolPath(name string) (string, bool) {
 // versionRe 匹配文本中第一个 x.y[.z] 形式的版本号
 var versionRe = regexp.MustCompile(`(\d+)\.(\d+)(?:\.(\d+))?`)
 
-// parseMajorMinor 解析版本号文本（如服务端版本、工具 --version 输出）中的主次版本号
+// distribRe 旧版 MySQL 客户端的 --version 输出（如 "mysqldump  Ver 10.13 Distrib 5.7.44"）中客户端的版本号
+var distribRe = regexp.MustCompile(`Distrib\s+(\d+)\.(\d+)`)
+
+// parseMajorMinor 解析版本号文本（如服务端版本、工具 --version 输出）中的主次版本号；
+// 有 Distrib 时取它之后的版本号，Ver 之后的只是工具自身的版本
 func parseMajorMinor(text string) (major, minor int, ok bool) {
-	m := versionRe.FindStringSubmatch(text)
+	m := distribRe.FindStringSubmatch(text)
+	if m == nil {
+		m = versionRe.FindStringSubmatch(text)
+	}
 	if m == nil {
 		return 0, 0, false
 	}

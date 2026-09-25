@@ -35,6 +35,11 @@ type DataSourceState =
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
+/** 有数据源正在探测时刷新列表的间隔，与详情页的轮询一致 */
+const PROBE_POLL_INTERVAL_MS = 3000;
+
+const isProbing = (d: DataSourceItem) => d.probe?.state === "probing";
+
 /** 通道行内“测试连接”或“重新确认”触发的主机密钥弹窗：确认后调用哪个接口由来源决定 */
 interface ChannelRowHostKey {
   prompt: HostKeyPrompt;
@@ -64,6 +69,33 @@ export function SourcesPage() {
       cancelled = true;
     };
   }, [dsAttempt]);
+
+  // 保存后在后台探测：有数据源正在探测时定时刷新列表，直到探测结果落定，行内摘要随之更新
+  const anyProbing = dsState.status === "ready" && dsState.items.some(isProbing);
+  useEffect(() => {
+    if (!anyProbing) return;
+    let cancelled = false;
+    let timer: number | undefined;
+    const poll = () => {
+      timer = window.setTimeout(() => {
+        if (cancelled) return;
+        listDataSources()
+          .then((r) => {
+            if (cancelled) return;
+            setDsState({ status: "ready", items: r.items });
+            if (r.items.some(isProbing)) poll();
+          })
+          .catch(() => {
+            if (!cancelled) poll();
+          });
+      }, PROBE_POLL_INTERVAL_MS);
+    };
+    poll();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [anyProbing]);
 
   // ---- 网络通道：数据源表单的“网络通道”选择框与链路预览也需要这份列表 ----
   const [chState, setChState] = useState<ChannelState>({ status: "loading" });

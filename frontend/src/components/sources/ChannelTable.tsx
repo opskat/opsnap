@@ -68,7 +68,8 @@ export function ChannelTable({
         </span>
       </div>
       {items.map((c) => {
-        const viaHop = c.chain.length > 1 ? c.chain[c.chain.length - 2] : undefined;
+        // 经由的完整链路（不含本通道），从 OpsNap 出发按顺序排列
+        const viaNames = c.chain.slice(0, -1).map((h) => h.name);
         const usedBy = usedByNames(c.used_by);
         const canDelete = usedBy.length === 0;
         return (
@@ -85,7 +86,9 @@ export function ChannelTable({
             <span role="cell" className="flex min-w-0 flex-col font-mono text-xs">
               <span className="truncate">{c.address}</span>
               <span className="truncate font-sans text-muted-foreground">
-                {(viaHop ? t("sources.channel.list.via", { name: viaHop.name }) : t("sources.channel.list.direct")) +
+                {(viaNames.length > 0
+                  ? t("sources.channel.list.via", { chain: viaNames.join(" → ") })
+                  : t("sources.channel.list.direct")) +
                   " · " +
                   authLabel(t, c)}
               </span>

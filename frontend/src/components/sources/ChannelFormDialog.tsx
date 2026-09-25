@@ -432,7 +432,7 @@ export function ChannelFormDialog({
           </form>
         </DialogContent>
       </Dialog>
-      <HostKeyDialog request={hostKeyRequest} onCancel={cancelHostKey} onTrust={trustHostKey} />
+      <HostKeyDialog request={hostKeyRequest} chain={preview.text} onCancel={cancelHostKey} onTrust={trustHostKey} />
     </>
   );
 }

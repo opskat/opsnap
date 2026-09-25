@@ -498,6 +498,14 @@ export function SourceDetailPage() {
 
 function ProbeSummary({ probe }: { probe: DataSourceItem["probe"] }) {
   const { t } = useTranslation();
+  if (probe?.state === "unprobeable" && probe.time) {
+    // 无法探测也是一次探测结果，同样带探测时间
+    return (
+      <span className="text-xs font-normal text-muted-foreground">
+        {t("sources.dataSource.detail.probe.probedAt", { time: relativeTime(t, probe.time) })}
+      </span>
+    );
+  }
   if (!probe || probe.state !== "done") return null;
   const parts: string[] = [];
   if (probe.fail === 0 && probe.warn === 0) {

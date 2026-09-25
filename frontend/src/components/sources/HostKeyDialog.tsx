@@ -27,10 +27,13 @@ export function HostKeyDialog({
   request,
   busy = false,
   error,
+  chain,
   onCancel,
   onTrust,
 }: {
   request?: HostKeyRequest;
+  /** 经由的完整链路（如“OpsNap → office-socks (SOCKS5) → bastion.corp:22”），首次连接时显示 */
+  chain?: string;
   busy?: boolean;
   error?: string;
   onCancel: () => void;
@@ -74,6 +77,7 @@ export function HostKeyDialog({
               {prompt?.key_type && (
                 <FingerprintBox label={t("sources.hostKey.confirm.keyType")} value={prompt.key_type} />
               )}
+              {chain && <FingerprintBox label={t("sources.hostKey.confirm.chain")} value={chain} />}
               <FingerprintBox label={t("sources.hostKey.confirm.fingerprint")} value={prompt?.fingerprint ?? ""} />
               <p className="text-xs text-faint-foreground">{t("sources.hostKey.confirm.verifyHint")}</p>
             </>

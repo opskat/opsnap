@@ -181,7 +181,7 @@ func setupTest(t *testing.T) *env {
 	ch := channel_ctr.NewChannel()
 	authed := testMux.Group("/api/v1", middleware.SameOrigin()).Group("/", middleware.Auth())
 	authed.Bind(ctr.List, ctr.Get, ctr.Probe, ctr.Create, ctr.Update, ctr.Test, ctr.ConfirmHostKey, ctr.Delete, ctr.Reprobe,
-		ch.List, ch.Create, ch.Test, ch.ConfirmHostKey, ch.Delete)
+		ch.List, ch.Create, ch.Update, ch.Test, ch.ConfirmHostKey, ch.Delete)
 	return &env{ctx: ctx, mux: testMux, token: tok.Token, conn: conn}
 }
 
@@ -864,6 +864,27 @@ func TestHostKey(t *testing.T) {
 				}
 				assert.Equal(t, "8.0.36", e.get(t, other.ID).Server.Version, "不经过该通道的数据源不重新测试")
 				assert.Equal(t, otherChecked, e.row(t, other.ID).Checktime)
+			})
+
+			convey.Convey("在通道的编辑表单中信任新密钥并保存后，同样重新测试所有经过它的数据源", func() {
+				require.NoError(t, e.do(&api.TestRequest{ID: deep.ID}, &api.TestResponse{}))
+				assert.Equal(t, datasource_entity.StatusHostKeyChanged, e.get(t, deep.ID).Status)
+				otherChecked := e.row(t, other.ID).Checktime
+				e.conn.set(dsconn.Info{Version: "8.0.40"}, nil)
+
+				host, port := hostPort(t, bastion.Addr())
+				form := channelapi.Form{Name: "bastion-prod", Kind: "ssh", Host: host, Port: port, Username: sshUser,
+					AuthMethod: "password", HostKey: bastion.Fingerprint()}
+				ur := &channelapi.UpdateResponse{}
+				require.NoError(t, e.do(&channelapi.UpdateRequest{ID: jump.ID, Channel: form}, ur))
+				require.NotNil(t, ur.Item)
+				assert.Equal(t, channel_entity.StatusOK, ur.Item.Status)
+				for _, id := range []int64{direct.ID, deep.ID} {
+					got := e.get(t, id)
+					assert.Equal(t, datasource_entity.StatusOK, got.Status, got.Name)
+					assert.Equal(t, "8.0.40", got.Server.Version, got.Name)
+				}
+				assert.Equal(t, otherChecked, e.row(t, other.ID).Checktime, "不经过该通道的数据源不重新测试")
 			})
 		})
 	})

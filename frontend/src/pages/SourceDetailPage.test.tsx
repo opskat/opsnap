@@ -361,14 +361,15 @@ describe("数据源详情页", () => {
     expect(fetchMock.mock.calls.length).toBe(callsBeforeUnmount);
   });
 
-  it("无法探测时显示原因，不显示旧结果", async () => {
-    respondDetail(pgReport, []);
+  it("无法探测时显示原因与探测时间，不显示旧结果", async () => {
+    respondDetail({ ...pgReport, probe: { ...pgReport.probe!, time: Math.floor(Date.now() / 1000) - 120 } }, []);
     renderDetail(105);
     await screen.findByRole("heading", { name: "pg-report" });
 
     const probe = screen.getByRole("region", { name: "能力探测" });
     expect(within(probe).getByText("无法探测")).toBeInTheDocument();
     expect(within(probe).getByText(/认证失败/)).toBeInTheDocument();
+    expect(within(probe).getByText(/探测于/)).toBeInTheDocument();
     expect(within(probe).queryAllByRole("listitem")).toHaveLength(0);
   });
 
