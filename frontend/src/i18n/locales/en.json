@@ -502,6 +502,33 @@
         "title": "Delete data source \"{{name}}\"?",
         "hint": "Only the record and credentials in OpsNap are deleted; the database or server is not affected.",
         "confirm": "Delete Data Source"
+      },
+      "detail": {
+        "back": "Back to {{name}}",
+        "loadFailed": "Couldn't load the data source: {{message}}",
+        "notFoundTitle": "Data source not found",
+        "notFoundHint": "It may have been deleted, or the link is incorrect.",
+        "backToList": "Back to list",
+        "reprobe": "Reprobe",
+        "reprobing": "Reprobing…",
+        "connection": {
+          "title": "Connection",
+          "type": "Type",
+          "address": "Address",
+          "username": "Username",
+          "tls": "TLS",
+          "recentTest": "Recent test",
+          "chain": "Network chain",
+          "controller": "Controller",
+          "clientCert": "Client certificate",
+          "untested": "Not yet connected successfully"
+        },
+        "probe": {
+          "title": "Capability Probe",
+          "probedAt": "Probed {{time}}",
+          "tables": "{{tables}} ({{count}} total)",
+          "fix": "Fix"
+        }
       }
     }
   }

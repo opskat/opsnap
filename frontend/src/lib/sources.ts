@@ -387,6 +387,11 @@ export function listDataSources() {
   return request<{ items: DataSourceItem[] }>("/datasources");
 }
 
+/** 详情页按 id 获取一个数据源；不会触发测试连接 */
+export function getDataSource(id: number) {
+  return request<{ item: DataSourceItem }>(`/datasources/${id}`);
+}
+
 export function probeDataSource(body: { id?: number; data_source: DataSourceForm }) {
   return request<{ host_key: HostKeyPrompt | null; chain: ChannelHop[]; server: DataSourceServerInfo | null }>(
     "/datasources/probe",
@@ -420,6 +425,16 @@ export function confirmDataSourceHostKey(id: number, fingerprint: string) {
 
 export function deleteDataSource(id: number) {
   return request<object>(`/datasources/${id}`, { method: "DELETE" });
+}
+
+/** 详情页“重新探测”：已在探测中时后端会合并这次触发，不重复探测 */
+export function reprobeDataSource(id: number) {
+  return request<{ item: DataSourceItem }>(`/datasources/${id}/reprobe`, { method: "POST" });
+}
+
+/** 按界面语言挑选探测文案 */
+export function pickProbeText(text: ProbeText, lang: string): string {
+  return lang.toLowerCase().startsWith("zh") ? text.zh_cn : text.en;
 }
 
 /** 数据源表单实时链路预览：经由通道 + 数据源自身（尚未保存）作为最后一跳 */
@@ -461,4 +476,43 @@ export function probeSummaryOf(probe: DataSourceProbe | null): ProbeSummary {
   const { ok, warn, fail } = probe;
   const kind: ProbeSummaryKind = fail > 0 ? "fail" : warn > 0 ? "warn" : "ok";
   return { kind, ok, warn, fail };
+}
+
+/**
+ * 数据源状态为 host_key_changed 时，构造「重新确认」弹窗所需的提示：
+ * 变化的是链路中某个通道时（failed_hop.channel_id 非零）取该通道的保存与出示指纹，
+ * 否则（目标主机自身，仅服务器文件）取数据源自身的指纹。
+ */
+export function dataSourceHostKeyRequest(
+  item: DataSourceItem,
+  channels: ChannelItem[]
+): { prompt: HostKeyPrompt; viaChannel?: ChannelItem } {
+  const viaChannel = item.failed_hop?.channel_id
+    ? channels.find((c) => c.id === item.failed_hop?.channel_id)
+    : undefined;
+  if (viaChannel) {
+    return {
+      prompt: {
+        hop: item.failed_hop?.hop ?? 0,
+        name: viaChannel.name,
+        address: viaChannel.address,
+        key_type: "",
+        fingerprint: viaChannel.presented_host_key,
+        changed: true,
+        saved: viaChannel.host_key,
+      },
+      viaChannel,
+    };
+  }
+  return {
+    prompt: {
+      hop: item.failed_hop?.hop ?? 0,
+      name: item.name,
+      address: item.address,
+      key_type: "",
+      fingerprint: item.presented_host_key,
+      changed: true,
+      saved: item.host_key,
+    },
+  };
 }

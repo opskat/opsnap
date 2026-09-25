@@ -502,6 +502,33 @@
         "title": "删除数据源「{{name}}」？",
         "hint": "只删除 OpsNap 中的记录与凭据，不影响数据库或服务器。",
         "confirm": "删除数据源"
+      },
+      "detail": {
+        "back": "返回「{{name}}」",
+        "loadFailed": "无法加载数据源：{{message}}",
+        "notFoundTitle": "数据源不存在",
+        "notFoundHint": "它可能已被删除，或链接不正确。",
+        "backToList": "返回列表",
+        "reprobe": "重新探测",
+        "reprobing": "重新探测中…",
+        "connection": {
+          "title": "连接",
+          "type": "类型",
+          "address": "地址",
+          "username": "用户名",
+          "tls": "TLS",
+          "recentTest": "最近测试",
+          "chain": "网络链路",
+          "controller": "主控端",
+          "clientCert": "客户端证书",
+          "untested": "尚未成功连接"
+        },
+        "probe": {
+          "title": "能力探测",
+          "probedAt": "探测于 {{time}}",
+          "tables": "{{tables}}（共 {{count}} 张）",
+          "fix": "修复方法"
+        }
       }
     }
   }
