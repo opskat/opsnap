@@ -1,5 +1,5 @@
 import { Database, Plus, Waypoints } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -109,12 +109,26 @@ export function SourcesPage() {
   const [chRowHostKey, setChRowHostKey] = useState<ChannelRowHostKey>();
   const [chRowHostKeyBusy, setChRowHostKeyBusy] = useState(false);
   const [chRowHostKeyError, setChRowHostKeyError] = useState<string>();
+  // 列表是否已成功加载过：之后的刷新失败只提示，不替换已有列表
+  const chLoaded = useRef(false);
+  const [chRefreshError, setChRefreshError] = useState<string>();
 
   useEffect(() => {
     let cancelled = false;
     listChannels()
-      .then((r) => !cancelled && setChState({ status: "ready", items: r.items }))
-      .catch((err: unknown) => !cancelled && setChState({ status: "error", message: errorText(err) }));
+      .then((r) => {
+        if (cancelled) return;
+        chLoaded.current = true;
+        setChRefreshError(undefined);
+        setChState({ status: "ready", items: r.items });
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        const message = errorText(err);
+        // 保存或删除后的后台刷新失败时，已有列表仍然可用：保留它并提示，不把整个列表换成加载失败
+        if (chLoaded.current) setChRefreshError(message);
+        else setChState({ status: "error", message });
+      });
     return () => {
       cancelled = true;
     };
@@ -384,6 +398,17 @@ export function SourcesPage() {
               <p role="alert" className="mb-4 rounded-md bg-destructive-soft px-3 py-2.5 text-sm text-destructive">
                 {chActionError}
               </p>
+            )}
+            {chRefreshError && (
+              <div
+                role="alert"
+                className="mb-4 flex items-center justify-between gap-3 rounded-md bg-destructive-soft px-4 py-3"
+              >
+                <p className="text-sm text-destructive">{t("sources.loadFailed", { message: chRefreshError })}</p>
+                <Button variant="outline" size="sm" onClick={reloadChannels}>
+                  {t("common.retry")}
+                </Button>
+              </div>
             )}
             {chState.status === "loading" && <p className="text-sm text-muted-foreground">{t("common.loading")}</p>}
             {chState.status === "error" && (

@@ -1085,10 +1085,17 @@ func TestReprobe(t *testing.T) {
 
 			close(g.release)
 			waitProbe(t, done, item.ID)
-			select {
-			case <-done:
-				t.Fatal("同一数据源同时只应进行一次探测，第二次触发不应重复探测")
-			case <-time.After(200 * time.Millisecond):
+			// 与 waitProbe 同理，只认本数据源的完成通知：外层先创建的数据源此时结束探测不算重复探测
+			quiet := time.After(200 * time.Millisecond)
+			for waiting := true; waiting; {
+				select {
+				case got := <-done:
+					if got == item.ID {
+						t.Fatal("同一数据源同时只应进行一次探测，第二次触发不应重复探测")
+					}
+				case <-quiet:
+					waiting = false
+				}
 			}
 			g.mu.Lock()
 			calls := g.calls

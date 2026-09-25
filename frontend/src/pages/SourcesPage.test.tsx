@@ -739,6 +739,31 @@ describe("SourcesPage · 网络通道", () => {
     expect(await screen.findByRole("menuitem", { name: "删除通道" })).not.toHaveAttribute("aria-disabled", "true");
   });
 
+  it("删除后重新拉取通道列表失败时，保留当前列表并提示刷新失败，而不是把整个列表换成加载失败", async () => {
+    respondLists([], [s3, s4]);
+    renderPage();
+    await userEvent.click(await screen.findByRole("tab", { name: /网络通道/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "s4 的更多操作" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "删除通道" }));
+    const confirmDialog = await screen.findByRole("dialog", { name: "删除通道「s4」？" });
+    // call(2) 删除请求成功，call(3) 删除后刷新通道列表失败
+    respond(ok({}), fail(50000, "boom", 500));
+    await userEvent.click(within(confirmDialog).getByRole("button", { name: "删除通道" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("无法加载网络通道列表：boom");
+    let rows = screen.getAllByRole("row");
+    expect(within(rows[1]).getByText("s3")).toBeInTheDocument();
+    expect(screen.queryByText("s4")).not.toBeInTheDocument();
+
+    // 重试成功后提示消失，列表换成接口返回的最新使用情况
+    respond(ok({ items: [{ ...s3, used_by: usedBy() }] }));
+    await userEvent.click(within(alert).getByRole("button", { name: "重试" }));
+    await vi.waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    rows = screen.getAllByRole("row");
+    expect(within(rows[1]).getByText("未被使用")).toBeInTheDocument();
+  });
+
   it("新建经由上游通道的通道后，上游通道的使用数与删除保护立即刷新", async () => {
     const s3Unused = { ...s3, used_by: usedBy() };
     respondLists([], [s3Unused]);
