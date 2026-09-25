@@ -21,6 +21,21 @@ export const ErrorCode = {
   StorageEndpointScheme: 10405,
   StorageKeyInvalid: 10417,
   StorageAlreadyRepository: 10421,
+  ChannelNameInvalid: 10501,
+  ChannelNameDuplicate: 10502,
+  ChannelHostRequired: 10503,
+  ChannelPortInvalid: 10504,
+  ChannelUserRequired: 10505,
+  ChannelPasswordRequired: 10507,
+  ChannelPrivateKeyRequired: 10508,
+  ChannelSOCKS5CredentialPair: 10509,
+  ChannelPassphraseMissing: 10510,
+  ChannelPassphraseWrong: 10511,
+  ChannelKeyInvalid: 10512,
+  ChannelViaCycle: 10514,
+  ChannelChainTooLong: 10515,
+  ChannelHostKeyChanged: 10517,
+  ChannelInUse: 10518,
 } as const;
 
 export const MIN_PASSWORD_LENGTH = 12;

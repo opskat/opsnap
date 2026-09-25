@@ -87,6 +87,39 @@ const (
 	StorageDirCreateFailed
 )
 
+// 网络通道
+const (
+	ChannelNotFound = iota + 10500
+	ChannelNameInvalid
+	ChannelNameDuplicate
+	ChannelHostRequired
+	ChannelPortInvalid
+	ChannelUserRequired
+	ChannelAuthMethodInvalid
+	ChannelPasswordRequired
+	ChannelPrivateKeyRequired
+	ChannelSOCKS5CredentialPair
+	ChannelPassphraseMissing
+	ChannelPassphraseWrong
+	ChannelKeyInvalid
+	ChannelViaNotFound
+	ChannelViaCycle
+	ChannelChainTooLong
+	ChannelHopFailed
+	ChannelHostKeyChanged
+	ChannelInUse
+	ChannelNotSSH
+	// 以下为一跳失败的原因，只用于拼接 ChannelHopFailed 的文案
+	ChannelReasonUnreachable
+	ChannelReasonTimeout
+	ChannelReasonCanceled
+	ChannelReasonProtocol
+	ChannelReasonNegotiation
+	ChannelReasonAuthFailed
+	ChannelReasonHostKeyUnknown
+	ChannelReasonHostKeyChanged
+)
+
 func init() {
 	i18n.DefaultLang = LangZhCN
 	i18n.Register(LangZhCN, zhCN)

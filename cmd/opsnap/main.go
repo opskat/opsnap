@@ -23,6 +23,7 @@ import (
 	"github.com/opskat/opsnap/internal/middleware"
 	"github.com/opskat/opsnap/internal/pkg/secret"
 	"github.com/opskat/opsnap/internal/repository/admin_repo"
+	"github.com/opskat/opsnap/internal/repository/channel_repo"
 	"github.com/opskat/opsnap/internal/repository/oidc_repo"
 	"github.com/opskat/opsnap/internal/repository/session_repo"
 	"github.com/opskat/opsnap/internal/repository/setting_repo"
@@ -144,4 +145,5 @@ func registerRepositories() {
 	token_repo.RegisterToken(token_repo.NewToken())
 	oidc_repo.RegisterOIDC(oidc_repo.NewOIDC())
 	storage_repo.RegisterStorage(storage_repo.NewStorage())
+	channel_repo.RegisterChannel(channel_repo.NewChannel())
 }
