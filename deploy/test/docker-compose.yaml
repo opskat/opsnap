@@ -79,7 +79,9 @@ services:
 
   ssh-jump:
     # 数据源轮（docs/specs/2026-09-25-datasources.md）运行时验证用的网络通道跳板；用户 opsnap，
-    # 密码为测试密码。ssh-target 不发布端口，只能从这台跳板（同一 compose 网络）到达
+    # 密码为测试密码。ssh-target 不发布端口，只能从这台跳板（同一 compose 网络）到达。
+    # 镜像默认 AllowTcpForwarding no，当不了跳板；用 custom-cont-init.d 下的脚本在启动时开启转发
+    # （见 ssh-jump-init/10-allow-tcp-forwarding.sh），避免拉取 DOCKER_MODS（镜像代理不稳定）
     image: ${REGISTRY_MIRROR:-}docker.io/linuxserver/openssh-server
     environment:
       PUID: 1000
@@ -90,6 +92,8 @@ services:
       SUDO_ACCESS: "false"
     ports:
       - "12222:2222"
+    volumes:
+      - ./ssh-jump-init/10-allow-tcp-forwarding.sh:/custom-cont-init.d/10-allow-tcp-forwarding.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/2222"]
       interval: 5s
@@ -117,7 +121,8 @@ services:
       PROXY_USER: opsnap
       PROXY_PASSWORD: ${OPSNAP_TEST_PASSWORD:?缺少 OPSNAP_TEST_PASSWORD}
     ports:
-      - "11080:1080"
+      # 11080 在 docker.lan 上已被宿主机的 sockd 占用，改发布到 11081
+      - "11081:1080"
 
 volumes:
   mysql80:

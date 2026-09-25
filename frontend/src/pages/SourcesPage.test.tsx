@@ -118,6 +118,113 @@ const deepSsh: ChannelItem = {
   created_at: now() - 7000,
 };
 
+/** s3 只被通道 s4 引用（无数据源引用），s4 本身不被任何对象引用，可直接删除：用于 V13 回归 */
+const s3: ChannelItem = {
+  id: 30,
+  name: "s3",
+  kind: "socks5",
+  host: "10.0.0.3",
+  port: 1080,
+  username: "",
+  auth_method: "none",
+  has_password: false,
+  has_private_key: false,
+  has_passphrase: false,
+  via_id: 0,
+  address: "socks5://10.0.0.3:1080",
+  chain: [{ id: 30, name: "s3", kind: "socks5", address: "10.0.0.3:1080" }],
+  host_key: "",
+  presented_host_key: "",
+  used_by: usedBy([], [{ id: 31, name: "s4" }]),
+  status: "ok",
+  status_message: "",
+  checked_at: now() - 300,
+  created_at: now() - 6000,
+};
+
+const s4: ChannelItem = {
+  id: 31,
+  name: "s4",
+  kind: "socks5",
+  host: "10.0.0.4",
+  port: 1080,
+  username: "",
+  auth_method: "none",
+  has_password: false,
+  has_private_key: false,
+  has_passphrase: false,
+  via_id: 30,
+  address: "socks5://10.0.0.4:1080",
+  chain: [
+    { id: 30, name: "s3", kind: "socks5", address: "10.0.0.3:1080" },
+    { id: 31, name: "s4", kind: "socks5", address: "10.0.0.4:1080" },
+  ],
+  host_key: "",
+  presented_host_key: "",
+  used_by: usedBy(),
+  status: "ok",
+  status_message: "",
+  checked_at: now() - 300,
+  created_at: now() - 5000,
+};
+
+/** c1 被数据源 ds1 引用：用于验证删除数据源后通道的使用数刷新（V13） */
+const c1: ChannelItem = {
+  id: 40,
+  name: "c1",
+  kind: "ssh",
+  host: "10.0.0.40",
+  port: 22,
+  username: "ops",
+  auth_method: "password",
+  has_password: true,
+  has_private_key: false,
+  has_passphrase: false,
+  via_id: 0,
+  address: "ssh://ops@10.0.0.40:22",
+  chain: [{ id: 40, name: "c1", kind: "ssh", address: "10.0.0.40:22" }],
+  host_key: "",
+  presented_host_key: "",
+  used_by: usedBy([{ id: 201, name: "ds1" }], []),
+  status: "ok",
+  status_message: "",
+  checked_at: now() - 300,
+  created_at: now() - 4000,
+};
+
+const ds1: DataSourceItem = {
+  id: 201,
+  name: "ds1",
+  kind: "mysql",
+  host: "10.0.0.41",
+  port: 3306,
+  username: "backup",
+  auth_method: "password",
+  has_password: true,
+  has_private_key: false,
+  has_passphrase: false,
+  database: "",
+  tls_mode: "disable",
+  tls_ca: "",
+  tls_client_cert: "",
+  has_tls_client_key: false,
+  channel_id: 40,
+  address: "mysql://10.0.0.41:3306",
+  chain: [
+    { id: 40, name: "c1", kind: "ssh", address: "10.0.0.40:22" },
+    { id: 0, name: "ds1", kind: "mysql", address: "10.0.0.41:3306" },
+  ],
+  server: { version: "8.0.36", system: "", tls: null },
+  host_key: "",
+  presented_host_key: "",
+  status: "ok",
+  status_message: "",
+  failed_hop: null,
+  checked_at: now() - 300,
+  created_at: now() - 4000,
+  probe: { state: "done", ok: 5, warn: 0, fail: 0, items: [], time: now() - 300 },
+};
+
 // ---- 数据源 fixtures ----
 
 const dbOrders: DataSourceItem = {
@@ -600,12 +707,34 @@ describe("SourcesPage · 网络通道", () => {
     await userEvent.click(await screen.findByRole("button", { name: "deep-ssh 的更多操作" }));
     await userEvent.click(await screen.findByRole("menuitem", { name: "删除通道" }));
     const confirmDialog = await screen.findByRole("dialog", { name: "删除通道「deep-ssh」？" });
-    respond(ok({}));
+    // call(2) 删除请求，call(3) 删除后刷新通道列表
+    respond(ok({}), ok({ items: [officeSocks] }));
     await userEvent.click(within(confirmDialog).getByRole("button", { name: "删除通道" }));
     await vi.waitFor(() => expect(screen.queryByText("deep-ssh")).not.toBeInTheDocument());
     expect(screen.getByText("office-socks")).toBeInTheDocument();
     // call(0) 数据源列表，call(1) 通道列表，call(2) 删除请求
     expect(call(2)).toMatchObject({ url: "/api/v1/channels/4", method: "DELETE" });
+  });
+
+  it("删除下游通道后，上游通道的使用数与删除保护立即刷新，无需重新加载页面", async () => {
+    respondLists([], [s3, s4]);
+    renderPage();
+    await userEvent.click(await screen.findByRole("tab", { name: /网络通道/ }));
+    let rows = await screen.findAllByRole("row");
+    expect(within(rows[1]).getByText("1 个通道")).toBeInTheDocument();
+
+    await userEvent.click(await screen.findByRole("button", { name: "s4 的更多操作" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "删除通道" }));
+    const confirmDialog = await screen.findByRole("dialog", { name: "删除通道「s4」？" });
+    // call(2) 删除请求，call(3) 删除后刷新通道列表：接口已返回 s3 的 used_by 为空
+    respond(ok({}), ok({ items: [{ ...s3, used_by: usedBy() }] }));
+    await userEvent.click(within(confirmDialog).getByRole("button", { name: "删除通道" }));
+    await vi.waitFor(() => expect(screen.queryByText("s4")).not.toBeInTheDocument());
+
+    rows = await screen.findAllByRole("row");
+    expect(within(rows[1]).getByText("未被使用")).toBeInTheDocument();
+    await userEvent.click(within(rows[1]).getByRole("button", { name: "s3 的更多操作" }));
+    expect(await screen.findByRole("menuitem", { name: "删除通道" })).not.toHaveAttribute("aria-disabled", "true");
   });
 });
 
@@ -966,9 +1095,27 @@ describe("SourcesPage · 数据源", () => {
     await userEvent.click(await screen.findByRole("menuitem", { name: "删除数据源" }));
     const confirmDialog = await screen.findByRole("dialog", { name: "删除数据源「db-01 · orders」？" });
     expect(within(confirmDialog).getByText("只删除 OpsNap 中的记录与凭据，不影响数据库或服务器。")).toBeInTheDocument();
-    respond(ok({}));
+    // call(2) 删除请求，call(3) 删除后刷新通道列表（数据源也计入通道使用数）
+    respond(ok({}), ok({ items: [] }));
     await userEvent.click(within(confirmDialog).getByRole("button", { name: "删除数据源" }));
     await vi.waitFor(() => expect(screen.queryByText("db-01 · orders")).not.toBeInTheDocument());
     expect(call(2)).toMatchObject({ url: "/api/v1/datasources/101", method: "DELETE" });
+  });
+
+  it("删除数据源后，被它使用的通道的使用数刷新", async () => {
+    respondLists([ds1], [c1]);
+    renderPage();
+    const row = (await screen.findAllByRole("row"))[1];
+    await userEvent.click(within(row).getByRole("button", { name: "ds1 的更多操作" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "删除数据源" }));
+    const confirmDialog = await screen.findByRole("dialog", { name: "删除数据源「ds1」？" });
+    // call(2) 删除请求，call(3) 删除后刷新通道列表：接口已返回 c1 的 used_by 为空
+    respond(ok({}), ok({ items: [{ ...c1, used_by: usedBy() }] }));
+    await userEvent.click(within(confirmDialog).getByRole("button", { name: "删除数据源" }));
+    await vi.waitFor(() => expect(screen.queryByText("ds1")).not.toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("tab", { name: /网络通道/ }));
+    const chRow = (await screen.findAllByRole("row"))[1];
+    expect(within(chRow).getByText("未被使用")).toBeInTheDocument();
   });
 });

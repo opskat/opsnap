@@ -439,6 +439,8 @@ export function SourcesPage() {
         onDeleted={() => {
           if (chDeleting) removeChannel(chDeleting.id);
           setChDeleting(undefined);
+          // 删除后其他通道的“被引用”与删除保护可能已变化，重新拉取通道列表而不是等待重新加载页面
+          reloadChannels();
         }}
       />
       <HostKeyDialog
@@ -467,6 +469,8 @@ export function SourcesPage() {
         onDeleted={() => {
           if (dsDeleting) removeDataSource(dsDeleting.id);
           setDsDeleting(undefined);
+          // 数据源也计入通道的“被使用”计数，删除后重新拉取通道列表刷新其使用情况与删除保护
+          reloadChannels();
         }}
       />
       <HostKeyDialog

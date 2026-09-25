@@ -34,6 +34,9 @@ up)
   opsctl cp "$ROOT/deploy/test/docker-compose.yaml" "$ASSET:$REMOTE_DIR/docker-compose.yaml"
   ssh_exec "mkdir -p $REMOTE_DIR/keycloak"
   opsctl cp "$ROOT/deploy/test/keycloak/opsnap-realm.json" "$ASSET:$REMOTE_DIR/keycloak/opsnap-realm.json"
+  ssh_exec "mkdir -p $REMOTE_DIR/ssh-jump-init"
+  opsctl cp "$ROOT/deploy/test/ssh-jump-init/10-allow-tcp-forwarding.sh" "$ASSET:$REMOTE_DIR/ssh-jump-init/10-allow-tcp-forwarding.sh"
+  ssh_exec "chmod 755 $REMOTE_DIR/ssh-jump-init/10-allow-tcp-forwarding.sh"
   opsctl cp "$tmp/.env" "$ASSET:$REMOTE_DIR/.env"
   ssh_exec "chmod 600 $REMOTE_DIR/.env && $(compose up -d --wait)"
   ;;

@@ -512,6 +512,18 @@ describe("数据源详情页", () => {
     expect(await screen.findByText("Binlog retained for 1 day")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reprobe" })).toBeInTheDocument();
   });
+
+  it("英文探测摘要在数量为 1 时使用单数形式", async () => {
+    respondDetail({ ...dbOrders, probe: { ...dbOrders.probe!, ok: 1, warn: 1, fail: 0 } }, [officeSocks, bastionProd]);
+    renderDetail(101);
+    await screen.findByRole("heading", { name: "db-01 · orders" });
+
+    await act(async () => {
+      await i18n.changeLanguage("en");
+    });
+    expect(await screen.findByText(/1 passed · 1 warning\b/)).toBeInTheDocument();
+    expect(screen.queryByText(/1 warnings/)).not.toBeInTheDocument();
+  });
 });
 
 afterAll(() => i18n.changeLanguage("zh-CN"));
