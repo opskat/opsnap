@@ -77,7 +77,7 @@ make lint                                                        # static checks
 
 - Go: GoConvey + testify + go.uber.org/mock, plus cago's `muxtest` and `testutils`.
 - Frontend: Vitest (happy-dom, `globals: true`) + Testing Library + jest-dom matchers, configured in the `test` block of `frontend/vite.config.ts`.
-- e2e: Playwright; see [`../e2e/README.md`](../e2e/README.md).
+- e2e: Playwright; see [`../e2e/README.md`](../e2e/README.md). Process-level fakes needed only in e2e (not by any Go test) are built as standalone binaries in `tools/` and started by `e2e/global-setup.ts`: `tools/fakeidp` for OIDC, `tools/fakessh` (wraps `internal/pkg/fakessh`) for SSH network channels and server-file data sources.
 
 ## Related
 
