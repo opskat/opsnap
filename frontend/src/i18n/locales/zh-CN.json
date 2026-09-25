@@ -453,6 +453,7 @@
         "more": "{{name}} 的更多操作",
         "reconfirm": "重新确认",
         "reconfirmNamed": "重新确认 {{name}} 的主机密钥",
+        "reconfirmChannelStale": "暂时无法获取通道 {{name}} 现在出示的密钥，请稍后重试。",
         "viewDetail": "查看详情",
         "deleteItem": "删除数据源"
       },

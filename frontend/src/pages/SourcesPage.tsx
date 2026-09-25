@@ -223,27 +223,47 @@ export function SourcesPage() {
   };
 
   // 主机密钥已变化的可能是数据源自身的目标主机（服务器文件），也可能是链路中的某个通道；
-  // 后一种情况要在通道上重新确认（沿用其保存与出示的指纹），确认后刷新数据源列表以反映最新状态
+  // 后一种情况要在通道上重新确认。页面上已加载的通道列表可能是在这次密钥变化被发现之前取到的
+  // （例如通道本身在本页从未被重新测试过），此时它的出示指纹还是空的；重新确认前先重新拉取
+  // 通道列表，取后台已经记录的最新指纹，仍拿不到时提示错误而不是打开空白弹窗
   const reconfirmDataSource = (d: DataSourceItem) => {
-    const viaChannel = d.failed_hop?.channel_id ? channels.find((c) => c.id === d.failed_hop?.channel_id) : undefined;
-    if (viaChannel) {
-      openDataSourceRowHostKey(
-        {
-          hop: d.failed_hop?.hop ?? 0,
-          name: viaChannel.name,
-          address: viaChannel.address,
-          key_type: "",
-          fingerprint: viaChannel.presented_host_key,
-          changed: true,
-          saved: viaChannel.host_key,
-        },
-        async (fingerprint) => {
-          const res = await confirmChannelHostKey(viaChannel.id, fingerprint);
-          if (res.item) replaceChannel(res.item);
-          if (!res.host_key) reloadDataSources();
-          return { item: null, host_key: res.host_key };
+    const channelId = d.failed_hop?.channel_id;
+    if (channelId) {
+      void (async () => {
+        let viaChannel: ChannelItem | undefined;
+        try {
+          const fresh = await listChannels();
+          setChState({ status: "ready", items: fresh.items });
+          viaChannel = fresh.items.find((c) => c.id === channelId);
+        } catch (err) {
+          setDsActionError(errorText(err));
+          return;
         }
-      );
+        if (!viaChannel?.presented_host_key) {
+          setDsActionError(
+            t("sources.dataSource.list.reconfirmChannelStale", { name: viaChannel?.name ?? d.failed_hop?.name ?? "" })
+          );
+          return;
+        }
+        const channel = viaChannel;
+        openDataSourceRowHostKey(
+          {
+            hop: d.failed_hop?.hop ?? 0,
+            name: channel.name,
+            address: channel.address,
+            key_type: "",
+            fingerprint: channel.presented_host_key,
+            changed: true,
+            saved: channel.host_key,
+          },
+          async (fingerprint) => {
+            const res = await confirmChannelHostKey(channel.id, fingerprint);
+            if (res.item) replaceChannel(res.item);
+            if (!res.host_key) reloadDataSources();
+            return { item: null, host_key: res.host_key };
+          }
+        );
+      })();
       return;
     }
     openDataSourceRowHostKey(

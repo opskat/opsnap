@@ -795,10 +795,41 @@ describe("SourcesPage · 数据源", () => {
     expect(within(changed).getByText("SHA256:webNewFingerprint")).toBeInTheDocument();
   });
 
+  it("主机密钥已变化（链路中的通道）：本地通道列表指纹过期时，先刷新通道列表再显示当前指纹", async () => {
+    // 数据源的测试在通道被加载之后才发现密钥变化：页面上的通道条目还没有出示的指纹
+    const staleBastionOld: ChannelItem = { ...bastionOld, presented_host_key: "" };
+    respondLists([dbLegacy], [staleBastionOld]);
+    renderPage();
+    const reconfirmBtn = await screen.findByRole("button", { name: "重新确认 db-legacy 的主机密钥" });
+    // 重新确认时先重新拉取通道列表，拿到后台已经记录的最新指纹
+    respond(ok({ items: [bastionOld] }));
+    await userEvent.click(reconfirmBtn);
+    expect(call(2).url).toBe("/api/v1/channels");
+    const dialog = await screen.findByRole("dialog", { name: "主机密钥已变化" });
+    // 并列显示的是 bastion-old 这个通道保存与出示的指纹，而不是数据源自身的，且不是空指纹
+    expect(within(dialog).getByText("SHA256:oldSavedFingerprint")).toBeInTheDocument();
+    expect(within(dialog).getByText("SHA256:Zk8pQe41VbN7mWc0rHs2LtYg5xJ3uKdA9iFoPlT0bw")).toBeInTheDocument();
+  });
+
+  it("主机密钥已变化（链路中的通道）：刷新后仍拿不到指纹时显示错误，不打开空白弹窗", async () => {
+    const staleBastionOld: ChannelItem = { ...bastionOld, presented_host_key: "" };
+    respondLists([dbLegacy], [staleBastionOld]);
+    renderPage();
+    const reconfirmBtn = await screen.findByRole("button", { name: "重新确认 db-legacy 的主机密钥" });
+    // 刷新后通道仍未出示新指纹（例如还没有人访问过这台通道）
+    respond(ok({ items: [staleBastionOld] }));
+    await userEvent.click(reconfirmBtn);
+    await screen.findByText("暂时无法获取通道 bastion-old 现在出示的密钥，请稍后重试。");
+    expect(screen.queryByRole("dialog", { name: "主机密钥已变化" })).not.toBeInTheDocument();
+  });
+
   it("主机密钥已变化（链路中的通道）：在该通道上重新确认，成功后刷新数据源列表", async () => {
     respondLists([dbLegacy], [bastionOld]);
     renderPage();
-    await userEvent.click(await screen.findByRole("button", { name: "重新确认 db-legacy 的主机密钥" }));
+    const reconfirmBtn = await screen.findByRole("button", { name: "重新确认 db-legacy 的主机密钥" });
+    // 重新确认前先刷新通道列表（此处通道条目已经是最新的）
+    respond(ok({ items: [bastionOld] }));
+    await userEvent.click(reconfirmBtn);
     const dialog = await screen.findByRole("dialog", { name: "主机密钥已变化" });
     // 并列显示的是 bastion-old 这个通道保存与出示的指纹，而不是数据源自身的
     expect(within(dialog).getByText("SHA256:oldSavedFingerprint")).toBeInTheDocument();
@@ -811,10 +842,10 @@ describe("SourcesPage · 数据源", () => {
       ok({ items: [{ ...dbLegacy, status: "ok", failed_hop: null }] })
     );
     await userEvent.click(within(dialog).getByRole("button", { name: "信任新密钥" }));
-    expect(call(2).url).toBe("/api/v1/channels/3/host-key");
-    expect(call(2).body.fingerprint).toBe(bastionOld.presented_host_key);
+    expect(call(3).url).toBe("/api/v1/channels/3/host-key");
+    expect(call(3).body.fingerprint).toBe(bastionOld.presented_host_key);
     await screen.findByText("正常");
-    expect(call(3).url).toBe("/api/v1/datasources");
+    expect(call(4).url).toBe("/api/v1/datasources");
   });
 
   it("删除数据源：二次确认后从列表移除", async () => {

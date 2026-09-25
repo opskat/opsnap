@@ -453,6 +453,7 @@
         "more": "More actions for {{name}}",
         "reconfirm": "Reconfirm",
         "reconfirmNamed": "Reconfirm host key for {{name}}",
+        "reconfirmChannelStale": "Couldn't get the key channel {{name}} is currently presenting; try again shortly.",
         "viewDetail": "View Details",
         "deleteItem": "Delete data source"
       },
