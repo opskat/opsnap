@@ -1,4 +1,13 @@
-import { ArrowRight, CircleAlert, CircleCheck, TriangleAlert, Terminal, Upload, Waypoints } from "lucide-react";
+import {
+  ArrowRight,
+  CircleAlert,
+  CircleCheck,
+  ShieldAlert,
+  TriangleAlert,
+  Terminal,
+  Upload,
+  Waypoints,
+} from "lucide-react";
 import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -63,6 +72,7 @@ export function ChannelFormDialog({
   channels,
   onOpenChange,
   onSaved,
+  onReconfirm,
 }: {
   open: boolean;
   editing?: ChannelItem;
@@ -70,6 +80,8 @@ export function ChannelFormDialog({
   channels: ChannelItem[];
   onOpenChange: (open: boolean) => void;
   onSaved: (item: ChannelItem) => void;
+  /** 正在编辑的通道主机密钥已变化时，打开「主机密钥已变化」弹窗 */
+  onReconfirm?: (item: ChannelItem) => void;
 }) {
   const { t } = useTranslation();
   const initial = (): ChannelForm => (editing ? channelFormOf(editing) : emptyChannelForm());
@@ -182,6 +194,17 @@ export function ChannelFormDialog({
               <DialogDescription>{t("sources.channel.form.hint")}</DialogDescription>
             </DialogHeader>
             <div className="flex max-h-[70vh] flex-col gap-4 overflow-y-auto p-5">
+              {editing?.status === "host_key_changed" && (
+                <p className="flex items-center justify-between gap-3 rounded-md bg-warning-soft px-3 py-2.5 text-sm text-warning">
+                  <span className="flex items-center gap-2">
+                    <ShieldAlert className="size-4 shrink-0" />
+                    {t("sources.channel.form.hostKeyChangedHint")}
+                  </span>
+                  <Button type="button" variant="outline" size="sm" onClick={() => onReconfirm?.(editing)}>
+                    {t("sources.channel.list.reconfirm")}
+                  </Button>
+                </p>
+              )}
               <KindTabs value={draft.kind} onChange={setKind} />
               <FormField
                 label={t("sources.channel.form.name")}

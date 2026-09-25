@@ -203,7 +203,11 @@ describe("SourcesPage", () => {
 
     const oldRow = rows[3];
     expect(within(oldRow).getByText("主机密钥已变化")).toBeInTheDocument();
+    // 主机密钥已变化的行在“重新确认”之外，仍保留测试连接、编辑与更多菜单（删除通道）
     expect(within(oldRow).getByRole("button", { name: "重新确认 bastion-old 的主机密钥" })).toBeInTheDocument();
+    expect(within(oldRow).getByRole("button", { name: "测试连接 bastion-old" })).toBeInTheDocument();
+    expect(within(oldRow).getByRole("button", { name: "编辑 bastion-old" })).toBeInTheDocument();
+    expect(within(oldRow).getByRole("button", { name: "bastion-old 的更多操作" })).toBeInTheDocument();
   });
 
   it("经由选择框排除自己与会成环的通道", async () => {
@@ -363,6 +367,18 @@ describe("SourcesPage", () => {
     expect(call(1).body.fingerprint).toBe(bastionOld.presented_host_key);
     await screen.findByText("正常");
     expect(screen.queryByRole("dialog", { name: "主机密钥已变化" })).not.toBeInTheDocument();
+  });
+
+  it("编辑表单也能打开「主机密钥已变化」弹窗", async () => {
+    respond(ok({ items: [bastionOld] }));
+    renderPage();
+    await userEvent.click(await screen.findByRole("tab", { name: /网络通道/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "编辑 bastion-old" }));
+    const form = await screen.findByRole("dialog", { name: "编辑网络通道" });
+    await userEvent.click(within(form).getByRole("button", { name: "重新确认" }));
+    const changed = await screen.findByRole("dialog", { name: "主机密钥已变化" });
+    expect(within(changed).getByText("SHA256:oldSavedFingerprint")).toBeInTheDocument();
+    expect(within(changed).getByText("SHA256:Zk8pQe41VbN7mWc0rHs2LtYg5xJ3uKdA9iFoPlT0bw")).toBeInTheDocument();
   });
 
   it("删除受保护：显示引用它的对象，菜单项不可用；无引用时可删除", async () => {

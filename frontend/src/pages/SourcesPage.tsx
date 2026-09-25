@@ -224,6 +224,7 @@ export function SourcesPage() {
           replace(item);
           setFormOpen(false);
         }}
+        onReconfirm={reconfirm}
       />
       <DeleteChannelDialog
         channel={deleting}

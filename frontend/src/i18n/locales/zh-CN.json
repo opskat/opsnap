@@ -391,7 +391,8 @@
         "chainTooLong": "链路共 {{count}} 跳，超过上限 {{max}} 跳，无法保存。",
         "optional": "可选",
         "test": "测试连接",
-        "testing": "测试中…"
+        "testing": "测试中…",
+        "hostKeyChangedHint": "这台主机出示的密钥与保存的不一致，请先重新确认。"
       },
       "result": {
         "testSuccess": "连接成功，链路已确认。"

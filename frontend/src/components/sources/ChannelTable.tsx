@@ -105,7 +105,7 @@ export function ChannelTable({
               </span>
             </span>
             <span role="cell" className="flex items-center justify-end gap-1">
-              {c.status === "host_key_changed" ? (
+              {c.status === "host_key_changed" && (
                 <Button
                   variant="ghost"
                   size="sm"
@@ -116,17 +116,16 @@ export function ChannelTable({
                   <ShieldAlert />
                   {t("sources.channel.list.reconfirm")}
                 </Button>
-              ) : (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={testing?.has(c.id)}
-                  aria-label={t("sources.channel.list.testNamed", { name: c.name })}
-                  onClick={() => actions.onTest(c)}
-                >
-                  {testing?.has(c.id) ? t("sources.channel.form.testing") : t("sources.channel.form.test")}
-                </Button>
               )}
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={testing?.has(c.id)}
+                aria-label={t("sources.channel.list.testNamed", { name: c.name })}
+                onClick={() => actions.onTest(c)}
+              >
+                {testing?.has(c.id) ? t("sources.channel.form.testing") : t("sources.channel.form.test")}
+              </Button>
               <Button
                 variant="ghost"
                 size="sm"

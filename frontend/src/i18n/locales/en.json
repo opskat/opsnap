@@ -391,7 +391,8 @@
         "chainTooLong": "The chain has {{count}} hops, over the limit of {{max}}; it can't be saved.",
         "optional": "optional",
         "test": "Test Connection",
-        "testing": "Testing…"
+        "testing": "Testing…",
+        "hostKeyChangedHint": "This host presented a key that no longer matches the saved one. Reconfirm it first."
       },
       "result": {
         "testSuccess": "Connected successfully; the chain has been confirmed."
