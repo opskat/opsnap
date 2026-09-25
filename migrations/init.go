@@ -15,6 +15,7 @@ func RunMigrations(db *gorm.DB) error {
 		t20260923APITokens,
 		t20260924Storages,
 		t20260925Channels,
+		t20260925DataSources,
 	)
 }
 

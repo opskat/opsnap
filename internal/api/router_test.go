@@ -43,15 +43,23 @@ var sessionOnlyRoutes = map[string]bool{
 }
 
 // tokenRoutes 必须注册且令牌可调用的接口（docs/specs/2026-09-25-datasources.md「权限」：
-// 浏览器会话与 API 令牌都可以管理网络通道）
+// 浏览器会话与 API 令牌都可以管理数据源与网络通道）
 var tokenRoutes = map[string]bool{
-	"GET /api/v1/channels":               true,
-	"POST /api/v1/channels/probe":        true,
-	"POST /api/v1/channels":              true,
-	"PUT /api/v1/channels/:id":           true,
-	"POST /api/v1/channels/:id/test":     true,
-	"POST /api/v1/channels/:id/host-key": true,
-	"DELETE /api/v1/channels/:id":        true,
+	"GET /api/v1/channels":                  true,
+	"POST /api/v1/channels/probe":           true,
+	"POST /api/v1/channels":                 true,
+	"PUT /api/v1/channels/:id":              true,
+	"POST /api/v1/channels/:id/test":        true,
+	"POST /api/v1/channels/:id/host-key":    true,
+	"DELETE /api/v1/channels/:id":           true,
+	"GET /api/v1/datasources":               true,
+	"GET /api/v1/datasources/:id":           true,
+	"POST /api/v1/datasources/probe":        true,
+	"POST /api/v1/datasources":              true,
+	"PUT /api/v1/datasources/:id":           true,
+	"POST /api/v1/datasources/:id/test":     true,
+	"POST /api/v1/datasources/:id/host-key": true,
+	"DELETE /api/v1/datasources/:id":        true,
 }
 
 // 把两个认证中间件换成哨兵：

@@ -68,6 +68,8 @@ func setupChannelTest(t *testing.T) *env {
 	_, err := secret_svc.Secret().Init(ctx, secret_svc.InitOptions{DataDir: t.TempDir()})
 	require.NoError(t, err)
 	channel_svc.SetDataSourceReferrer(nil)
+	channel_svc.SetHostKeyConfirmedHook(nil)
+	channel_svc.SetHostKeyChangedHook(nil)
 
 	setupCode, _ := auth_svc.Auth().PrepareSetupCode(ctx)
 	_, _, err = auth_svc.Auth().Setup(ctx, &authapi.SetupRequest{SetupCode: setupCode, Username: "admin", Password: adminPassword},
@@ -567,6 +569,11 @@ func TestHostKeyChanged(t *testing.T) {
 		oldKey := srv.Fingerprint()
 		require.NoError(t, srv.RotateHostKey())
 		attempts, forwards := srv.AuthAttempts(), len(srv.Forwards())
+		var changed []int64
+		channel_svc.SetHostKeyChangedHook(func(_ context.Context, id int64) error {
+			changed = append(changed, id)
+			return nil
+		})
 
 		convey.Convey("测试已保存的通道：中止连接，不认证，状态变为主机密钥已变化", func() {
 			resp := &api.TestResponse{}
@@ -581,9 +588,17 @@ func TestHostKeyChanged(t *testing.T) {
 			assert.Equal(t, attempts, srv.AuthAttempts())
 			assert.Equal(t, channel_entity.StatusHostKeyChanged, e.item(t, jump.ID).Status)
 
+			var retested []int64
+			channel_svc.SetHostKeyConfirmedHook(func(_ context.Context, id int64) error {
+				retested = append(retested, id)
+				return nil
+			})
+			assert.Equal(t, []int64{jump.ID}, changed, "经过它的数据源同样标为主机密钥已变化")
+
 			convey.Convey("重新确认：指纹与出示的不一致时不保存", func() {
 				cr := &api.ConfirmHostKeyResponse{}
 				require.NoError(t, e.do(&api.ConfirmHostKeyRequest{ID: jump.ID, Fingerprint: oldKey}, cr))
+				assert.Empty(t, retested, "没有保存新密钥时不重新测试数据源")
 				assert.Nil(t, cr.Item)
 				require.NotNil(t, cr.HostKey)
 				assert.Equal(t, srv.Fingerprint(), cr.HostKey.Fingerprint)
@@ -600,6 +615,7 @@ func TestHostKeyChanged(t *testing.T) {
 				assert.Equal(t, channel_entity.StatusOK, cr.Item.Status)
 				assert.Empty(t, cr.Item.PresentedHostKey)
 				assert.Greater(t, srv.AuthAttempts(), attempts)
+				assert.Equal(t, []int64{jump.ID}, retested, "保存新密钥后重新测试经过它的数据源")
 			})
 		})
 
@@ -612,6 +628,7 @@ func TestHostKeyChanged(t *testing.T) {
 			assert.Nil(t, resp.HostKey)
 			assert.Equal(t, attempts, srv.AuthAttempts())
 			assert.Len(t, srv.Forwards(), forwards, "经由的主机密钥变化时不经它转发")
+			assert.Equal(t, []int64{jump.ID}, changed, "经由的通道被标记时，经过它的数据源同样被标记")
 			j := e.item(t, jump.ID)
 			assert.Equal(t, channel_entity.StatusHostKeyChanged, j.Status)
 			assert.Equal(t, srv.Fingerprint(), j.PresentedHostKey)

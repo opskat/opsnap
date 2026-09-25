@@ -45,18 +45,24 @@ type ChannelSvc interface {
 	// References 直接经由该通道的数据源与通道
 	References(ctx context.Context, id int64) (*api.UsedBy, error)
 	// RecordHostKeyChanged err 为链路中某个已保存通道的主机密钥与保存的不一致时，
-	// 把该通道的状态标为“主机密钥已变化”并记下出示的指纹；其他错误忽略
+	// 把该通道的状态标为“主机密钥已变化”并记下出示的指纹，经过它的数据源同样标记（见 SetHostKeyChangedHook）；其他错误忽略
 	RecordHostKeyChanged(ctx context.Context, err error) error
 }
 
 // Referrer 返回每个通道被哪些数据源直接经由（通道 ID → 数据源）
 type Referrer func(ctx context.Context) (map[int64][]*api.Ref, error)
 
+// HostKeyHook 通道主机密钥状态变化时通知数据源模块：
+// 信任新密钥并保存后，重新测试经过该通道的所有数据源；发现密钥变化后，把经过该通道的数据源同样标为“主机密钥已变化”
+type HostKeyHook func(ctx context.Context, channelID int64) error
+
 type channelSvc struct {
 	now func() time.Time
 
-	mu       sync.RWMutex
-	referrer Referrer
+	mu        sync.RWMutex
+	referrer  Referrer
+	confirmed HostKeyHook
+	changed   HostKeyHook
 }
 
 var defaultChannel = &channelSvc{now: time.Now}
@@ -71,6 +77,35 @@ func SetDataSourceReferrer(fn Referrer) {
 	defer defaultChannel.mu.Unlock()
 	defaultChannel.referrer = fn
 }
+
+// SetHostKeyConfirmedHook 由数据源模块注册：通道重新确认主机密钥后，重新测试经过它的数据源；nil 表示不需要
+func SetHostKeyConfirmedHook(fn HostKeyHook) {
+	defaultChannel.mu.Lock()
+	defer defaultChannel.mu.Unlock()
+	defaultChannel.confirmed = fn
+}
+
+// SetHostKeyChangedHook 由数据源模块注册：通道被标为“主机密钥已变化”后，经过它的数据源同样标记；nil 表示不需要
+func SetHostKeyChangedHook(fn HostKeyHook) {
+	defaultChannel.mu.Lock()
+	defer defaultChannel.mu.Unlock()
+	defaultChannel.changed = fn
+}
+
+// notify 调用数据源模块注册的钩子
+func (s *channelSvc) notify(ctx context.Context, pick func(*channelSvc) HostKeyHook, channelID int64) error {
+	s.mu.RLock()
+	fn := pick(s)
+	s.mu.RUnlock()
+	if fn == nil {
+		return nil
+	}
+	return fn(ctx, channelID)
+}
+
+func confirmedHook(s *channelSvc) HostKeyHook { return s.confirmed }
+
+func changedHook(s *channelSvc) HostKeyHook { return s.changed }
 
 // passwordOf 取保存的密码密文
 func passwordOf(c *channel_entity.Channel) string { return c.Password }
@@ -594,6 +629,11 @@ func (s *channelSvc) Test(ctx context.Context, req *api.TestRequest) (*api.TestR
 	if err := s.save(ctx, c); err != nil {
 		return nil, err
 	}
+	if prompt != nil && prompt.Changed {
+		if err := s.notify(ctx, changedHook, c.ID); err != nil {
+			return nil, err
+		}
+	}
 	item, err := s.item(ctx, c)
 	if err != nil {
 		return nil, err
@@ -626,6 +666,12 @@ func (s *channelSvc) ConfirmHostKey(ctx context.Context, req *api.ConfirmHostKey
 	if err := s.save(ctx, c); err != nil {
 		return nil, err
 	}
+	if keyOK {
+		// 信任新密钥后，经过这台主机的数据源也要重新测试（docs/specs/2026-09-25-datasources.md「主机密钥」）
+		if err := s.notify(ctx, confirmedHook, c.ID); err != nil {
+			return nil, err
+		}
+	}
 	item, err := s.item(ctx, c)
 	if err != nil {
 		return nil, err
@@ -647,10 +693,13 @@ func (s *channelSvc) RecordHostKeyChanged(ctx context.Context, err error) error 
 	c.SetFailure(channel_entity.StatusHostKeyChanged, reason, hs)
 	c.PresentedHostKey = hk.Fingerprint
 	c.Checktime = s.now().Unix()
-	if err := channel_repo.Channel().Save(ctx, c); err != nil && !errors.Is(err, channel_repo.ErrNotFound) {
+	if err := channel_repo.Channel().Save(ctx, c); err != nil {
+		if errors.Is(err, channel_repo.ErrNotFound) {
+			return nil
+		}
 		return err
 	}
-	return nil
+	return s.notify(ctx, changedHook, c.ID)
 }
 
 func (s *channelSvc) Delete(ctx context.Context, req *api.DeleteRequest) (*api.DeleteResponse, error) {

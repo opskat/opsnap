@@ -36,6 +36,21 @@ export const ErrorCode = {
   ChannelChainTooLong: 10515,
   ChannelHostKeyChanged: 10517,
   ChannelInUse: 10518,
+  DataSourceNameInvalid: 10601,
+  DataSourceNameDuplicate: 10602,
+  DataSourceHostRequired: 10603,
+  DataSourcePortInvalid: 10604,
+  DataSourceUserRequired: 10605,
+  DataSourcePasswordRequired: 10607,
+  DataSourcePrivateKeyRequired: 10608,
+  DataSourcePassphraseMissing: 10609,
+  DataSourcePassphraseWrong: 10610,
+  DataSourceKeyInvalid: 10611,
+  DataSourceTLSPairRequired: 10612,
+  DataSourceCAInvalid: 10613,
+  DataSourceClientCertInvalid: 10614,
+  DataSourceClientKeyInvalid: 10615,
+  DataSourceChannelNotFound: 10616,
 } as const;
 
 export const MIN_PASSWORD_LENGTH = 12;

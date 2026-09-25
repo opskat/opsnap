@@ -24,6 +24,7 @@ import (
 	"github.com/opskat/opsnap/internal/pkg/secret"
 	"github.com/opskat/opsnap/internal/repository/admin_repo"
 	"github.com/opskat/opsnap/internal/repository/channel_repo"
+	"github.com/opskat/opsnap/internal/repository/datasource_repo"
 	"github.com/opskat/opsnap/internal/repository/oidc_repo"
 	"github.com/opskat/opsnap/internal/repository/session_repo"
 	"github.com/opskat/opsnap/internal/repository/setting_repo"
@@ -31,6 +32,7 @@ import (
 	"github.com/opskat/opsnap/internal/repository/system_repo"
 	"github.com/opskat/opsnap/internal/repository/token_repo"
 	"github.com/opskat/opsnap/internal/service/auth_svc"
+	"github.com/opskat/opsnap/internal/service/datasource_svc"
 	"github.com/opskat/opsnap/internal/service/secret_svc"
 	"github.com/opskat/opsnap/internal/service/storage_svc"
 	"github.com/opskat/opsnap/internal/web"
@@ -59,6 +61,7 @@ func main() {
 	}
 
 	registerRepositories()
+	registerHooks()
 	// 调试模式下 cago 启用 gin 的访问日志（输出到 gin.DefaultWriter，含查询参数）；
 	// 必须在 HTTP 组件创建它之前换成会隐去 OIDC 授权码的输出
 	gin.DefaultWriter = middleware.RedactAccessLog(os.Stdout)
@@ -146,4 +149,10 @@ func registerRepositories() {
 	oidc_repo.RegisterOIDC(oidc_repo.NewOIDC())
 	storage_repo.RegisterStorage(storage_repo.NewStorage())
 	channel_repo.RegisterChannel(channel_repo.NewChannel())
+	datasource_repo.RegisterDataSource(datasource_repo.NewDataSource())
+}
+
+// registerHooks 注册模块之间的钩子：通道的引用计数与删除保护计入数据源；通道的主机密钥变化时经过它的数据源同样标记，重新确认后重新测试这些数据源
+func registerHooks() {
+	datasource_svc.RegisterChannelHooks()
 }
