@@ -762,7 +762,7 @@ func TestTest(t *testing.T) {
 			datasource_svc.SetProbeDoneHook(func(id int64) { done <- id })
 			t.Cleanup(func() { datasource_svc.SetProbeDoneHook(nil) })
 			fresh := e.create(t, mysqlForm(t, "ledger", dbAddr))
-			waitProbe(t, done)
+			waitProbe(t, done, fresh.ID)
 			e.conn.onTest(func() {
 				require.NoError(t, db.Ctx(e.ctx).Model(&datasource_entity.DataSource{}).
 					Where("id = ?", fresh.ID).Update("name", "ledger-v2").Error)
@@ -1001,12 +1001,20 @@ func (g *probeGate) run(ctx context.Context, _ dsconn.Type, _ *dsconn.Conn) []pr
 }
 
 // waitProbe 等待一次后台探测完成（通过测试钩子），而不是靠 sleep 猜时间
-func waitProbe(t *testing.T, done <-chan int64) {
+func waitProbe(t *testing.T, done <-chan int64, id int64) {
 	t.Helper()
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("后台探测未在预期时间内完成")
+	// 钩子是全局的：外层 Convey 先创建的数据源，其后台探测可能在钩子装上之后才结束，
+	// 只认 id 的完成通知，跳过其它数据源的，否则会在 id 仍在探测中时提前返回
+	timeout := time.After(2 * time.Second)
+	for {
+		select {
+		case got := <-done:
+			if got == id {
+				return
+			}
+		case <-timeout:
+			t.Fatalf("数据源 %d 的后台探测未在预期时间内完成", id)
+		}
 	}
 }
 
@@ -1043,7 +1051,7 @@ func TestReprobe(t *testing.T) {
 			assert.InDelta(t, 60, time.Until(deadline).Seconds(), 2, "单次探测的超时应为 60 秒")
 
 			close(g.release)
-			waitProbe(t, done)
+			waitProbe(t, done, item.ID)
 
 			got := e.get(t, item.ID)
 			require.NotNil(t, got.Probe)
@@ -1063,7 +1071,7 @@ func TestReprobe(t *testing.T) {
 			datasource_svc.SetProbeDoneHook(func(id int64) { done <- id })
 			t.Cleanup(func() { datasource_svc.SetProbeDoneHook(nil) })
 			item := e.create(t, mysqlForm(t, "orders", dbAddr))
-			waitProbe(t, done) // 先等创建时的自动探测完成，不与接下来手动触发的混在一起
+			waitProbe(t, done, item.ID) // 先等创建时的自动探测完成，不与接下来手动触发的混在一起
 
 			g := newProbeGate()
 			datasource_svc.SetProbeRunner(g.run)
@@ -1076,7 +1084,7 @@ func TestReprobe(t *testing.T) {
 			assert.Equal(t, "probing", resp2.Item.Probe.State)
 
 			close(g.release)
-			waitProbe(t, done)
+			waitProbe(t, done, item.ID)
 			select {
 			case <-done:
 				t.Fatal("同一数据源同时只应进行一次探测，第二次触发不应重复探测")
@@ -1104,7 +1112,7 @@ func TestReprobe(t *testing.T) {
 			f.Username = "backup2"
 			require.NoError(t, e.do(&api.UpdateRequest{ID: item.ID, DataSource: f}, &api.UpdateResponse{}))
 			close(g.release)
-			waitProbe(t, done)
+			waitProbe(t, done, item.ID)
 			g.mu.Lock()
 			calls := g.calls
 			g.mu.Unlock()
@@ -1118,13 +1126,13 @@ func TestReprobe(t *testing.T) {
 			t.Cleanup(func() { datasource_svc.SetProbeDoneHook(nil) })
 
 			item := e.create(t, mysqlForm(t, "orders", dbAddr)) // 默认假探测：先有一次成功结果
-			waitProbe(t, done)
+			waitProbe(t, done, item.ID)
 			require.Equal(t, "done", e.get(t, item.ID).Probe.State)
 
 			e.conn.setOpenErr(errors.New("dial tcp 127.0.0.1:3306: connect: connection refused"))
 			resp := &api.ReprobeResponse{}
 			require.NoError(t, e.do(&api.ReprobeRequest{ID: item.ID}, resp))
-			waitProbe(t, done)
+			waitProbe(t, done, item.ID)
 
 			got := e.get(t, item.ID)
 			require.NotNil(t, got.Probe)
