@@ -1,14 +1,5 @@
-import {
-  ArrowRight,
-  CircleAlert,
-  CircleCheck,
-  ShieldAlert,
-  TriangleAlert,
-  Terminal,
-  Upload,
-  Waypoints,
-} from "lucide-react";
-import { useRef, useState, type FormEvent, type ReactNode } from "react";
+import { ArrowRight, CircleAlert, CircleCheck, ShieldAlert, TriangleAlert, Terminal, Waypoints } from "lucide-react";
+import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 
 import { FormField } from "@/components/form/FormField";
@@ -44,6 +35,7 @@ import {
 } from "@/lib/sources";
 import { cn } from "@/lib/utils";
 
+import { KindTabs, Optional, PemField } from "./FormParts";
 import { HostKeyDialog } from "./HostKeyDialog";
 
 type Field = "name" | "host" | "port" | "username" | "password" | "privateKey" | "passphrase" | "via";
@@ -91,7 +83,6 @@ export function ChannelFormDialog({
   const [result, setResult] = useState<Result>();
   const [busy, setBusy] = useState<"test" | "save">();
   const [hostKeyRequest, setHostKeyRequest] = useState<{ prompt: HostKeyPrompt; resolve: (trust: boolean) => void }>();
-  const fileInput = useRef<HTMLInputElement>(null);
 
   const close = () => {
     setDraft(initial());
@@ -175,12 +166,6 @@ export function ChannelFormDialog({
     }
   };
 
-  const readPrivateKeyFile = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = () => update({ private_key: String(reader.result ?? "") });
-    reader.readAsText(file);
-  };
-
   const via = availableVia(channels, editing?.id);
 
   return (
@@ -206,7 +191,15 @@ export function ChannelFormDialog({
                   </Button>
                 </p>
               )}
-              <KindTabs value={draft.kind} onChange={setKind} />
+              <KindTabs
+                label={t("sources.channel.form.kind")}
+                value={draft.kind}
+                options={[
+                  { value: "ssh", label: t("sources.channel.kind.ssh"), icon: <Terminal /> },
+                  { value: "socks5", label: t("sources.channel.kind.socks5"), icon: <Waypoints /> },
+                ]}
+                onChange={setKind}
+              />
               <FormField
                 label={t("sources.channel.form.name")}
                 value={draft.name}
@@ -285,51 +278,18 @@ export function ChannelFormDialog({
                     />
                   ) : (
                     <>
-                      <div className="flex flex-col gap-1.5">
-                        <div className="flex items-center justify-between">
-                          <Label className="font-normal text-muted-foreground">
-                            {t("sources.channel.form.privateKey")}
-                          </Label>
-                          <button
-                            type="button"
-                            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                            onClick={() => fileInput.current?.click()}
-                          >
-                            <Upload className="size-3.5" />
-                            {t("sources.channel.form.upload")}
-                          </button>
-                          <input
-                            ref={fileInput}
-                            type="file"
-                            className="hidden"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) readPrivateKeyFile(file);
-                              e.target.value = "";
-                            }}
-                          />
-                        </div>
-                        <textarea
-                          value={draft.private_key}
-                          placeholder={editing?.has_private_key ? t("sources.channel.form.secretKeep") : undefined}
-                          aria-label={t("sources.channel.form.privateKey")}
-                          aria-invalid={fieldErrors.privateKey ? true : undefined}
-                          rows={4}
-                          className={cn(
-                            "w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs shadow-xs outline-none",
-                            "focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-                          )}
-                          onChange={(e) => {
-                            update({ private_key: e.target.value });
-                            clearFieldError("privateKey");
-                          }}
-                        />
-                        {fieldErrors.privateKey ? (
-                          <p className="text-xs text-destructive">{fieldErrors.privateKey}</p>
-                        ) : (
-                          <p className="text-xs text-faint-foreground">{t("sources.channel.form.privateKeyHint")}</p>
-                        )}
-                      </div>
+                      <PemField
+                        label={t("sources.channel.form.privateKey")}
+                        value={draft.private_key}
+                        placeholder={editing?.has_private_key ? t("sources.channel.form.secretKeep") : undefined}
+                        rows={4}
+                        error={fieldErrors.privateKey}
+                        hint={t("sources.channel.form.privateKeyHint")}
+                        onChange={(private_key) => {
+                          update({ private_key });
+                          clearFieldError("privateKey");
+                        }}
+                      />
                       <FormField
                         label={<Optional label={t("sources.channel.form.passphrase")} />}
                         type="password"
@@ -385,6 +345,7 @@ export function ChannelFormDialog({
                     ))}
                   </SelectContent>
                 </Select>
+                {fieldErrors.via && <p className="text-xs text-destructive">{fieldErrors.via}</p>}
               </div>
               <p className="text-xs text-muted-foreground">
                 {t("sources.channel.form.chain", { chain: preview.text })}
@@ -433,51 +394,6 @@ export function ChannelFormDialog({
         </DialogContent>
       </Dialog>
       <HostKeyDialog request={hostKeyRequest} chain={preview.text} onCancel={cancelHostKey} onTrust={trustHostKey} />
-    </>
-  );
-}
-
-function KindTabs({ value, onChange }: { value: ChannelKind; onChange: (kind: ChannelKind) => void }) {
-  const { t } = useTranslation();
-  const options: { value: ChannelKind; label: string; icon: ReactNode }[] = [
-    { value: "ssh", label: t("sources.channel.kind.ssh"), icon: <Terminal /> },
-    { value: "socks5", label: t("sources.channel.kind.socks5"), icon: <Waypoints /> },
-  ];
-  return (
-    <div
-      role="radiogroup"
-      aria-label={t("sources.channel.form.kind")}
-      className="inline-flex w-fit gap-0.5 rounded-md bg-accent p-0.75"
-    >
-      {options.map((o) => {
-        const selected = o.value === value;
-        return (
-          <button
-            key={o.value}
-            type="button"
-            role="radio"
-            aria-checked={selected}
-            onClick={() => onChange(o.value)}
-            className={cn(
-              "flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-sm [&_svg]:size-4",
-              selected ? "bg-card font-semibold text-foreground" : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {o.icon}
-            {o.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function Optional({ label }: { label: ReactNode }) {
-  const { t } = useTranslation();
-  return (
-    <>
-      {label}
-      <span className="ml-1.5 text-xs text-faint-foreground">{t("sources.channel.form.optional")}</span>
     </>
   );
 }

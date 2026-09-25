@@ -16,6 +16,8 @@ type DataSourceRepo interface {
 	Create(ctx context.Context, d *datasource_entity.DataSource) error
 	// Save 按 ID 更新全部字段；记录已被删除时返回 ErrNotFound，不会重新插入
 	Save(ctx context.Context, d *datasource_entity.DataSource) error
+	// SaveColumns 按 ID 只更新 columns 列，其余列保持库中的值（不覆盖并发修改）；记录已被删除时返回 ErrNotFound
+	SaveColumns(ctx context.Context, d *datasource_entity.DataSource, columns ...string) error
 	// List 按创建时间正序
 	List(ctx context.Context) ([]*datasource_entity.DataSource, error)
 	// Find 不存在时返回 nil, nil
@@ -50,7 +52,19 @@ func (r *dataSourceRepo) Create(ctx context.Context, d *datasource_entity.DataSo
 
 func (r *dataSourceRepo) Save(ctx context.Context, d *datasource_entity.DataSource) error {
 	// 不用 gorm 的 Save：它在没有匹配行时会改为插入，把测试期间被删除的数据源重新写回
-	res := db.Ctx(ctx).Model(d).Select("*").Updates(d)
+	return r.update(ctx, d, "*")
+}
+
+func (r *dataSourceRepo) SaveColumns(ctx context.Context, d *datasource_entity.DataSource, columns ...string) error {
+	return r.update(ctx, d, columns...)
+}
+
+func (r *dataSourceRepo) update(ctx context.Context, d *datasource_entity.DataSource, columns ...string) error {
+	cols := make([]any, 0, len(columns))
+	for _, col := range columns[1:] {
+		cols = append(cols, col)
+	}
+	res := db.Ctx(ctx).Model(d).Select(columns[0], cols...).Updates(d)
 	if res.Error != nil {
 		return res.Error
 	}

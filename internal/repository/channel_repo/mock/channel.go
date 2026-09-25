@@ -127,3 +127,22 @@ func (mr *MockChannelRepoMockRecorder) Save(ctx, c any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Save", reflect.TypeOf((*MockChannelRepo)(nil).Save), ctx, c)
 }
+
+// SaveColumns mocks base method.
+func (m *MockChannelRepo) SaveColumns(ctx context.Context, c *channel_entity.Channel, columns ...string) error {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, c}
+	for _, a := range columns {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "SaveColumns", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SaveColumns indicates an expected call of SaveColumns.
+func (mr *MockChannelRepoMockRecorder) SaveColumns(ctx, c any, columns ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, c}, columns...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveColumns", reflect.TypeOf((*MockChannelRepo)(nil).SaveColumns), varargs...)
+}

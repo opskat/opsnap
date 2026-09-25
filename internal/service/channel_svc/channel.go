@@ -391,7 +391,8 @@ func connect(ctx context.Context, hops []netchain.Hop) error {
 	return tun.Close()
 }
 
-func hostKeyPrompt(he *netchain.HopError, hk *netchain.HostKeyError) *api.HostKeyPrompt {
+// HostKeyPrompt 把一跳（通道或服务器文件的目标主机）的主机密钥错误转为待用户确认的信息
+func HostKeyPrompt(he *netchain.HopError, hk *netchain.HostKeyError) *api.HostKeyPrompt {
 	return &api.HostKeyPrompt{
 		Hop: he.Index, Name: he.Name, Address: he.Addr, KeyType: hk.KeyType,
 		Fingerprint: hk.Fingerprint, Changed: hk.Changed, Saved: hk.Saved,
@@ -420,7 +421,7 @@ func (s *channelSvc) tryDraft(ctx context.Context, d *draft, via []*channel_enti
 	var hk *netchain.HostKeyError
 	if errors.As(he, &hk) {
 		if he.Index == len(hops) {
-			return hostKeyPrompt(he, hk), nil
+			return HostKeyPrompt(he, hk), nil
 		}
 		if err := s.RecordHostKeyChanged(ctx, he); err != nil {
 			return nil, err
@@ -435,6 +436,16 @@ func (s *channelSvc) tryDraft(ctx context.Context, d *draft, via []*channel_enti
 // save 保存通道；它在测试期间已被删除时返回“不存在”
 func (s *channelSvc) save(ctx context.Context, c *channel_entity.Channel) error {
 	err := channel_repo.Channel().Save(ctx, c)
+	if errors.Is(err, channel_repo.ErrNotFound) {
+		return i18n.NewNotFoundError(ctx, code.ChannelNotFound)
+	}
+	return err
+}
+
+// saveStatus 只保存测试结果（及 extra 列），不覆盖测试期间被编辑的其它设置；它已被删除时返回“不存在”
+func (s *channelSvc) saveStatus(ctx context.Context, c *channel_entity.Channel, extra ...string) error {
+	cols := append(append([]string{}, channel_entity.StatusColumns...), extra...)
+	err := channel_repo.Channel().SaveColumns(ctx, c, cols...)
 	if errors.Is(err, channel_repo.ErrNotFound) {
 		return i18n.NewNotFoundError(ctx, code.ChannelNotFound)
 	}
@@ -616,7 +627,7 @@ func (s *channelSvc) testSaved(ctx context.Context, c *channel_entity.Channel, h
 	if errors.As(he, &hk) {
 		if self {
 			c.PresentedHostKey = hk.Fingerprint
-			prompt = hostKeyPrompt(he, hk)
+			prompt = HostKeyPrompt(he, hk)
 		} else if err := s.RecordHostKeyChanged(ctx, he); err != nil {
 			return nil, false, err
 		}
@@ -634,7 +645,7 @@ func (s *channelSvc) Test(ctx context.Context, req *api.TestRequest) (*api.TestR
 	if err != nil {
 		return nil, err
 	}
-	if err := s.save(ctx, c); err != nil {
+	if err := s.saveStatus(ctx, c); err != nil {
 		return nil, err
 	}
 	if prompt != nil && prompt.Changed {
@@ -667,11 +678,13 @@ func (s *channelSvc) ConfirmHostKey(ctx context.Context, req *api.ConfirmHostKey
 		prompt.Saved, prompt.Changed = c.HostKey, c.HostKey != ""
 		return &api.ConfirmHostKeyResponse{HostKey: prompt}, nil
 	}
+	var extra []string
 	if keyOK {
 		c.HostKey = fp
 		c.Updatetime = s.now().Unix()
+		extra = []string{"host_key", "updatetime"}
 	}
-	if err := s.save(ctx, c); err != nil {
+	if err := s.saveStatus(ctx, c, extra...); err != nil {
 		return nil, err
 	}
 	if keyOK {
@@ -701,7 +714,7 @@ func (s *channelSvc) RecordHostKeyChanged(ctx context.Context, err error) error 
 	c.SetFailure(channel_entity.StatusHostKeyChanged, reason, hs)
 	c.PresentedHostKey = hk.Fingerprint
 	c.Checktime = s.now().Unix()
-	if err := channel_repo.Channel().Save(ctx, c); err != nil {
+	if err := channel_repo.Channel().SaveColumns(ctx, c, channel_entity.StatusColumns...); err != nil {
 		if errors.Is(err, channel_repo.ErrNotFound) {
 			return nil
 		}

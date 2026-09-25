@@ -25,15 +25,16 @@ import { relativeTime } from "@/lib/format";
 import {
   confirmChannelHostKey,
   confirmDataSourceHostKey,
-  dataSourceHostKeyRequest,
   dataSourceVersionLabel,
   getDataSource,
   listChannels,
   pickProbeText,
   reprobeDataSource,
+  resolveDataSourceHostKey,
   testDataSource,
   type ChannelHop,
   type ChannelItem,
+  type DataSourceHostKeyResolution,
   type DataSourceItem,
   type DataSourceSaveResult,
   type HostKeyPrompt,
@@ -220,9 +221,24 @@ export function SourceDetailPage() {
     }
   };
 
+  /** 页面上的通道列表可能早于这次密钥变化被发现（例如在本页测试时才发现），先刷新再取出示的指纹 */
   const reconfirm = (item: DataSourceItem) => {
-    const { prompt, viaChannel } = dataSourceHostKeyRequest(item, channels);
-    openHostKeyPrompt(prompt, confirmViaChannelOrSelf(item, viaChannel?.id));
+    void (async () => {
+      setActionError(undefined);
+      let res: DataSourceHostKeyResolution;
+      try {
+        res = await resolveDataSourceHostKey(item);
+      } catch (err) {
+        setActionError(err instanceof Error ? err.message : String(err));
+        return;
+      }
+      if (res.channels) setChannels(res.channels);
+      if (res.kind === "stale") {
+        setActionError(t("sources.dataSource.list.reconfirmChannelStale", { name: res.name }));
+        return;
+      }
+      openHostKeyPrompt(res.prompt, confirmViaChannelOrSelf(item, res.channel?.id));
+    })();
   };
 
   const openEdit = () => {

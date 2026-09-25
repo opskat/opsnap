@@ -89,6 +89,14 @@ type DataSource struct {
 
 func (DataSource) TableName() string { return "datasources" }
 
+// StatusColumns 一次测试写入的列（状态、原因、出示的指纹、服务端信息、测试时间）；
+// 只写这些列，不覆盖测试期间被编辑的设置与刚落库的能力探测结果
+var StatusColumns = []string{"status", "status_code", "status_detail", "presented_host_key",
+	"version", "system", "tls_version", "tls_verified", "checktime"}
+
+// ProbeColumns 一次能力探测写入的列
+var ProbeColumns = []string{"probe_state", "probe_items", "probe_error", "probe_time"}
+
 // Addr host:port
 func (d *DataSource) Addr() string {
 	return net.JoinHostPort(d.Host, strconv.Itoa(d.Port))

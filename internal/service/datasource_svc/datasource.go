@@ -79,12 +79,14 @@ type dataSourceSvc struct {
 	connector dsconn.Connector
 	runner    ProbeRunner
 
-	probeMu   sync.Mutex
-	probing   map[int64]bool
+	probeMu sync.Mutex
+	probing map[int64]bool
+	// again 探测进行中数据源的设置被保存：本次结束后按新设置再探测一次（旧设置的结果不能冒充）
+	again     map[int64]bool
 	probeDone func(id int64) // 测试钩子：一次后台探测（无论成功、失败还是被合并跳过）结束后调用，供测试等待完成而不用 sleep
 }
 
-var defaultDataSource = &dataSourceSvc{now: time.Now, connector: dsconn.Default, runner: probe.Run, probing: map[int64]bool{}}
+var defaultDataSource = &dataSourceSvc{now: time.Now, connector: dsconn.Default, runner: probe.Run, probing: map[int64]bool{}, again: map[int64]bool{}}
 
 func DataSource() DataSourceSvc {
 	return defaultDataSource
@@ -137,26 +139,37 @@ func (s *dataSourceSvc) probeRunner() ProbeRunner {
 	return s.runner
 }
 
-// beginProbe 标记 id 正在探测；已经在探测时返回 false（这次触发被合并，不重复探测）
-func (s *dataSourceSvc) beginProbe(id int64) bool {
+// beginProbe 标记 id 正在探测；已经在探测时返回 false：设置未变（重新探测）时这次触发被合并，
+// 设置刚被保存（settingsChanged）时记下在本次结束后再探测一次
+func (s *dataSourceSvc) beginProbe(id int64, settingsChanged bool) bool {
 	s.probeMu.Lock()
 	defer s.probeMu.Unlock()
 	if s.probing[id] {
+		if settingsChanged {
+			s.again[id] = true
+		}
 		return false
 	}
 	s.probing[id] = true
 	return true
 }
 
-// endProbe 探测结束（无论成功、失败还是发生了 panic 之外的错误），清除标记并通知测试钩子
-func (s *dataSourceSvc) endProbe(id int64) {
+// endProbe 一次探测结束：探测期间设置被保存过时返回 false（需要再探测一次，仍保持“探测中”）；
+// 否则清除标记、通知测试钩子并返回 true
+func (s *dataSourceSvc) endProbe(id int64) bool {
 	s.probeMu.Lock()
+	if s.again[id] {
+		delete(s.again, id)
+		s.probeMu.Unlock()
+		return false
+	}
 	delete(s.probing, id)
 	hook := s.probeDone
 	s.probeMu.Unlock()
 	if hook != nil {
 		hook(id)
 	}
+	return true
 }
 
 // isProbing id 当前是否有一次探测正在进行；只在内存中跟踪，进程重启后自然清空，
@@ -167,15 +180,17 @@ func (s *dataSourceSvc) isProbing(id int64) bool {
 	return s.probing[id]
 }
 
-// triggerProbe 保存成功后或手动“重新探测”时，在后台执行一次能力探测；同一数据源同时只有一次，
-// 探测进行中再次触发时合并。cago 约定：后台协程不使用请求的 ctx（不受请求生命周期约束，也不会被取消）
-func (s *dataSourceSvc) triggerProbe(id int64) {
-	if !s.beginProbe(id) {
+// triggerProbe 保存成功后（settingsChanged）或手动“重新探测”时，在后台执行一次能力探测；同一数据源同时只有一次，
+// 探测进行中手动再次触发时合并，保存了新设置时在本次结束后按新设置再探测一次。
+// cago 约定：后台协程不使用请求的 ctx（不受请求生命周期约束，也不会被取消）
+func (s *dataSourceSvc) triggerProbe(id int64, settingsChanged bool) {
+	if !s.beginProbe(id, settingsChanged) {
 		return
 	}
 	gogo.Go(func() error {
-		defer s.endProbe(id)
-		s.runProbe(id)
+		for done := false; !done; done = s.endProbe(id) {
+			s.runProbe(id)
+		}
 		return nil
 	})
 }
@@ -186,21 +201,15 @@ func (s *dataSourceSvc) runProbe(id int64) {
 	defer cancel()
 	items, failReason := s.probeOnce(ctx, id)
 	now := s.now().Unix()
-	// 保存前重新读取一次最新的行，避免覆盖探测期间发生的其它更新（如测试连接的结果），也避免数据源已被删除时误插入
-	ds, err := datasource_repo.DataSource().Find(ctx, id)
-	if err != nil {
-		logger.Ctx(ctx).Warn("能力探测读取数据源失败", zap.Int64("datasource_id", id), zap.Error(err))
-		return
-	}
-	if ds == nil {
-		return
-	}
+	// 只写探测结果的列，不覆盖探测期间发生的其它更新（如测试连接的结果）；数据源已被删除时什么也不写
+	ds := &datasource_entity.DataSource{ID: id}
 	if failReason != "" {
 		ds.SetProbeUnprobeable(failReason, now)
 	} else {
 		ds.SetProbeDone(items, now)
 	}
-	if err := datasource_repo.DataSource().Save(ctx, ds); err != nil && !errors.Is(err, datasource_repo.ErrNotFound) {
+	if err := datasource_repo.DataSource().SaveColumns(ctx, ds, datasource_entity.ProbeColumns...); err != nil &&
+		!errors.Is(err, datasource_repo.ErrNotFound) {
 		logger.Ctx(ctx).Warn("保存能力探测结果失败", zap.Int64("datasource_id", id), zap.Error(err))
 	}
 }
@@ -575,13 +584,6 @@ func (s *dataSourceSvc) connect(ctx context.Context, hops []netchain.Hop, cfg ds
 	return s.conn().Test(ctx, tun, cfg)
 }
 
-func hostKeyPrompt(he *netchain.HopError, hk *netchain.HostKeyError) *channelapi.HostKeyPrompt {
-	return &channelapi.HostKeyPrompt{
-		Hop: he.Index, Name: he.Name, Address: he.Addr, KeyType: hk.KeyType,
-		Fingerprint: hk.Fingerprint, Changed: hk.Changed, Saved: hk.Saved,
-	}
-}
-
 func serverInfo(info dsconn.Info) *api.ServerInfo {
 	si := &api.ServerInfo{Version: info.Version, System: info.System}
 	if info.TLS != nil {
@@ -613,7 +615,7 @@ func (s *dataSourceSvc) tryDraft(ctx context.Context, d *draft) (*channelapi.Hos
 	case errors.As(err, &he) && he.Index > len(hops):
 		// 服务器文件的目标主机
 		if errors.As(he, &hk) {
-			return hostKeyPrompt(he, hk), nil, nil
+			return channel_svc.HostKeyPrompt(he, hk), nil, nil
 		}
 		return nil, nil, channel_svc.HopError(ctx, he)
 	case he != nil:
@@ -690,7 +692,7 @@ func (s *dataSourceSvc) testSaved(ctx context.Context, ds *datasource_entity.Dat
 		if errors.As(he, &hk) {
 			if he.Index == target {
 				ds.PresentedHostKey = hk.Fingerprint
-				prompt = hostKeyPrompt(he, hk)
+				prompt = channel_svc.HostKeyPrompt(he, hk)
 			} else if err := channel_svc.Channel().RecordHostKeyChanged(ctx, he); err != nil {
 				return nil, false, err
 			}
@@ -715,6 +717,16 @@ func (s *dataSourceSvc) testSaved(ctx context.Context, ds *datasource_entity.Dat
 // save 保存数据源；它在测试期间已被删除时返回“不存在”
 func (s *dataSourceSvc) save(ctx context.Context, ds *datasource_entity.DataSource) error {
 	err := datasource_repo.DataSource().Save(ctx, ds)
+	if errors.Is(err, datasource_repo.ErrNotFound) {
+		return i18n.NewNotFoundError(ctx, code.DataSourceNotFound)
+	}
+	return err
+}
+
+// saveStatus 只保存测试结果（及 extra 列），不覆盖测试期间被编辑的设置与刚落库的探测结果；它已被删除时返回“不存在”
+func (s *dataSourceSvc) saveStatus(ctx context.Context, ds *datasource_entity.DataSource, extra ...string) error {
+	cols := append(append([]string{}, datasource_entity.StatusColumns...), extra...)
+	err := datasource_repo.DataSource().SaveColumns(ctx, ds, cols...)
 	if errors.Is(err, datasource_repo.ErrNotFound) {
 		return i18n.NewNotFoundError(ctx, code.DataSourceNotFound)
 	}
@@ -810,7 +822,7 @@ func (s *dataSourceSvc) Create(ctx context.Context, req *api.CreateRequest) (*ap
 	if err := datasource_repo.DataSource().Create(ctx, ds); err != nil {
 		return nil, err
 	}
-	s.triggerProbe(ds.ID)
+	s.triggerProbe(ds.ID, true)
 	item, err := s.item(ctx, ds)
 	if err != nil {
 		return nil, err
@@ -840,7 +852,7 @@ func (s *dataSourceSvc) Update(ctx context.Context, req *api.UpdateRequest) (*ap
 	if err := s.save(ctx, ds); err != nil {
 		return nil, err
 	}
-	s.triggerProbe(ds.ID)
+	s.triggerProbe(ds.ID, true)
 	item, err := s.item(ctx, ds)
 	if err != nil {
 		return nil, err
@@ -857,7 +869,7 @@ func (s *dataSourceSvc) Test(ctx context.Context, req *api.TestRequest) (*api.Te
 	if err != nil {
 		return nil, err
 	}
-	if err := s.save(ctx, ds); err != nil {
+	if err := s.saveStatus(ctx, ds); err != nil {
 		return nil, err
 	}
 	item, err := s.item(ctx, ds)
@@ -885,11 +897,13 @@ func (s *dataSourceSvc) ConfirmHostKey(ctx context.Context, req *api.ConfirmHost
 		prompt.Saved, prompt.Changed = ds.HostKey, ds.HostKey != ""
 		return &api.ConfirmHostKeyResponse{HostKey: prompt}, nil
 	}
+	var extra []string
 	if keyOK {
 		ds.HostKey = fp
 		ds.Updatetime = s.now().Unix()
+		extra = []string{"host_key", "updatetime"}
 	}
-	if err := s.save(ctx, ds); err != nil {
+	if err := s.saveStatus(ctx, ds, extra...); err != nil {
 		return nil, err
 	}
 	item, err := s.item(ctx, ds)
@@ -905,7 +919,7 @@ func (s *dataSourceSvc) Reprobe(ctx context.Context, req *api.ReprobeRequest) (*
 	if err != nil {
 		return nil, err
 	}
-	s.triggerProbe(ds.ID)
+	s.triggerProbe(ds.ID, false)
 	item, err := s.item(ctx, ds)
 	if err != nil {
 		return nil, err
@@ -945,7 +959,8 @@ func (s *dataSourceSvc) MarkHostKeyChanged(ctx context.Context, channelID int64)
 			Hop: hop, ChannelID: c.ID, Name: c.Name, Kind: c.Kind, Reason: string(netchain.ReasonHostKeyChanged),
 		})
 		ds.PresentedHostKey = ""
-		if err := datasource_repo.DataSource().Save(ctx, ds); err != nil && !errors.Is(err, datasource_repo.ErrNotFound) {
+		err := datasource_repo.DataSource().SaveColumns(ctx, ds, datasource_entity.StatusColumns...)
+		if err != nil && !errors.Is(err, datasource_repo.ErrNotFound) {
 			return err
 		}
 	}
@@ -969,7 +984,7 @@ func (s *dataSourceSvc) RetestThroughChannel(ctx context.Context, channelID int6
 				logger.Ctx(ctx).Warn("重新测试数据源失败", zap.Int64("datasource_id", ds.ID), zap.Error(err))
 				return
 			}
-			if err := s.save(ctx, ds); err != nil {
+			if err := s.saveStatus(ctx, ds); err != nil {
 				logger.Ctx(ctx).Warn("保存数据源测试结果失败", zap.Int64("datasource_id", ds.ID), zap.Error(err))
 			}
 		}(ds)

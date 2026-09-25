@@ -76,6 +76,14 @@ type fakeConnector struct {
 	err     error
 	openErr error // 只影响 Open（能力探测用它连接），不影响 Test（先测试后保存用它），用于单独制造“无法探测”
 	cfgs    []dsconn.Config
+	hook    func() // 下一次 Test 连接进行中调用一次，用来制造并发修改
+}
+
+// onTest 下一次 Test 连接进行中调用 fn 一次
+func (f *fakeConnector) onTest(fn func()) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.hook = fn
 }
 
 func (f *fakeConnector) set(info dsconn.Info, err error) {
@@ -106,8 +114,12 @@ func (f *fakeConnector) Test(ctx context.Context, d dsconn.Dialer, cfg dsconn.Co
 	}
 	f.mu.Lock()
 	f.cfgs = append(f.cfgs, cfg)
-	info, ferr := f.info, f.err
+	info, ferr, hook := f.info, f.err, f.hook
+	f.hook = nil
 	f.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
 	conn, err := d.Dial(ctx, "tcp", net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port)))
 	if err != nil {
 		var he *netchain.HopError
@@ -745,6 +757,23 @@ func TestTest(t *testing.T) {
 			assert.Nil(t, resp.Item.Server.TLS)
 		})
 
+		convey.Convey("测试期间被编辑的设置与刚落库的探测结果不会被测试结果覆盖", func() {
+			done := make(chan int64, 4)
+			datasource_svc.SetProbeDoneHook(func(id int64) { done <- id })
+			t.Cleanup(func() { datasource_svc.SetProbeDoneHook(nil) })
+			fresh := e.create(t, mysqlForm(t, "ledger", dbAddr))
+			waitProbe(t, done)
+			e.conn.onTest(func() {
+				require.NoError(t, db.Ctx(e.ctx).Model(&datasource_entity.DataSource{}).
+					Where("id = ?", fresh.ID).Update("name", "ledger-v2").Error)
+			})
+			require.NoError(t, e.do(&api.TestRequest{ID: fresh.ID}, &api.TestResponse{}))
+			got := e.get(t, fresh.ID)
+			assert.Equal(t, "ledger-v2", got.Name)
+			require.NotNil(t, got.Probe)
+			assert.Equal(t, "done", got.Probe.State)
+		})
+
 		convey.Convey("数据源不存在", func() {
 			err := e.do(&api.TestRequest{ID: 999}, &api.TestResponse{})
 			assert.Equal(t, code.DataSourceNotFound, errCode(err))
@@ -795,6 +824,16 @@ func TestHostKey(t *testing.T) {
 				assert.Empty(t, cr.Item.PresentedHostKey)
 				assert.Greater(t, srv.AuthAttempts(), attempts)
 			})
+		})
+
+		convey.Convey("重新确认：空白指纹被拒绝，不会清掉已信任的密钥", func() {
+			srv := newSSH(t)
+			item := e.create(t, serverForm(t, "web-02", srv))
+			saved := e.row(t, item.ID).HostKey
+			require.NotEmpty(t, saved)
+			err := e.do(&api.ConfirmHostKeyRequest{ID: item.ID, Fingerprint: " "}, &api.ConfirmHostKeyResponse{})
+			assert.Error(t, err)
+			assert.Equal(t, saved, e.row(t, item.ID).HostKey)
 		})
 
 		convey.Convey("MySQL 数据源没有目标主机密钥", func() {
@@ -1047,6 +1086,30 @@ func TestReprobe(t *testing.T) {
 			calls := g.calls
 			g.mu.Unlock()
 			assert.Equal(t, 1, calls)
+		})
+
+		convey.Convey("探测进行中编辑并保存：结束后按新的设置再探测一次，不拿旧设置的结果冒充", func() {
+			done := make(chan int64, 4)
+			datasource_svc.SetProbeDoneHook(func(id int64) { done <- id })
+			t.Cleanup(func() { datasource_svc.SetProbeDoneHook(nil) })
+			g := newProbeGate()
+			datasource_svc.SetProbeRunner(g.run)
+			item := e.create(t, mysqlForm(t, "orders", dbAddr))
+			select {
+			case <-g.started:
+			case <-time.After(2 * time.Second):
+				t.Fatal("后台探测未开始")
+			}
+			f := mysqlForm(t, "orders", dbAddr)
+			f.Username = "backup2"
+			require.NoError(t, e.do(&api.UpdateRequest{ID: item.ID, DataSource: f}, &api.UpdateResponse{}))
+			close(g.release)
+			waitProbe(t, done)
+			g.mu.Lock()
+			calls := g.calls
+			g.mu.Unlock()
+			assert.Equal(t, 2, calls, "保存后的新设置需要重新探测")
+			assert.Equal(t, "backup2", e.conn.last().User)
 		})
 
 		convey.Convey("连接失败时显示无法探测且不显示上一次的结果", func() {

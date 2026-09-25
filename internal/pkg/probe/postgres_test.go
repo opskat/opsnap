@@ -54,6 +54,10 @@ func TestDecideReplicationAttribute(t *testing.T) {
 		assert.Equal(t, TierFail, item.Tier)
 		assert.Contains(t, item.Fix.ZhCN, "ALTER ROLE repl REPLICATION;")
 	})
+	t.Run("角色名需要引号时修复方法仍可直接执行", func(t *testing.T) {
+		item := decideReplicationAttribute(false, `Backup-"ops"`)
+		assert.Equal(t, `ALTER ROLE "Backup-""ops""" REPLICATION;`, item.Fix.En)
+	})
 }
 
 func TestDecidePgDump(t *testing.T) {

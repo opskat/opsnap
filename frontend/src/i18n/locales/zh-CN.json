@@ -317,6 +317,8 @@
     "subtitle": "要备份的数据库与服务器。连接可以经由网络通道（SSH 跳板、SOCKS5 代理）；保存后自动探测支持的备份方式。",
     "loadFailed": "无法加载网络通道列表：{{message}}",
     "createChannel": "新建通道",
+    "optional": "可选",
+    "upload": "上传",
     "createDataSource": "新建数据源",
     "tabs": {
       "dataSources": "数据源",
@@ -359,7 +361,6 @@
         "more": "{{name}} 的更多操作",
         "reconfirm": "重新确认",
         "reconfirmNamed": "重新确认 {{name}} 的主机密钥",
-        "reconfirmFirst": "该通道的主机密钥已变化，请先在列表中重新确认。",
         "deleteItem": "删除通道",
         "deleteBlocked": "仍被 {{items}} 使用，不能删除"
       },
@@ -375,7 +376,6 @@
         "authMethod": "认证方式",
         "password": "密码",
         "privateKey": "私钥",
-        "upload": "上传",
         "privateKeyHint": "支持 OpenSSH / PEM 格式的 RSA、ECDSA、Ed25519 私钥；粘贴或上传文件。",
         "passphrase": "私钥口令",
         "passphraseHint": "私钥已加密时填写口令",
@@ -385,7 +385,6 @@
         "viaNone": "不选，由 OpsNap 直连",
         "chain": "链路：{{chain}}。不能选择会形成环路的通道，链路最多 5 跳。",
         "chainTooLong": "链路共 {{count}} 跳，超过上限 {{max}} 跳，无法保存。",
-        "optional": "可选",
         "test": "测试连接",
         "testing": "测试中…",
         "hostKeyChangedHint": "这台主机出示的密钥与保存的不一致，请先重新确认。"
@@ -471,7 +470,6 @@
         "database": "连接数据库",
         "authMethod": "认证方式",
         "privateKey": "私钥",
-        "upload": "上传",
         "privateKeyHint": "支持 OpenSSH / PEM 格式的 RSA、ECDSA、Ed25519 私钥；粘贴或上传文件。",
         "passphrase": "私钥口令",
         "passphraseHint": "私钥已加密时填写口令",
@@ -479,7 +477,6 @@
         "channel": "网络通道",
         "channelNone": "不选，由 OpsNap 直连",
         "chain": "链路：{{chain}}",
-        "optional": "可选",
         "tls": "TLS",
         "tlsMode": {
           "disable": "不加密",

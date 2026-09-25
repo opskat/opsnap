@@ -453,6 +453,20 @@ describe("SourcesPage · 网络通道", () => {
     expect(within(dialog).getByRole("button", { name: "保存" })).toBeDisabled();
   });
 
+  it("服务端拒绝经由（例如经过它的通道会使链路超过 5 跳）时，在经由选择框下显示原因", async () => {
+    respondLists([], [officeSocks]);
+    renderPage();
+    const dialog = await openCreateChannel();
+    await userEvent.type(within(dialog).getByLabelText("名称"), "edge");
+    await userEvent.type(within(dialog).getByLabelText("主机"), "edge.corp");
+    await userEvent.type(within(dialog).getByLabelText("用户名"), "ops");
+    await userEvent.type(within(dialog).getByLabelText("密码"), "pw");
+    await chooseVia(dialog, "office-socks");
+    respond(fail(10515, "链路共 6 跳，超过上限 5 跳"));
+    await userEvent.click(within(dialog).getByRole("button", { name: "保存" }));
+    expect(await within(dialog).findByText("链路共 6 跳，超过上限 5 跳")).toBeInTheDocument();
+  });
+
   it("首次连接主机密钥：确认后带指纹重试并保存", async () => {
     respondLists([], [officeSocks]);
     renderPage();
@@ -691,6 +705,37 @@ describe("SourcesPage · 数据源", () => {
     expect(within(dialog).getByLabelText("CA 证书")).toBeInTheDocument();
     expect(within(dialog).getByLabelText("客户端证书")).toBeInTheDocument();
     expect(within(dialog).getByLabelText("客户端私钥")).toBeInTheDocument();
+  });
+
+  it("字段错误落在当前不显示的字段上时（非校验模式下的 CA 证书），改为整体提示", async () => {
+    respondLists([], []);
+    renderPage();
+    const dialog = await openCreateDataSource();
+    await userEvent.type(within(dialog).getByLabelText("名称"), "orders");
+    await userEvent.type(within(dialog).getByLabelText("主机"), "10.0.1.11");
+    await userEvent.type(within(dialog).getByLabelText("用户名"), "backup");
+    await userEvent.type(within(dialog).getByLabelText("密码"), "pw");
+    await userEvent.click(within(dialog).getByRole("radio", { name: "校验 CA" }));
+    await userEvent.type(within(dialog).getByLabelText("CA 证书"), "junk");
+    await userEvent.click(within(dialog).getByRole("radio", { name: "优先加密" }));
+    respond(fail(10613, "无法解析 CA 证书"));
+    await userEvent.click(within(dialog).getByRole("button", { name: "保存" }));
+    expect(await within(dialog).findByText("无法解析 CA 证书")).toBeInTheDocument();
+  });
+
+  it("经由的通道已被删除时，在网络通道选择框下显示原因", async () => {
+    respondLists([], [officeSocks]);
+    renderPage();
+    const dialog = await openCreateDataSource();
+    await userEvent.type(within(dialog).getByLabelText("名称"), "orders");
+    await userEvent.type(within(dialog).getByLabelText("主机"), "10.0.1.11");
+    await userEvent.type(within(dialog).getByLabelText("用户名"), "backup");
+    await userEvent.type(within(dialog).getByLabelText("密码"), "pw");
+    await userEvent.click(within(dialog).getByRole("combobox", { name: "网络通道" }));
+    await userEvent.click(await screen.findByRole("option", { name: "office-socks" }));
+    respond(fail(10616, "经由的通道不存在"));
+    await userEvent.click(within(dialog).getByRole("button", { name: "保存" }));
+    expect(await within(dialog).findByText("经由的通道不存在")).toBeInTheDocument();
   });
 
   it("经由通道时实时显示链路预览", async () => {

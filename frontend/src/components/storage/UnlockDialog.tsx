@@ -17,8 +17,7 @@ import { ApiError } from "@/lib/api";
 import { ErrorCode } from "@/lib/auth";
 import { formatDateTime } from "@/lib/format";
 import { parseKeyFile } from "@/lib/storage";
-
-import { useResetOnOpen, useRetained } from "./useRetained";
+import { useResetOnOpen, useRetained } from "@/lib/useRetained";
 
 type Source = "paste" | "file";
 

@@ -127,3 +127,22 @@ func (mr *MockDataSourceRepoMockRecorder) Save(ctx, d any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Save", reflect.TypeOf((*MockDataSourceRepo)(nil).Save), ctx, d)
 }
+
+// SaveColumns mocks base method.
+func (m *MockDataSourceRepo) SaveColumns(ctx context.Context, d *datasource_entity.DataSource, columns ...string) error {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, d}
+	for _, a := range columns {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "SaveColumns", varargs...)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SaveColumns indicates an expected call of SaveColumns.
+func (mr *MockDataSourceRepoMockRecorder) SaveColumns(ctx, d any, columns ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, d}, columns...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveColumns", reflect.TypeOf((*MockDataSourceRepo)(nil).SaveColumns), varargs...)
+}

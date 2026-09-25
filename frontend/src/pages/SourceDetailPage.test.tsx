@@ -457,6 +457,39 @@ describe("数据源详情页", () => {
     expect(await screen.findByText("正常")).toBeInTheDocument();
   });
 
+  it("经由通道的密钥变化在本页测试时才发现：重新确认前先刷新通道列表，显示并信任通道现在出示的指纹", async () => {
+    respondDetail(dbOrders, [officeSocks, bastionProd]);
+    renderDetail(101);
+    await screen.findByRole("heading", { name: "db-01 · orders" });
+
+    const changedItem: DataSourceItem = {
+      ...dbOrders,
+      status: "host_key_changed",
+      status_message: "第 2 跳 bastion-prod（SSH）：主机密钥已变化",
+      failed_hop: { hop: 2, channel_id: 2, name: "bastion-prod", kind: "ssh" },
+    };
+    respond(ok({ item: changedItem, host_key: null }));
+    await userEvent.click(screen.getByRole("button", { name: "测试连接" }));
+    await screen.findByText("主机密钥已变化");
+
+    await userEvent.click(screen.getByRole("button", { name: "编辑" }));
+    const form = await screen.findByRole("dialog", { name: "编辑数据源" });
+    const presented = "SHA256:bastionNowPresenting";
+    respond(
+      ok({ items: [officeSocks, { ...bastionProd, status: "host_key_changed", presented_host_key: presented }] })
+    );
+    await userEvent.click(within(form).getByRole("button", { name: "重新确认" }));
+    const dialog = await screen.findByRole("dialog", { name: "主机密钥已变化" });
+    expect(call(3)).toMatchObject({ url: "/api/v1/channels", method: "GET" });
+    expect(within(dialog).getByText(presented)).toBeInTheDocument();
+
+    respond(ok({ item: { ...bastionProd, host_key: presented }, host_key: null }), ok({ item: dbOrders }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "信任新密钥" }));
+    await waitFor(() =>
+      expect(call(4)).toMatchObject({ url: "/api/v1/channels/2/host-key", body: { fingerprint: presented } })
+    );
+  });
+
   it("编辑：打开已保存数据源的表单弹窗", async () => {
     respondDetail(dbOrders, [officeSocks, bastionProd]);
     renderDetail(101);

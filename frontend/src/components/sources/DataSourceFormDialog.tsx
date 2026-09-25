@@ -1,14 +1,5 @@
-import {
-  ArrowRight,
-  CircleAlert,
-  CircleCheck,
-  Database,
-  Server,
-  ShieldAlert,
-  TriangleAlert,
-  Upload,
-} from "lucide-react";
-import { useRef, useState, type FormEvent, type ReactNode } from "react";
+import { ArrowRight, CircleAlert, CircleCheck, Database, Server, ShieldAlert, TriangleAlert } from "lucide-react";
+import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 
 import { FormField } from "@/components/form/FormField";
@@ -47,6 +38,7 @@ import {
 } from "@/lib/sources";
 import { cn } from "@/lib/utils";
 
+import { KindTabs, Optional, PemField } from "./FormParts";
 import { HostKeyDialog } from "./HostKeyDialog";
 
 type Field =
@@ -106,10 +98,6 @@ export function DataSourceFormDialog({
   const [result, setResult] = useState<Result>();
   const [busy, setBusy] = useState<"test" | "save">();
   const [hostKeyRequest, setHostKeyRequest] = useState<{ prompt: HostKeyPrompt; resolve: (trust: boolean) => void }>();
-  const keyFileInput = useRef<HTMLInputElement>(null);
-  const caFileInput = useRef<HTMLInputElement>(null);
-  const certFileInput = useRef<HTMLInputElement>(null);
-  const clientKeyFileInput = useRef<HTMLInputElement>(null);
 
   const close = () => {
     setDraft(initial());
@@ -150,7 +138,9 @@ export function DataSourceFormDialog({
   const showError = (err: unknown) => {
     const field = err instanceof ApiError ? fieldOf[err.code] : undefined;
     const message = err instanceof Error ? err.message : String(err);
-    if (field) setFieldErrors({ [field]: message });
+    // CA 证书只在校验模式下显示；其他模式下仍会提交已填写的内容，它的错误改为整体提示，不能落在看不见的字段上
+    const hidden = field === "tlsCa" && draft.tls_mode !== "verify_ca" && draft.tls_mode !== "verify_full";
+    if (field && !hidden) setFieldErrors({ [field]: message });
     else setResult({ kind: "error", message });
   };
 
@@ -200,12 +190,6 @@ export function DataSourceFormDialog({
     }
   };
 
-  const readFileInto = (file: File, apply: (text: string) => void) => {
-    const reader = new FileReader();
-    reader.onload = () => apply(String(reader.result ?? ""));
-    reader.readAsText(file);
-  };
-
   return (
     <>
       <Dialog open={open} onOpenChange={(next) => !next && busy === undefined && !hostKeyRequest && close()}>
@@ -229,7 +213,16 @@ export function DataSourceFormDialog({
                   </Button>
                 </p>
               )}
-              <KindTabs value={draft.kind} onChange={setKind} />
+              <KindTabs
+                label={t("sources.dataSource.form.kind")}
+                value={draft.kind}
+                options={[
+                  { value: "mysql", label: t("sources.dataSource.kind.mysql"), icon: <Database /> },
+                  { value: "postgres", label: t("sources.dataSource.kind.postgres"), icon: <Database /> },
+                  { value: "server_file", label: t("sources.dataSource.kind.server_file"), icon: <Server /> },
+                ]}
+                onChange={setKind}
+              />
               <FormField
                 label={t("sources.dataSource.form.name")}
                 value={draft.name}
@@ -270,8 +263,6 @@ export function DataSourceFormDialog({
                   fieldErrors={fieldErrors}
                   update={update}
                   clearFieldError={clearFieldError}
-                  keyFileInput={keyFileInput}
-                  onReadPrivateKey={(file) => readFileInto(file, (text) => update({ private_key: text }))}
                 />
               ) : (
                 <DatabaseFields
@@ -280,12 +271,6 @@ export function DataSourceFormDialog({
                   fieldErrors={fieldErrors}
                   update={update}
                   clearFieldError={clearFieldError}
-                  caFileInput={caFileInput}
-                  certFileInput={certFileInput}
-                  clientKeyFileInput={clientKeyFileInput}
-                  onReadCA={(file) => readFileInto(file, (text) => update({ tls_ca: text }))}
-                  onReadClientCert={(file) => readFileInto(file, (text) => update({ tls_client_cert: text }))}
-                  onReadClientKey={(file) => readFileInto(file, (text) => update({ tls_client_key: text }))}
                 />
               )}
               <div className="flex flex-col gap-1.5">
@@ -312,6 +297,7 @@ export function DataSourceFormDialog({
                     ))}
                   </SelectContent>
                 </Select>
+                {fieldErrors.channel && <p className="text-xs text-destructive">{fieldErrors.channel}</p>}
               </div>
               <p className="text-xs text-muted-foreground">
                 {t("sources.dataSource.form.chain", { chain: preview.text })}
@@ -385,52 +371,6 @@ function testSuccessMessage(
   return t("sources.dataSource.result.testSuccessWith", { info: parts.filter(Boolean).join(" · ") });
 }
 
-function KindTabs({ value, onChange }: { value: DataSourceKind; onChange: (kind: DataSourceKind) => void }) {
-  const { t } = useTranslation();
-  const options: { value: DataSourceKind; label: string; icon: ReactNode }[] = [
-    { value: "mysql", label: t("sources.dataSource.kind.mysql"), icon: <Database /> },
-    { value: "postgres", label: t("sources.dataSource.kind.postgres"), icon: <Database /> },
-    { value: "server_file", label: t("sources.dataSource.kind.server_file"), icon: <Server /> },
-  ];
-  return (
-    <div
-      role="radiogroup"
-      aria-label={t("sources.dataSource.form.kind")}
-      className="inline-flex w-fit gap-0.5 rounded-md bg-accent p-0.75"
-    >
-      {options.map((o) => {
-        const selected = o.value === value;
-        return (
-          <button
-            key={o.value}
-            type="button"
-            role="radio"
-            aria-checked={selected}
-            onClick={() => onChange(o.value)}
-            className={cn(
-              "flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-sm [&_svg]:size-4",
-              selected ? "bg-card font-semibold text-foreground" : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {o.icon}
-            {o.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function Optional({ label }: { label: ReactNode }) {
-  const { t } = useTranslation();
-  return (
-    <>
-      {label}
-      <span className="ml-1.5 text-xs text-faint-foreground">{t("sources.dataSource.form.optional")}</span>
-    </>
-  );
-}
-
 /** MySQL / PostgreSQL：用户名密码、可选连接数据库、TLS 与 mTLS */
 function DatabaseFields({
   draft,
@@ -438,24 +378,12 @@ function DatabaseFields({
   fieldErrors,
   update,
   clearFieldError,
-  caFileInput,
-  certFileInput,
-  clientKeyFileInput,
-  onReadCA,
-  onReadClientCert,
-  onReadClientKey,
 }: {
   draft: DataSourceForm;
   editing?: DataSourceItem;
   fieldErrors: Partial<Record<Field, string>>;
   update: (patch: Partial<DataSourceForm>) => void;
   clearFieldError: (field: Field) => void;
-  caFileInput: React.RefObject<HTMLInputElement | null>;
-  certFileInput: React.RefObject<HTMLInputElement | null>;
-  clientKeyFileInput: React.RefObject<HTMLInputElement | null>;
-  onReadCA: (file: File) => void;
-  onReadClientCert: (file: File) => void;
-  onReadClientKey: (file: File) => void;
 }) {
   const { t } = useTranslation();
   return (
@@ -501,133 +429,40 @@ function DatabaseFields({
           onChange={(tls_mode: TLSMode) => update({ tls_mode })}
         />
         {(draft.tls_mode === "verify_ca" || draft.tls_mode === "verify_full") && (
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between">
-              <Label className="font-normal text-muted-foreground">
-                <Optional label={t("sources.dataSource.form.tlsCA")} />
-              </Label>
-              <button
-                type="button"
-                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                onClick={() => caFileInput.current?.click()}
-              >
-                <Upload className="size-3.5" />
-                {t("sources.dataSource.form.upload")}
-              </button>
-              <input
-                ref={caFileInput}
-                type="file"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) onReadCA(file);
-                  e.target.value = "";
-                }}
-              />
-            </div>
-            <textarea
-              value={draft.tls_ca}
-              aria-label={t("sources.dataSource.form.tlsCA")}
-              aria-invalid={fieldErrors.tlsCa ? true : undefined}
-              rows={2}
-              className={cn(
-                "w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs shadow-xs outline-none",
-                "focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-              )}
-              onChange={(e) => {
-                update({ tls_ca: e.target.value });
-                clearFieldError("tlsCa");
-              }}
-            />
-            {fieldErrors.tlsCa ? (
-              <p className="text-xs text-destructive">{fieldErrors.tlsCa}</p>
-            ) : (
-              <p className="text-xs text-faint-foreground">{t("sources.dataSource.form.tlsCAHint")}</p>
-            )}
-          </div>
+          <PemField
+            label={t("sources.dataSource.form.tlsCA")}
+            optional
+            value={draft.tls_ca}
+            error={fieldErrors.tlsCa}
+            hint={t("sources.dataSource.form.tlsCAHint")}
+            onChange={(tls_ca) => {
+              update({ tls_ca });
+              clearFieldError("tlsCa");
+            }}
+          />
         )}
         <div className="grid grid-cols-2 gap-3">
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between">
-              <Label className="font-normal text-muted-foreground">
-                <Optional label={t("sources.dataSource.form.tlsClientCert")} />
-              </Label>
-              <button
-                type="button"
-                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                onClick={() => certFileInput.current?.click()}
-              >
-                <Upload className="size-3.5" />
-                {t("sources.dataSource.form.upload")}
-              </button>
-              <input
-                ref={certFileInput}
-                type="file"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) onReadClientCert(file);
-                  e.target.value = "";
-                }}
-              />
-            </div>
-            <textarea
-              value={draft.tls_client_cert}
-              aria-label={t("sources.dataSource.form.tlsClientCert")}
-              aria-invalid={fieldErrors.tlsClientCert ? true : undefined}
-              rows={2}
-              className={cn(
-                "w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs shadow-xs outline-none",
-                "focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-              )}
-              onChange={(e) => {
-                update({ tls_client_cert: e.target.value });
-                clearFieldError("tlsClientCert");
-              }}
-            />
-            {fieldErrors.tlsClientCert && <p className="text-xs text-destructive">{fieldErrors.tlsClientCert}</p>}
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between">
-              <Label className="font-normal text-muted-foreground">
-                <Optional label={t("sources.dataSource.form.tlsClientKey")} />
-              </Label>
-              <button
-                type="button"
-                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                onClick={() => clientKeyFileInput.current?.click()}
-              >
-                <Upload className="size-3.5" />
-                {t("sources.dataSource.form.upload")}
-              </button>
-              <input
-                ref={clientKeyFileInput}
-                type="file"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) onReadClientKey(file);
-                  e.target.value = "";
-                }}
-              />
-            </div>
-            <textarea
-              value={draft.tls_client_key}
-              placeholder={editing?.has_tls_client_key ? t("sources.dataSource.form.secretKeep") : undefined}
-              aria-label={t("sources.dataSource.form.tlsClientKey")}
-              aria-invalid={fieldErrors.tlsClientKey ? true : undefined}
-              rows={2}
-              className={cn(
-                "w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs shadow-xs outline-none",
-                "focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-              )}
-              onChange={(e) => {
-                update({ tls_client_key: e.target.value });
-                clearFieldError("tlsClientKey");
-              }}
-            />
-            {fieldErrors.tlsClientKey && <p className="text-xs text-destructive">{fieldErrors.tlsClientKey}</p>}
-          </div>
+          <PemField
+            label={t("sources.dataSource.form.tlsClientCert")}
+            optional
+            value={draft.tls_client_cert}
+            error={fieldErrors.tlsClientCert}
+            onChange={(tls_client_cert) => {
+              update({ tls_client_cert });
+              clearFieldError("tlsClientCert");
+            }}
+          />
+          <PemField
+            label={t("sources.dataSource.form.tlsClientKey")}
+            optional
+            value={draft.tls_client_key}
+            placeholder={editing?.has_tls_client_key ? t("sources.dataSource.form.secretKeep") : undefined}
+            error={fieldErrors.tlsClientKey}
+            onChange={(tls_client_key) => {
+              update({ tls_client_key });
+              clearFieldError("tlsClientKey");
+            }}
+          />
         </div>
         <p className="text-xs text-faint-foreground">{t("sources.dataSource.form.tlsClientCertHint")}</p>
       </div>
@@ -642,16 +477,12 @@ function ServerFileFields({
   fieldErrors,
   update,
   clearFieldError,
-  keyFileInput,
-  onReadPrivateKey,
 }: {
   draft: DataSourceForm;
   editing?: DataSourceItem;
   fieldErrors: Partial<Record<Field, string>>;
   update: (patch: Partial<DataSourceForm>) => void;
   clearFieldError: (field: Field) => void;
-  keyFileInput: React.RefObject<HTMLInputElement | null>;
-  onReadPrivateKey: (file: File) => void;
 }) {
   const { t } = useTranslation();
   return (
@@ -693,49 +524,18 @@ function ServerFileFields({
         />
       ) : (
         <>
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between">
-              <Label className="font-normal text-muted-foreground">{t("sources.dataSource.form.privateKey")}</Label>
-              <button
-                type="button"
-                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                onClick={() => keyFileInput.current?.click()}
-              >
-                <Upload className="size-3.5" />
-                {t("sources.dataSource.form.upload")}
-              </button>
-              <input
-                ref={keyFileInput}
-                type="file"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) onReadPrivateKey(file);
-                  e.target.value = "";
-                }}
-              />
-            </div>
-            <textarea
-              value={draft.private_key}
-              placeholder={editing?.has_private_key ? t("sources.dataSource.form.secretKeep") : undefined}
-              aria-label={t("sources.dataSource.form.privateKey")}
-              aria-invalid={fieldErrors.privateKey ? true : undefined}
-              rows={4}
-              className={cn(
-                "w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs shadow-xs outline-none",
-                "focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-              )}
-              onChange={(e) => {
-                update({ private_key: e.target.value });
-                clearFieldError("privateKey");
-              }}
-            />
-            {fieldErrors.privateKey ? (
-              <p className="text-xs text-destructive">{fieldErrors.privateKey}</p>
-            ) : (
-              <p className="text-xs text-faint-foreground">{t("sources.dataSource.form.privateKeyHint")}</p>
-            )}
-          </div>
+          <PemField
+            label={t("sources.dataSource.form.privateKey")}
+            value={draft.private_key}
+            placeholder={editing?.has_private_key ? t("sources.dataSource.form.secretKeep") : undefined}
+            rows={4}
+            error={fieldErrors.privateKey}
+            hint={t("sources.dataSource.form.privateKeyHint")}
+            onChange={(private_key) => {
+              update({ private_key });
+              clearFieldError("privateKey");
+            }}
+          />
           <FormField
             label={<Optional label={t("sources.dataSource.form.passphrase")} />}
             type="password"

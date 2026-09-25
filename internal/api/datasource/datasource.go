@@ -228,8 +228,8 @@ type TestResponse struct {
 type ConfirmHostKeyRequest struct {
 	mux.Meta `path:"/datasources/:id/host-key" method:"POST"`
 	ID       int64 `uri:"id" binding:"required"`
-	// Fingerprint 用户在弹窗中看到并信任的指纹
-	Fingerprint string `json:"fingerprint" binding:"required"`
+	// Fingerprint 用户在弹窗中看到并信任的指纹（SHA256:...）；空白或其他格式直接拒绝，不会清掉已信任的密钥
+	Fingerprint string `json:"fingerprint" binding:"required,startswith=SHA256:"`
 }
 
 type ConfirmHostKeyResponse struct {

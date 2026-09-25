@@ -478,41 +478,52 @@ export function probeSummaryOf(probe: DataSourceProbe | null): ProbeSummary {
   return { kind, ok, warn, fail };
 }
 
+/** 数据源「重新确认」要确认的主机密钥：prompt 为弹窗内容，channel 为变化的是链路中的通道时的该通道 */
+export type DataSourceHostKeyResolution =
+  | { kind: "prompt"; prompt: HostKeyPrompt; channel?: ChannelItem; channels?: ChannelItem[] }
+  | { kind: "stale"; name: string; channels: ChannelItem[] };
+
 /**
- * 数据源状态为 host_key_changed 时，构造「重新确认」弹窗所需的提示：
- * 变化的是链路中某个通道时（failed_hop.channel_id 非零）取该通道的保存与出示指纹，
+ * 数据源状态为 host_key_changed 时，构造「重新确认」弹窗所需的提示。
+ * 变化的是链路中某个通道时（failed_hop.channel_id 非零）：页面上已加载的通道列表可能早于这次变化被发现，
+ * 出示的指纹还是空的，因此先重新拉取通道列表（channels 供调用方更新本地列表），取该通道保存与出示的指纹；
+ * 仍拿不到出示的指纹时返回 stale，调用方提示错误而不是打开空白弹窗。
  * 否则（目标主机自身，仅服务器文件）取数据源自身的指纹。
  */
-export function dataSourceHostKeyRequest(
-  item: DataSourceItem,
-  channels: ChannelItem[]
-): { prompt: HostKeyPrompt; viaChannel?: ChannelItem } {
-  const viaChannel = item.failed_hop?.channel_id
-    ? channels.find((c) => c.id === item.failed_hop?.channel_id)
-    : undefined;
-  if (viaChannel) {
+export async function resolveDataSourceHostKey(item: DataSourceItem): Promise<DataSourceHostKeyResolution> {
+  const channelId = item.failed_hop?.channel_id;
+  const hop = item.failed_hop?.hop ?? 0;
+  if (!channelId) {
     return {
+      kind: "prompt",
       prompt: {
-        hop: item.failed_hop?.hop ?? 0,
-        name: viaChannel.name,
-        address: viaChannel.address,
+        hop,
+        name: item.name,
+        address: item.address,
         key_type: "",
-        fingerprint: viaChannel.presented_host_key,
+        fingerprint: item.presented_host_key,
         changed: true,
-        saved: viaChannel.host_key,
+        saved: item.host_key,
       },
-      viaChannel,
     };
   }
+  const { items: channels } = await listChannels();
+  const channel = channels.find((c) => c.id === channelId);
+  if (!channel?.presented_host_key) {
+    return { kind: "stale", name: channel?.name ?? item.failed_hop?.name ?? "", channels };
+  }
   return {
+    kind: "prompt",
     prompt: {
-      hop: item.failed_hop?.hop ?? 0,
-      name: item.name,
-      address: item.address,
+      hop,
+      name: channel.name,
+      address: channel.address,
       key_type: "",
-      fingerprint: item.presented_host_key,
+      fingerprint: channel.presented_host_key,
       changed: true,
-      saved: item.host_key,
+      saved: channel.host_key,
     },
+    channel,
+    channels,
   };
 }

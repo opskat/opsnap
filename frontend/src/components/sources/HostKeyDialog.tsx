@@ -11,10 +11,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { HostKeyPrompt } from "@/lib/sources";
+import { useRetained } from "@/lib/useRetained";
 
-import { useRetained } from "./useRetained";
-
-/** 「确认主机密钥」与「主机密钥已变化」共用的请求：resolve(true) 表示用户选择信任 */
+/** 「确认主机密钥」与「主机密钥已变化」共用的请求：待确认的主机密钥 */
 export interface HostKeyRequest {
   prompt: HostKeyPrompt;
 }

@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/cago-frame/cago/database/db"
@@ -637,6 +639,15 @@ func TestHostKeyChanged(t *testing.T) {
 			assert.Equal(t, code.ChannelHostKeyChanged, errCode(err))
 		})
 
+		convey.Convey("重新确认：空白指纹被拒绝，不会清掉已信任的密钥", func() {
+			fresh := e.create(t, sshForm(t, "bastion-2", newSSH(t)))
+			saved := e.row(t, fresh.ID).HostKey
+			require.NotEmpty(t, saved)
+			err := e.do(&api.ConfirmHostKeyRequest{ID: fresh.ID, Fingerprint: " "}, &api.ConfirmHostKeyResponse{})
+			assert.Error(t, err)
+			assert.Equal(t, saved, e.row(t, fresh.ID).HostKey)
+		})
+
 		convey.Convey("SOCKS5 通道没有主机密钥", func() {
 			err := e.do(&api.ConfirmHostKeyRequest{ID: inner.ID, Fingerprint: "SHA256:x"}, &api.ConfirmHostKeyResponse{})
 			assert.Equal(t, code.ChannelNotSSH, errCode(err))
@@ -660,11 +671,76 @@ func TestTest(t *testing.T) {
 			assert.Equal(t, channel_entity.StatusUnreachable, e.item(t, item.ID).Status)
 		})
 
+		convey.Convey("测试期间被编辑的设置不会被测试结果覆盖", func() {
+			relay := newRelay(t, proxy.Addr())
+			f := socksForm(t, "relayed-socks", proxy, socksUser, socksPassword)
+			f.Host, f.Port = hostPort(t, relay.addr())
+			relayed := e.create(t, f)
+			// 测试连接进行到一半时，另一个请求把通道改了名
+			relay.onAccept(func() {
+				require.NoError(t, db.Ctx(e.ctx).Model(&channel_entity.Channel{}).
+					Where("id = ?", relayed.ID).Update("name", "renamed-socks").Error)
+			})
+			resp := &api.TestResponse{}
+			require.NoError(t, e.do(&api.TestRequest{ID: relayed.ID}, resp))
+			assert.Equal(t, channel_entity.StatusOK, e.row(t, relayed.ID).Status)
+			assert.Equal(t, "renamed-socks", e.row(t, relayed.ID).Name)
+		})
+
 		convey.Convey("通道不存在", func() {
 			err := e.do(&api.TestRequest{ID: 999}, &api.TestResponse{})
 			assert.Equal(t, code.ChannelNotFound, errCode(err))
 		})
 	})
+}
+
+// relay 转发到 target 的 TCP 中继；onAccept 设置的回调在下一次接入时调用一次，用来在连接进行中制造并发修改
+type relay struct {
+	ln   net.Listener
+	mu   sync.Mutex
+	hook func()
+}
+
+func newRelay(t *testing.T, target string) *relay {
+	t.Helper()
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	r := &relay{ln: ln}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			r.mu.Lock()
+			hook := r.hook
+			r.hook = nil
+			r.mu.Unlock()
+			if hook != nil {
+				hook()
+			}
+			go func() {
+				defer func() { _ = c.Close() }()
+				up, err := (&net.Dialer{}).DialContext(context.Background(), "tcp", target)
+				if err != nil {
+					return
+				}
+				defer func() { _ = up.Close() }()
+				go func() { _, _ = io.Copy(up, c); _ = up.Close() }()
+				_, _ = io.Copy(c, up)
+			}()
+		}
+	}()
+	return r
+}
+
+func (r *relay) addr() string { return r.ln.Addr().String() }
+
+func (r *relay) onAccept(fn func()) {
+	r.mu.Lock()
+	r.hook = fn
+	r.mu.Unlock()
 }
 
 func TestHops(t *testing.T) {

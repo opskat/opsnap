@@ -4,6 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"regexp"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/opskat/opsnap/internal/pkg/dsconn"
 )
@@ -142,7 +145,7 @@ func decideReplicationAttribute(hasAttr bool, role string) Item {
 			En:   fmt.Sprintf("%s has the REPLICATION attribute or is a superuser.", role),
 		}}
 	}
-	fix := fmt.Sprintf("ALTER ROLE %s REPLICATION;", role)
+	fix := fmt.Sprintf("ALTER ROLE %s REPLICATION;", quoteIdent(role))
 	return Item{Key: "postgres.replication_attr", Title: itemTitles["postgres.replication_attr"], Tier: TierFail, Detail: Text{
 		ZhCN: fmt.Sprintf("%s 没有 REPLICATION 属性，物理模式不可用", role),
 		En:   fmt.Sprintf("%s does not have the REPLICATION attribute; physical mode is unavailable.", role),
@@ -173,6 +176,17 @@ func decidePgDump(serverVersion string, tool toolStatus) Item {
 		ZhCN: fmt.Sprintf("已找到 pg_dump（%s），大版本不低于服务端", tool.Raw),
 		En:   fmt.Sprintf("Found pg_dump (%s), whose major version is not older than the server.", tool.Raw),
 	}}
+}
+
+// simpleIdent 不需要加引号就能在 SQL 中原样使用的角色名（小写字母、数字、下划线、$，不以数字或 $ 开头）
+var simpleIdent = regexp.MustCompile(`^[a-z_][a-z0-9_$]*$`)
+
+// quoteIdent 角色名需要引号时（大写、连字符、引号等）按 SQL 标识符规则加双引号，使修复方法可以直接执行
+func quoteIdent(name string) string {
+	if simpleIdent.MatchString(name) {
+		return name
+	}
+	return pgx.Identifier{name}.Sanitize()
 }
 
 var pgDumpFix = Text{

@@ -317,6 +317,8 @@
     "subtitle": "Databases and servers to back up. Connections can go through network channels (SSH jump hosts, SOCKS5 proxies); saving triggers automatic capability probing.",
     "loadFailed": "Failed to load channels: {{message}}",
     "createChannel": "New Channel",
+    "optional": "optional",
+    "upload": "Upload",
     "createDataSource": "New Data Source",
     "tabs": {
       "dataSources": "Data Sources",
@@ -359,7 +361,6 @@
         "more": "More actions for {{name}}",
         "reconfirm": "Reconfirm",
         "reconfirmNamed": "Reconfirm host key for {{name}}",
-        "reconfirmFirst": "This channel's host key has changed. Reconfirm it from the list first.",
         "deleteItem": "Delete channel",
         "deleteBlocked": "Still used by {{items}}, cannot delete"
       },
@@ -375,7 +376,6 @@
         "authMethod": "Auth method",
         "password": "Password",
         "privateKey": "Private key",
-        "upload": "Upload",
         "privateKeyHint": "Supports OpenSSH / PEM RSA, ECDSA and Ed25519 private keys; paste or upload a file.",
         "passphrase": "Private key passphrase",
         "passphraseHint": "Required when the private key is encrypted",
@@ -385,7 +385,6 @@
         "viaNone": "None, direct from OpsNap",
         "chain": "Chain: {{chain}}. Channels that would form a cycle can't be selected; the chain has at most 5 hops.",
         "chainTooLong": "The chain has {{count}} hops, over the limit of {{max}}; it can't be saved.",
-        "optional": "optional",
         "test": "Test Connection",
         "testing": "Testing…",
         "hostKeyChangedHint": "This host presented a key that no longer matches the saved one. Reconfirm it first."
@@ -471,7 +470,6 @@
         "database": "Database",
         "authMethod": "Auth method",
         "privateKey": "Private key",
-        "upload": "Upload",
         "privateKeyHint": "Supports OpenSSH / PEM RSA, ECDSA and Ed25519 private keys; paste or upload a file.",
         "passphrase": "Private key passphrase",
         "passphraseHint": "Required when the private key is encrypted",
@@ -479,7 +477,6 @@
         "channel": "Network channel",
         "channelNone": "None, direct from OpsNap",
         "chain": "Chain: {{chain}}",
-        "optional": "optional",
         "tls": "TLS",
         "tlsMode": {
           "disable": "Disable",

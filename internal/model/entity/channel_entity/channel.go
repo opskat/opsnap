@@ -58,6 +58,9 @@ type Channel struct {
 
 func (Channel) TableName() string { return "channels" }
 
+// StatusColumns 一次测试写入的列（状态、原因、出示的指纹、测试时间）；只写这些列，不覆盖测试期间被编辑的设置
+var StatusColumns = []string{"status", "status_code", "status_detail", "presented_host_key", "checktime"}
+
 // Addr host:port
 func (c *Channel) Addr() string {
 	return net.JoinHostPort(c.Host, strconv.Itoa(c.Port))

@@ -12,8 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { deleteStorage, type Storage } from "@/lib/storage";
-
-import { useRetained } from "./useRetained";
+import { useRetained } from "@/lib/useRetained";
 
 /** 更改存储位置前的二次确认：原位置的仓库保持不动，按新位置的情况继续 */
 export function ChangeLocationDialog({

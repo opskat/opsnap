@@ -1,13 +1,9 @@
 package probe
 
 import (
-	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"strings"
-
-	"golang.org/x/crypto/ssh"
 
 	"github.com/opskat/opsnap/internal/pkg/dsconn"
 )
@@ -24,48 +20,19 @@ func serverFileItems(ctx context.Context, conn *dsconn.Conn) []Item {
 	items = append(items, decideSSHReachable())
 	items = append(items, decideCPUArch(conn.Info.System))
 
-	if stdout, stderr, exitCode, err := sshExec(ctx, conn.SSH, tempExecCmd); err != nil {
+	if stdout, stderr, exitCode, err := dsconn.Exec(ctx, conn.SSH, tempExecCmd); err != nil {
 		items = append(items, queryErrorItem("server_file.tmp_exec", err))
 	} else {
 		items = append(items, decideTempDirExec(exitCode == 0, strings.TrimSpace(stderr+stdout)))
 	}
 
-	user := ""
-	if conn.SSH != nil {
-		user = conn.SSH.User()
-	}
-	if _, stderr, exitCode, err := sshExec(ctx, conn.SSH, sudoCheckCmd); err != nil {
+	if _, stderr, exitCode, err := dsconn.Exec(ctx, conn.SSH, sudoCheckCmd); err != nil {
 		items = append(items, queryErrorItem("server_file.sudo", err))
 	} else {
-		items = append(items, decideSudo(exitCode == 0, user, strings.TrimSpace(stderr)))
+		items = append(items, decideSudo(exitCode == 0, conn.SSH.User(), strings.TrimSpace(stderr)))
 	}
 
 	return items
-}
-
-// sshExec 执行一条命令，返回标准输出、标准错误与退出码。
-// 经链路转发的连接不支持读写截止时间（x/crypto/ssh 的限制），ctx 结束时关闭客户端来打断等待。
-func sshExec(ctx context.Context, cl *ssh.Client, cmd string) (stdout, stderr string, exitCode int, err error) {
-	sess, err := cl.NewSession()
-	if err != nil {
-		return "", "", -1, err
-	}
-	defer func() { _ = sess.Close() }()
-	var out, errBuf bytes.Buffer
-	sess.Stdout, sess.Stderr = &out, &errBuf
-	stop := context.AfterFunc(ctx, func() { _ = cl.Close() })
-	runErr := sess.Run(cmd)
-	if !stop() {
-		return "", "", -1, ctx.Err()
-	}
-	var exit *ssh.ExitError
-	switch {
-	case errors.As(runErr, &exit):
-		return out.String(), errBuf.String(), exit.ExitStatus(), nil
-	case runErr != nil:
-		return "", "", -1, runErr
-	}
-	return out.String(), errBuf.String(), 0, nil
 }
 
 func decideSSHReachable() Item {

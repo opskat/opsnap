@@ -36,27 +36,39 @@ func openServerFile(ctx context.Context, d Dialer, c Config) (*Conn, error) {
 	return &Conn{Info: Info{System: system}, SSH: cl}, nil
 }
 
-// run 执行一条命令并返回去掉首尾空白的标准输出。
-// 经 SSH 转发的连接不支持截止时间，ctx 结束时关闭客户端来打断等待。
+// run 执行一条命令并返回去掉首尾空白的标准输出；退出码非 0 时返回带标准错误的错误
 func run(ctx context.Context, cl *ssh.Client, cmd string) (string, error) {
+	stdout, stderr, code, err := Exec(ctx, cl, cmd)
+	if err != nil {
+		return "", err
+	}
+	if code != 0 {
+		return "", fmt.Errorf("执行 %s 失败（退出码 %d）: %s", cmd, code, strings.TrimSpace(stderr))
+	}
+	return strings.TrimSpace(stdout), nil
+}
+
+// Exec 在 cl 上执行一条命令，返回标准输出、标准错误与退出码；命令能执行但退出码非 0 不算错误。
+// 经链路转发的连接不支持读写截止时间（x/crypto/ssh 的限制），ctx 结束时关闭客户端来打断等待。
+func Exec(ctx context.Context, cl *ssh.Client, cmd string) (stdout, stderr string, exitCode int, err error) {
 	sess, err := cl.NewSession()
 	if err != nil {
-		return "", err
+		return "", "", -1, err
 	}
 	defer func() { _ = sess.Close() }()
-	var stdout, stderr bytes.Buffer
-	sess.Stdout, sess.Stderr = &stdout, &stderr
+	var out, errBuf bytes.Buffer
+	sess.Stdout, sess.Stderr = &out, &errBuf
 	stop := context.AfterFunc(ctx, func() { _ = cl.Close() })
-	err = sess.Run(cmd)
+	runErr := sess.Run(cmd)
 	if !stop() {
-		return "", ctx.Err()
+		return "", "", -1, ctx.Err()
 	}
 	var exit *ssh.ExitError
-	if errors.As(err, &exit) {
-		return "", fmt.Errorf("执行 %s 失败（退出码 %d）: %s", cmd, exit.ExitStatus(), strings.TrimSpace(stderr.String()))
+	switch {
+	case errors.As(runErr, &exit):
+		return out.String(), errBuf.String(), exit.ExitStatus(), nil
+	case runErr != nil:
+		return "", "", -1, runErr
 	}
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(stdout.String()), nil
+	return out.String(), errBuf.String(), 0, nil
 }
