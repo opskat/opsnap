@@ -36,7 +36,7 @@ Constraints:
 - Images are pulled through the `katch.ggnb.top/` mirror (`<mirror>/docker.io/...`, `<mirror>/quay.io/...`). On another host set `OPSNAP_TEST_REGISTRY_MIRROR`; an empty value pulls directly.
 - MongoDB, Redis, Kafka and the LVM SSH target (privileged container with a loop device) are not deployed yet; they are added to the compose file in the rounds that need them.
 - `mysql80` runs with `--skip-name-resolve`: without it the first packet to a fresh connection sometimes takes 20-40s, most likely reverse DNS on the client address (seen while verifying task 3 of the datasources round, not fully root-caused).
-- The real chain to verify for the datasources round: `SOCKS5 (192.168.8.141:11081) → ssh-jump (12222) → ssh-target` for server-file, and `SOCKS5 → mysql80` / `SOCKS5 → pg16` directly (mysql80/pg16 have no SSH in front of them). `socks5` publishes 11081 (not the usual 1080-mapped port) because 11080 is already taken on docker.lan by the host's own `sockd`.
+- The real chain to verify for the datasources round: `SOCKS5 (192.168.8.141:11081) → ssh-jump (12222) → ssh-target` for server-file, and `SOCKS5 → mysql80` / `SOCKS5 → pg16` directly (mysql80/pg16 have no SSH in front of them). `socks5` publishes 11081 rather than 11080 because 11080 is already taken on docker.lan by the host's own `sockd`.
 - To rotate `ssh-jump`'s host key for the key-changed scenario: its `/config` is an anonymous volume, so simply recreating the container keeps the same key; instead remove the whole `/config/ssh_host_keys` directory and restart the container, which regenerates a new key pair.
 
 ## Workflow

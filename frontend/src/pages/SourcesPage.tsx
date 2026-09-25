@@ -430,6 +430,8 @@ export function SourcesPage() {
         onSaved={(item) => {
           replaceChannel(item);
           setChFormOpen(false);
+          // 新建或改变“经由”会改变上游通道的“被使用”计数与删除保护，重新拉取通道列表
+          reloadChannels();
         }}
         onReconfirm={reconfirmChannel}
       />
@@ -460,6 +462,8 @@ export function SourcesPage() {
         onSaved={(item) => {
           replaceDataSource(item);
           setDsFormOpen(false);
+          // 数据源选用或更换网络通道会改变通道的“被使用”计数与删除保护，重新拉取通道列表
+          reloadChannels();
         }}
         onReconfirm={reconfirmDataSource}
       />

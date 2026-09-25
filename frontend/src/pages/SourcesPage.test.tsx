@@ -654,7 +654,9 @@ describe("SourcesPage · 网络通道", () => {
     const passphrase = within(dialog).getByLabelText(/私钥口令/);
     expect(passphrase).toHaveAttribute("placeholder", "已保存（加密存储），留空表示不修改");
 
-    respond(ok({ item: { ...bastionProd, name: "bastion-prod-2" }, host_key: null }));
+    // call(2) 保存请求，call(3) 保存后刷新通道列表
+    const renamed = { ...bastionProd, name: "bastion-prod-2" };
+    respond(ok({ item: renamed, host_key: null }), ok({ items: [renamed] }));
     await userEvent.clear(within(dialog).getByLabelText("名称"));
     await userEvent.type(within(dialog).getByLabelText("名称"), "bastion-prod-2");
     await userEvent.click(within(dialog).getByRole("button", { name: "保存" }));
@@ -735,6 +737,46 @@ describe("SourcesPage · 网络通道", () => {
     expect(within(rows[1]).getByText("未被使用")).toBeInTheDocument();
     await userEvent.click(within(rows[1]).getByRole("button", { name: "s3 的更多操作" }));
     expect(await screen.findByRole("menuitem", { name: "删除通道" })).not.toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("新建经由上游通道的通道后，上游通道的使用数与删除保护立即刷新", async () => {
+    const s3Unused = { ...s3, used_by: usedBy() };
+    respondLists([], [s3Unused]);
+    renderPage();
+    const dialog = await openCreateChannel();
+    await userEvent.click(within(dialog).getByRole("radio", { name: "SOCKS5 代理" }));
+    await userEvent.type(within(dialog).getByLabelText("名称"), "s4");
+    await userEvent.type(within(dialog).getByLabelText("主机"), "10.0.0.4");
+    await chooseVia(dialog, "s3");
+    // call(2) 保存请求，call(3) 保存后刷新通道列表：接口已返回 s3 被 s4 使用
+    respond(ok({ item: s4, host_key: null }), ok({ items: [s3, s4] }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "保存" }));
+    await vi.waitFor(() => expect(screen.queryByRole("dialog", { name: "新建网络通道" })).not.toBeInTheDocument());
+
+    const rows = await screen.findAllByRole("row");
+    expect(await within(rows[1]).findByText("1 个通道")).toBeInTheDocument();
+    await userEvent.click(within(rows[1]).getByRole("button", { name: "s3 的更多操作" }));
+    expect(await screen.findByRole("menuitem", { name: /删除通道/ })).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("英文界面中使用数为 1 时使用单数形式", async () => {
+    respondLists(
+      [],
+      [{ ...officeSocks, used_by: usedBy([{ id: 10, name: "db-01" }], [{ id: 2, name: "bastion-prod" }]) }]
+    );
+    renderPage();
+    await userEvent.click(await screen.findByRole("tab", { name: /网络通道/ }));
+    await screen.findAllByRole("row");
+    await act(async () => {
+      await i18n.changeLanguage("en");
+    });
+    try {
+      expect(await screen.findByText("1 data source · 1 channel")).toBeInTheDocument();
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage("zh-CN");
+      });
+    }
   });
 });
 
@@ -1117,5 +1159,25 @@ describe("SourcesPage · 数据源", () => {
     await userEvent.click(screen.getByRole("tab", { name: /网络通道/ }));
     const chRow = (await screen.findAllByRole("row"))[1];
     expect(within(chRow).getByText("未被使用")).toBeInTheDocument();
+  });
+
+  it("保存经由通道的数据源后，该通道的使用数刷新", async () => {
+    respondLists([], [{ ...c1, used_by: usedBy() }]);
+    renderPage();
+    const dialog = await openCreateDataSource();
+    await userEvent.type(within(dialog).getByLabelText("名称"), "ds1");
+    await userEvent.type(within(dialog).getByLabelText("主机"), "10.0.0.41");
+    await userEvent.type(within(dialog).getByLabelText("用户名"), "backup");
+    await userEvent.type(within(dialog).getByLabelText("密码"), "pw");
+    await userEvent.click(within(dialog).getByRole("combobox", { name: "网络通道" }));
+    await userEvent.click(await screen.findByRole("option", { name: "c1" }));
+    // call(2) 保存请求，call(3) 保存后刷新通道列表：接口已返回 c1 被 ds1 使用
+    respond(ok({ item: ds1, host_key: null }), ok({ items: [c1] }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "保存" }));
+    await vi.waitFor(() => expect(screen.queryByRole("dialog", { name: "新建数据源" })).not.toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole("tab", { name: /网络通道/ }));
+    const chRow = (await screen.findAllByRole("row"))[1];
+    expect(await within(chRow).findByText("1 个数据源")).toBeInTheDocument();
   });
 });
