@@ -312,5 +312,113 @@
     "disableHint": "关闭后只能通过 OIDC 登录。IdP 不可用时，在服务器上执行 opsnap admin reset-password 可以重新开启。",
     "disableConfirm": "关闭密码登录",
     "reenableNotice": "密码登录会自动重新开启。"
+  },
+  "sources": {
+    "subtitle": "要备份的数据库与服务器。连接可以经由网络通道（SSH 跳板、SOCKS5 代理）；保存后自动探测支持的备份方式。",
+    "loadFailed": "无法加载网络通道列表：{{message}}",
+    "createChannel": "新建通道",
+    "createDataSource": "新建数据源",
+    "tabs": {
+      "dataSources": "数据源",
+      "channels": "网络通道"
+    },
+    "dataSources": {
+      "comingSoon": "数据源管理即将推出",
+      "comingSoonHint": "MySQL、PostgreSQL 与服务器文件的新建、探测与详情将在后续任务中提供。"
+    },
+    "channel": {
+      "empty": "还没有通道",
+      "emptyHint": "新建一个 SSH 跳板或 SOCKS5 代理，供数据源经由连接。",
+      "kind": {
+        "ssh": "SSH 跳板",
+        "socks5": "SOCKS5 代理"
+      },
+      "status": {
+        "ok": "正常",
+        "unreachable": "无法连接",
+        "host_key_changed": "主机密钥已变化"
+      },
+      "auth": {
+        "password": "密码认证",
+        "key": "私钥认证",
+        "socks5Password": "用户名密码认证",
+        "socks5None": "无认证"
+      },
+      "list": {
+        "name": "名称",
+        "address": "地址",
+        "usage": "使用情况",
+        "status": "状态",
+        "actions": "操作",
+        "direct": "直连",
+        "via": "经 {{name}}",
+        "dataSourceCount": "{{count}} 个数据源",
+        "channelCount": "{{count}} 个通道",
+        "unused": "未被使用",
+        "checked": "{{time}}测试",
+        "test": "测试连接",
+        "testNamed": "测试连接 {{name}}",
+        "edit": "编辑",
+        "editNamed": "编辑 {{name}}",
+        "more": "{{name}} 的更多操作",
+        "reconfirm": "重新确认",
+        "reconfirmNamed": "重新确认 {{name}} 的主机密钥",
+        "reconfirmFirst": "该通道的主机密钥已变化，请先在列表中重新确认。",
+        "deleteItem": "删除通道",
+        "deleteBlocked": "仍被 {{items}} 使用，不能删除"
+      },
+      "form": {
+        "createTitle": "新建网络通道",
+        "editTitle": "编辑网络通道",
+        "hint": "通道是到达目标的一跳，可以指定经由另一个通道，组成 SOCKS5 与 SSH 混合的多级链路。",
+        "kind": "通道类型",
+        "name": "名称",
+        "host": "主机",
+        "port": "端口",
+        "username": "用户名",
+        "authMethod": "认证方式",
+        "password": "密码",
+        "privateKey": "私钥",
+        "upload": "上传",
+        "privateKeyHint": "支持 OpenSSH / PEM 格式的 RSA、ECDSA、Ed25519 私钥；粘贴或上传文件。",
+        "passphrase": "私钥口令",
+        "passphraseHint": "私钥已加密时填写口令",
+        "secretKeep": "已保存（加密存储），留空表示不修改",
+        "socks5CredentialHint": "用户名和密码可选，要么都填，要么都不填。",
+        "via": "经由",
+        "viaNone": "不选，由 OpsNap 直连",
+        "chain": "链路：{{chain}}。不能选择会形成环路的通道，链路最多 5 跳。",
+        "chainTooLong": "链路共 {{count}} 跳，超过上限 {{max}} 跳，无法保存。",
+        "optional": "可选",
+        "test": "测试连接",
+        "testing": "测试中…"
+      },
+      "result": {
+        "testSuccess": "连接成功，链路已确认。"
+      },
+      "delete": {
+        "title": "删除通道「{{name}}」？",
+        "hint": "只删除 OpsNap 中的记录与凭据。",
+        "confirm": "删除通道"
+      }
+    },
+    "hostKey": {
+      "confirm": {
+        "title": "确认主机密钥",
+        "hint": "首次连接 {{address}}。请与服务器管理员核对下面的指纹，确认后才会继续连接并保存这把密钥。",
+        "keyType": "密钥类型",
+        "fingerprint": "指纹",
+        "verifyHint": "在服务器上执行 ssh-keygen -lf <公钥文件> 可以查看这个指纹。",
+        "trust": "信任并继续"
+      },
+      "changed": {
+        "title": "主机密钥已变化",
+        "hint": "{{name}}（{{address}}）出示的主机密钥与保存的不一致。在确认之前，经过它的连接都会被拒绝。",
+        "saved": "保存的密钥",
+        "presented": "现在出示的密钥",
+        "warning": "服务器重装或重新生成密钥会导致这种情况，但也可能是中间人攻击。只有和服务器管理员核对过新指纹后才能信任。",
+        "trust": "信任新密钥"
+      }
+    }
   }
 }
