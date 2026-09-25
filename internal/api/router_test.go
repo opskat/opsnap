@@ -59,6 +59,7 @@ var tokenRoutes = map[string]bool{
 	"PUT /api/v1/datasources/:id":           true,
 	"POST /api/v1/datasources/:id/test":     true,
 	"POST /api/v1/datasources/:id/host-key": true,
+	"POST /api/v1/datasources/:id/reprobe":  true,
 	"DELETE /api/v1/datasources/:id":        true,
 }
 

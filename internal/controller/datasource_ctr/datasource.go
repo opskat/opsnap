@@ -49,6 +49,11 @@ func (c *DataSource) ConfirmHostKey(ctx context.Context, req *api.ConfirmHostKey
 	return datasource_svc.DataSource().ConfirmHostKey(ctx, req)
 }
 
+// Reprobe 手动触发一次能力探测
+func (c *DataSource) Reprobe(ctx context.Context, req *api.ReprobeRequest) (*api.ReprobeResponse, error) {
+	return datasource_svc.DataSource().Reprobe(ctx, req)
+}
+
 // Delete 删除数据源
 func (c *DataSource) Delete(ctx context.Context, req *api.DeleteRequest) (*api.DeleteResponse, error) {
 	return datasource_svc.DataSource().Delete(ctx, req)

@@ -21,6 +21,7 @@ import (
 
 	"github.com/opskat/opsnap/internal/api"
 	"github.com/opskat/opsnap/internal/middleware"
+	"github.com/opskat/opsnap/internal/pkg/probe"
 	"github.com/opskat/opsnap/internal/pkg/secret"
 	"github.com/opskat/opsnap/internal/repository/admin_repo"
 	"github.com/opskat/opsnap/internal/repository/channel_repo"
@@ -92,6 +93,11 @@ func main() {
 			storage_svc.SetDataDir(dataDir(ctx, cfg))
 			return nil
 		})).
+		Registry(cago.FuncComponent(func(ctx context.Context, cfg *configs.Config) error {
+			// 能力探测中主控端工具（mysqldump、pg_dump）在 PATH 之外的备用查找目录，留空则只在 PATH 中查找
+			probe.SetToolsDir(toolsDir(ctx, cfg))
+			return nil
+		})).
 		Registry(cago.FuncComponent(printSetupCode)).
 		RegistryCancel(mux.HTTP(api.Router)).
 		Start()
@@ -109,6 +115,12 @@ func dataDir(ctx context.Context, cfg *configs.Config) string {
 // ensureDataDir SQLite 不会自动创建数据库文件所在目录
 func ensureDataDir(ctx context.Context, cfg *configs.Config) error {
 	return os.MkdirAll(dataDir(ctx, cfg), 0o750)
+}
+
+// toolsDir 配置项 tools.dir（见 configs/config.example.yaml）：能力探测中主控端工具（mysqldump、
+// pg_dump）在 PATH 中找不到时的备用查找目录；未配置时为空
+func toolsDir(ctx context.Context, cfg *configs.Config) string {
+	return cfg.String(ctx, "tools.dir")
 }
 
 // initSecret 加载主密钥；与数据库不匹配时返回错误，阻止服务启动

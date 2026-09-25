@@ -16,6 +16,8 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
+	"github.com/cago-frame/cago/pkg/gogo"
+
 	channelapi "github.com/opskat/opsnap/internal/api/channel"
 	api "github.com/opskat/opsnap/internal/api/datasource"
 	"github.com/opskat/opsnap/internal/model/entity/channel_entity"
@@ -23,6 +25,7 @@ import (
 	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/dsconn"
 	"github.com/opskat/opsnap/internal/pkg/netchain"
+	"github.com/opskat/opsnap/internal/pkg/probe"
 	"github.com/opskat/opsnap/internal/repository/channel_repo"
 	"github.com/opskat/opsnap/internal/repository/datasource_repo"
 	"github.com/opskat/opsnap/internal/service/channel_svc"
@@ -33,6 +36,8 @@ const (
 	maxNameLength = 64
 	// retestConcurrency 通道重新确认主机密钥后，同时重新测试的数据源个数
 	retestConcurrency = 4
+	// probeTimeout 单次能力探测的整体超时（docs/specs/2026-09-25-datasources.md「能力探测」）
+	probeTimeout = 60 * time.Second
 )
 
 // defaultPorts 各类型的默认端口
@@ -51,6 +56,8 @@ type DataSourceSvc interface {
 	Test(ctx context.Context, req *api.TestRequest) (*api.TestResponse, error)
 	// ConfirmHostKey 信任服务器文件目标主机现在出示的密钥：出示的与 req.Fingerprint 一致时保存它并重新测试
 	ConfirmHostKey(ctx context.Context, req *api.ConfirmHostKeyRequest) (*api.ConfirmHostKeyResponse, error)
+	// Reprobe 手动触发一次能力探测（详情页“重新探测”）；探测进行中再次触发时合并，不重复探测
+	Reprobe(ctx context.Context, req *api.ReprobeRequest) (*api.ReprobeResponse, error)
 	Delete(ctx context.Context, req *api.DeleteRequest) (*api.DeleteResponse, error)
 
 	// References 每个通道被哪些数据源直接经由（通道 ID → 数据源），供通道的引用计数与删除保护
@@ -61,14 +68,23 @@ type DataSourceSvc interface {
 	MarkHostKeyChanged(ctx context.Context, channelID int64) error
 }
 
+// ProbeRunner 对已打开的连接执行一次能力探测；可替换为测试用的假探测（SetProbeRunner），
+// 使控制器测试不依赖真实的 MySQL / PostgreSQL / SSH 连接
+type ProbeRunner func(ctx context.Context, typ dsconn.Type, conn *dsconn.Conn) []probe.Item
+
 type dataSourceSvc struct {
 	now func() time.Time
 
 	mu        sync.RWMutex
 	connector dsconn.Connector
+	runner    ProbeRunner
+
+	probeMu   sync.Mutex
+	probing   map[int64]bool
+	probeDone func(id int64) // 测试钩子：一次后台探测（无论成功、失败还是被合并跳过）结束后调用，供测试等待完成而不用 sleep
 }
 
-var defaultDataSource = &dataSourceSvc{now: time.Now, connector: dsconn.Default}
+var defaultDataSource = &dataSourceSvc{now: time.Now, connector: dsconn.Default, runner: probe.Run, probing: map[int64]bool{}}
 
 func DataSource() DataSourceSvc {
 	return defaultDataSource
@@ -84,6 +100,23 @@ func SetConnector(c dsconn.Connector) {
 	defaultDataSource.connector = c
 }
 
+// SetProbeRunner 替换能力探测的实现（测试用假探测）；nil 恢复为 probe.Run
+func SetProbeRunner(r ProbeRunner) {
+	if r == nil {
+		r = probe.Run
+	}
+	defaultDataSource.mu.Lock()
+	defer defaultDataSource.mu.Unlock()
+	defaultDataSource.runner = r
+}
+
+// SetProbeDoneHook 仅供测试：每次后台探测结束时调用一次，代替 sleep 等待完成；nil 取消
+func SetProbeDoneHook(fn func(id int64)) {
+	defaultDataSource.probeMu.Lock()
+	defer defaultDataSource.probeMu.Unlock()
+	defaultDataSource.probeDone = fn
+}
+
 // RegisterChannelHooks 向通道模块注册：引用计数与删除保护计入数据源；通道的主机密钥变化时经过它的数据源同样标记，
 // 重新确认后重新测试经过它的数据源
 func RegisterChannelHooks() {
@@ -96,6 +129,165 @@ func (s *dataSourceSvc) conn() dsconn.Connector {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.connector
+}
+
+func (s *dataSourceSvc) probeRunner() ProbeRunner {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.runner
+}
+
+// beginProbe 标记 id 正在探测；已经在探测时返回 false（这次触发被合并，不重复探测）
+func (s *dataSourceSvc) beginProbe(id int64) bool {
+	s.probeMu.Lock()
+	defer s.probeMu.Unlock()
+	if s.probing[id] {
+		return false
+	}
+	s.probing[id] = true
+	return true
+}
+
+// endProbe 探测结束（无论成功、失败还是发生了 panic 之外的错误），清除标记并通知测试钩子
+func (s *dataSourceSvc) endProbe(id int64) {
+	s.probeMu.Lock()
+	delete(s.probing, id)
+	hook := s.probeDone
+	s.probeMu.Unlock()
+	if hook != nil {
+		hook(id)
+	}
+}
+
+// isProbing id 当前是否有一次探测正在进行；只在内存中跟踪，进程重启后自然清空，
+// 不会有数据源永远卡在“探测中”
+func (s *dataSourceSvc) isProbing(id int64) bool {
+	s.probeMu.Lock()
+	defer s.probeMu.Unlock()
+	return s.probing[id]
+}
+
+// triggerProbe 保存成功后或手动“重新探测”时，在后台执行一次能力探测；同一数据源同时只有一次，
+// 探测进行中再次触发时合并。cago 约定：后台协程不使用请求的 ctx（不受请求生命周期约束，也不会被取消）
+func (s *dataSourceSvc) triggerProbe(id int64) {
+	if !s.beginProbe(id) {
+		return
+	}
+	gogo.Go(func() error {
+		defer s.endProbe(id)
+		s.runProbe(id)
+		return nil
+	})
+}
+
+// runProbe 连接数据源、执行一次探测并落库；整体超时 probeTimeout。数据源在此期间被删除时什么也不做
+func (s *dataSourceSvc) runProbe(id int64) {
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	items, failReason := s.probeOnce(ctx, id)
+	now := s.now().Unix()
+	// 保存前重新读取一次最新的行，避免覆盖探测期间发生的其它更新（如测试连接的结果），也避免数据源已被删除时误插入
+	ds, err := datasource_repo.DataSource().Find(ctx, id)
+	if err != nil {
+		logger.Ctx(ctx).Warn("能力探测读取数据源失败", zap.Int64("datasource_id", id), zap.Error(err))
+		return
+	}
+	if ds == nil {
+		return
+	}
+	if failReason != "" {
+		ds.SetProbeUnprobeable(failReason, now)
+	} else {
+		ds.SetProbeDone(items, now)
+	}
+	if err := datasource_repo.DataSource().Save(ctx, ds); err != nil && !errors.Is(err, datasource_repo.ErrNotFound) {
+		logger.Ctx(ctx).Warn("保存能力探测结果失败", zap.Int64("datasource_id", id), zap.Error(err))
+	}
+}
+
+// probeOnce 沿保存的链路连接数据源并执行一次探测；连接失败或超时时返回原因（原文，已去掉秘密），
+// 此时 items 为 nil，调用方按“无法探测”处理，不落任何探测项
+func (s *dataSourceSvc) probeOnce(ctx context.Context, id int64) ([]datasource_entity.ProbeItem, string) {
+	ds, err := datasource_repo.DataSource().Find(ctx, id)
+	if err != nil {
+		return nil, err.Error()
+	}
+	if ds == nil {
+		return nil, ""
+	}
+	cfg, secrets, err := s.savedConfig(ctx, ds)
+	if err != nil {
+		return nil, scrub(err.Error(), secrets...)
+	}
+	hops, err := s.hops(ctx, ds.ChannelID)
+	if err != nil {
+		return nil, scrub(err.Error(), secrets...)
+	}
+	chain, err := netchain.NewChain(hops)
+	if err != nil {
+		return nil, scrub(err.Error(), secrets...)
+	}
+	tun, err := chain.Connect(ctx)
+	if err != nil {
+		return nil, scrub(err.Error(), secrets...)
+	}
+	defer func() { _ = tun.Close() }()
+	conn, err := s.conn().Open(ctx, tun, cfg)
+	if err != nil {
+		return nil, scrub(err.Error(), secrets...)
+	}
+	defer func() { _ = conn.Close() }()
+	results := s.probeRunner()(ctx, dsconn.Type(ds.Kind), conn)
+	return toProbeEntityItems(results), ""
+}
+
+// toProbeEntityItems probe.Item（探测包给出的结果）转为落库用的结构
+func toProbeEntityItems(items []probe.Item) []datasource_entity.ProbeItem {
+	out := make([]datasource_entity.ProbeItem, 0, len(items))
+	for _, it := range items {
+		out = append(out, datasource_entity.ProbeItem{
+			Key:        it.Key,
+			Title:      datasource_entity.ProbeText(it.Title),
+			Tier:       string(it.Tier),
+			Detail:     datasource_entity.ProbeText(it.Detail),
+			Fix:        datasource_entity.ProbeText(it.Fix),
+			Tables:     it.Tables,
+			TableCount: it.TableCount,
+		})
+	}
+	return out
+}
+
+// probeSummary 一个数据源当前的能力探测摘要：探测中覆盖已落库的结果（避免拿旧结果冒充这一次的）
+func (s *dataSourceSvc) probeSummary(ds *datasource_entity.DataSource) *api.Probe {
+	if s.isProbing(ds.ID) {
+		return &api.Probe{State: "probing", Time: ds.ProbeTime}
+	}
+	switch ds.ProbeState {
+	case datasource_entity.ProbeDone:
+		items := ds.ProbeResultItems()
+		p := &api.Probe{State: datasource_entity.ProbeDone, Time: ds.ProbeTime, Items: make([]*api.ProbeItem, 0, len(items))}
+		for _, it := range items {
+			switch probe.Tier(it.Tier) {
+			case probe.TierOK:
+				p.OK++
+			case probe.TierWarn:
+				p.Warn++
+			case probe.TierFail:
+				p.Fail++
+			}
+			p.Items = append(p.Items, &api.ProbeItem{
+				Key: it.Key, Title: api.ProbeText(it.Title), Tier: it.Tier,
+				Detail: api.ProbeText(it.Detail), Fix: api.ProbeText(it.Fix),
+				Tables: it.Tables, TableCount: it.TableCount,
+			})
+		}
+		return p
+	case datasource_entity.ProbeUnprobeable:
+		return &api.Probe{State: datasource_entity.ProbeUnprobeable, Error: ds.ProbeError, Time: ds.ProbeTime}
+	default:
+		return nil
+	}
 }
 
 // draft 校验后的数据源设置；秘密为明文，只在本次请求中使用
@@ -618,6 +810,7 @@ func (s *dataSourceSvc) Create(ctx context.Context, req *api.CreateRequest) (*ap
 	if err := datasource_repo.DataSource().Create(ctx, ds); err != nil {
 		return nil, err
 	}
+	s.triggerProbe(ds.ID)
 	item, err := s.item(ctx, ds)
 	if err != nil {
 		return nil, err
@@ -647,6 +840,7 @@ func (s *dataSourceSvc) Update(ctx context.Context, req *api.UpdateRequest) (*ap
 	if err := s.save(ctx, ds); err != nil {
 		return nil, err
 	}
+	s.triggerProbe(ds.ID)
 	item, err := s.item(ctx, ds)
 	if err != nil {
 		return nil, err
@@ -703,6 +897,20 @@ func (s *dataSourceSvc) ConfirmHostKey(ctx context.Context, req *api.ConfirmHost
 		return nil, err
 	}
 	return &api.ConfirmHostKeyResponse{Item: item}, nil
+}
+
+// Reprobe 手动触发一次能力探测（详情页“重新探测”）；探测进行中再次触发时合并，不重复探测
+func (s *dataSourceSvc) Reprobe(ctx context.Context, req *api.ReprobeRequest) (*api.ReprobeResponse, error) {
+	ds, err := s.find(ctx, req.ID)
+	if err != nil {
+		return nil, err
+	}
+	s.triggerProbe(ds.ID)
+	item, err := s.item(ctx, ds)
+	if err != nil {
+		return nil, err
+	}
+	return &api.ReprobeResponse{Item: item}, nil
 }
 
 // routedThrough 链路经过 channelID 的数据源，以及该通道在各自链路中是第几跳
@@ -806,7 +1014,7 @@ func (s *dataSourceSvc) List(ctx context.Context, _ *api.ListRequest) (*api.List
 	}
 	items := make([]*api.Item, 0, len(rows))
 	for _, ds := range rows {
-		items = append(items, toItem(ctx, ds, byID))
+		items = append(items, s.toItem(ctx, ds, byID))
 	}
 	return &api.ListResponse{Items: items}, nil
 }
@@ -829,10 +1037,10 @@ func (s *dataSourceSvc) item(ctx context.Context, ds *datasource_entity.DataSour
 	if err != nil {
 		return nil, err
 	}
-	return toItem(ctx, ds, byID), nil
+	return s.toItem(ctx, ds, byID), nil
 }
 
-func toItem(ctx context.Context, ds *datasource_entity.DataSource, byID map[int64]*channel_entity.Channel) *api.Item {
+func (s *dataSourceSvc) toItem(ctx context.Context, ds *datasource_entity.DataSource, byID map[int64]*channel_entity.Channel) *api.Item {
 	item := &api.Item{
 		ID:               ds.ID,
 		Name:             ds.Name,
@@ -868,5 +1076,6 @@ func toItem(ctx context.Context, ds *datasource_entity.DataSource, byID map[int6
 	if ds.StatusCode != 0 {
 		item.StatusMessage = statusMessage(ctx, ds)
 	}
+	item.Probe = s.probeSummary(ds)
 	return item
 }

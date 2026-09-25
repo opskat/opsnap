@@ -28,6 +28,15 @@ const (
 	StatusHostKeyChanged = "host_key_changed" // 链路中某个 SSH 通道或目标主机出示的密钥与保存的不一致
 )
 
+// 能力探测状态（ProbeState）；探测中不落库，由服务在内存里跟踪，重启后不会卡在“探测中”
+// （docs/specs/2026-09-25-datasources.md「能力探测」）
+const (
+	// ProbeDone 已给出结果（各档数量、逐项详情），见 ProbeItems
+	ProbeDone = "done"
+	// ProbeUnprobeable 连接失败或超时，本次“无法探测”；不保留上一次的结果
+	ProbeUnprobeable = "unprobeable"
+)
+
 type DataSource struct {
 	ID         int64  `gorm:"column:id;primaryKey"`
 	Name       string `gorm:"column:name"`
@@ -66,8 +75,16 @@ type DataSource struct {
 	// StatusDetail 失败详情（HopStatus 的 JSON）
 	StatusDetail string `gorm:"column:status_detail"`
 	Checktime    int64  `gorm:"column:checktime"`
-	Createtime   int64  `gorm:"column:createtime"`
-	Updatetime   int64  `gorm:"column:updatetime"`
+	// ProbeState 能力探测状态：""（尚未探测过）、ProbeDone、ProbeUnprobeable
+	ProbeState string `gorm:"column:probe_state"`
+	// ProbeItems ProbeState 为 ProbeDone 时逐项结果（[]ProbeItem 的 JSON），其余为空
+	ProbeItems string `gorm:"column:probe_items"`
+	// ProbeError ProbeState 为 ProbeUnprobeable 时的原因（原文，已去掉秘密）
+	ProbeError string `gorm:"column:probe_error"`
+	// ProbeTime 本次探测结果产生的时间
+	ProbeTime  int64 `gorm:"column:probe_time"`
+	Createtime int64 `gorm:"column:createtime"`
+	Updatetime int64 `gorm:"column:updatetime"`
 }
 
 func (DataSource) TableName() string { return "datasources" }
@@ -117,4 +134,48 @@ func (d *DataSource) HopStatus() HopStatus {
 	var hs HopStatus
 	_ = json.Unmarshal([]byte(d.StatusDetail), &hs)
 	return hs
+}
+
+// ProbeText 一段中英文文案，与 internal/pkg/probe.Text 对应
+type ProbeText struct {
+	ZhCN string `json:"zh_cn"`
+	En   string `json:"en"`
+}
+
+// ProbeItem 落库用的一项能力探测结果，字段与 internal/pkg/probe.Item 对应
+type ProbeItem struct {
+	Key    string    `json:"key"`
+	Title  ProbeText `json:"title"`
+	Tier   string    `json:"tier"`
+	Detail ProbeText `json:"detail"`
+	// Fix 可直接复制的修复方法；没有修复方法时为空
+	Fix ProbeText `json:"fix"`
+	// Tables 非 InnoDB 表等项列出的表名，最多 5 个
+	Tables []string `json:"tables,omitempty"`
+	// TableCount Tables 对应的总数，可能大于 len(Tables)
+	TableCount int `json:"table_count,omitempty"`
+}
+
+// SetProbeDone 记录一次探测的结果（各档数量由调用方按 Tier 统计）
+func (d *DataSource) SetProbeDone(items []ProbeItem, t int64) {
+	if items == nil {
+		items = []ProbeItem{}
+	}
+	b, _ := json.Marshal(items)
+	d.ProbeState, d.ProbeItems, d.ProbeError, d.ProbeTime = ProbeDone, string(b), "", t
+}
+
+// SetProbeUnprobeable 连接失败或超时：整次结果为“无法探测”，不保留上一次的结果
+func (d *DataSource) SetProbeUnprobeable(reason string, t int64) {
+	d.ProbeState, d.ProbeItems, d.ProbeError, d.ProbeTime = ProbeUnprobeable, "", reason, t
+}
+
+// ProbeResultItems 解析 ProbeState 为 ProbeDone 时的探测结果；其余状态或解析失败返回 nil
+func (d *DataSource) ProbeResultItems() []ProbeItem {
+	if d.ProbeState != ProbeDone || d.ProbeItems == "" {
+		return nil
+	}
+	var items []ProbeItem
+	_ = json.Unmarshal([]byte(d.ProbeItems), &items)
+	return items
 }

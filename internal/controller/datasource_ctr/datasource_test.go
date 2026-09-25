@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/cago-frame/cago/database/db"
+	"github.com/cago-frame/cago/pkg/gogo"
 	"github.com/cago-frame/cago/pkg/utils/httputils"
 	"github.com/cago-frame/cago/server/mux/muxclient"
 	"github.com/cago-frame/cago/server/mux/muxtest"
@@ -41,6 +42,7 @@ import (
 	"github.com/opskat/opsnap/internal/pkg/dsconn"
 	"github.com/opskat/opsnap/internal/pkg/fakessh"
 	"github.com/opskat/opsnap/internal/pkg/netchain"
+	"github.com/opskat/opsnap/internal/pkg/probe"
 	"github.com/opskat/opsnap/internal/pkg/testdb"
 	"github.com/opskat/opsnap/internal/repository/admin_repo"
 	"github.com/opskat/opsnap/internal/repository/channel_repo"
@@ -69,16 +71,24 @@ const (
 // fakeConnector MySQL / PostgreSQL 的 mock 连接：经链路拨号到数据源地址（验证经由的链路），
 // 然后返回预设的结果；服务器文件交给真实实现（连接进程内 SSH 服务端）
 type fakeConnector struct {
-	mu   sync.Mutex
-	info dsconn.Info
-	err  error
-	cfgs []dsconn.Config
+	mu      sync.Mutex
+	info    dsconn.Info
+	err     error
+	openErr error // 只影响 Open（能力探测用它连接），不影响 Test（先测试后保存用它），用于单独制造“无法探测”
+	cfgs    []dsconn.Config
 }
 
 func (f *fakeConnector) set(info dsconn.Info, err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.info, f.err = info, err
+}
+
+// setOpenErr 让接下来的 Open（能力探测）失败，不影响先测试后保存的 Test
+func (f *fakeConnector) setOpenErr(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.openErr = err
 }
 
 func (f *fakeConnector) last() dsconn.Config {
@@ -111,6 +121,12 @@ func (f *fakeConnector) Test(ctx context.Context, d dsconn.Dialer, cfg dsconn.Co
 }
 
 func (f *fakeConnector) Open(ctx context.Context, d dsconn.Dialer, cfg dsconn.Config) (*dsconn.Conn, error) {
+	f.mu.Lock()
+	openErr := f.openErr
+	f.mu.Unlock()
+	if openErr != nil {
+		return nil, openErr
+	}
 	info, err := f.Test(ctx, d, cfg)
 	if err != nil {
 		return nil, err
@@ -125,8 +141,21 @@ type env struct {
 	conn  *fakeConnector
 }
 
+// fakeProbeOK 默认的假探测：不依赖 conn（真实 probe.Run 需要真实的 DB / SSH 连接，mock 连接给不了），
+// 固定返回一项“可用”，只用于不关心探测结果内容的用例；关心探测结果的用例自行 SetProbeRunner
+func fakeProbeOK(context.Context, dsconn.Type, *dsconn.Conn) []probe.Item {
+	return []probe.Item{{Key: "fake.ok", Title: probe.Text{ZhCN: "示例项", En: "Example"}, Tier: probe.TierOK,
+		Detail: probe.Text{ZhCN: "正常", En: "OK"}}}
+}
+
 func setupTest(t *testing.T) *env {
 	ctx := testdb.New(t)
+	datasource_svc.SetProbeRunner(fakeProbeOK)
+	// t.Cleanup 按后注册先执行：gogo.Wait 必须先跑完所有在途的后台探测，再把 runner 换回真实的 probe.Run，
+	// 否则一个仍在跑的后台探测会在 runner 被换掉之后才读到它，对着 mock 连接跑真实探测而崩溃；
+	// 也要先于 testdb 释放数据库连接，否则残留的后台探测会在关闭后的数据库上出错（-race 下更明显）
+	t.Cleanup(func() { datasource_svc.SetProbeRunner(nil) })
+	t.Cleanup(gogo.Wait)
 	setting_repo.RegisterSetting(setting_repo.NewSetting())
 	admin_repo.RegisterAdmin(admin_repo.NewAdmin())
 	session_repo.RegisterSession(session_repo.NewSession())
@@ -151,7 +180,7 @@ func setupTest(t *testing.T) *env {
 	ctr := NewDataSource()
 	ch := channel_ctr.NewChannel()
 	authed := testMux.Group("/api/v1", middleware.SameOrigin()).Group("/", middleware.Auth())
-	authed.Bind(ctr.List, ctr.Get, ctr.Probe, ctr.Create, ctr.Update, ctr.Test, ctr.ConfirmHostKey, ctr.Delete,
+	authed.Bind(ctr.List, ctr.Get, ctr.Probe, ctr.Create, ctr.Update, ctr.Test, ctr.ConfirmHostKey, ctr.Delete, ctr.Reprobe,
 		ch.List, ch.Create, ch.Test, ch.ConfirmHostKey, ch.Delete)
 	return &env{ctx: ctx, mux: testMux, token: tok.Token, conn: conn}
 }
@@ -865,5 +894,159 @@ func TestChannelReferences(t *testing.T) {
 
 		err = e.do(&api.DeleteRequest{ID: item.ID}, &api.DeleteResponse{})
 		assert.Equal(t, code.DataSourceNotFound, errCode(err))
+	})
+}
+
+func (e *env) findInList(t *testing.T, id int64) *api.Item {
+	t.Helper()
+	for _, it := range e.list(t) {
+		if it.ID == id {
+			return it
+		}
+	}
+	t.Fatalf("数据源 %d 不在列表中", id)
+	return nil
+}
+
+// probeGate 受控的假探测：调用后阻塞在 release 上，供测试精确控制“探测中”与“完成”之间的时序，
+// 并记录调用次数（验证合并）与传入的 ctx 是否带有 60 秒整体超时。触发探测（如 Create）只保证同步标记
+// 为“探测中”，不保证后台协程已经跑到 run；需要观察 run 内部状态（如 ctx 的超时）时先等 started
+type probeGate struct {
+	release chan struct{}
+	started chan struct{}
+
+	mu          sync.Mutex
+	calls       int
+	hasDeadline bool
+	deadline    time.Time
+}
+
+func newProbeGate() *probeGate {
+	return &probeGate{release: make(chan struct{}), started: make(chan struct{}, 8)}
+}
+
+func (g *probeGate) run(ctx context.Context, _ dsconn.Type, _ *dsconn.Conn) []probe.Item {
+	g.mu.Lock()
+	g.calls++
+	g.deadline, g.hasDeadline = ctx.Deadline()
+	g.mu.Unlock()
+	g.started <- struct{}{}
+	<-g.release
+	return []probe.Item{
+		{Key: "a", Title: probe.Text{ZhCN: "项 A", En: "Item A"}, Tier: probe.TierOK,
+			Detail: probe.Text{ZhCN: "正常", En: "OK"}},
+		{Key: "b", Title: probe.Text{ZhCN: "项 B", En: "Item B"}, Tier: probe.TierWarn,
+			Detail: probe.Text{ZhCN: "有风险", En: "at risk"}, Fix: probe.Text{ZhCN: "修复", En: "fix"}},
+	}
+}
+
+// waitProbe 等待一次后台探测完成（通过测试钩子），而不是靠 sleep 猜时间
+func waitProbe(t *testing.T, done <-chan int64) {
+	t.Helper()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("后台探测未在预期时间内完成")
+	}
+}
+
+// TestReprobe 覆盖 docs/specs/2026-09-25-datasources.md「能力探测」：保存成功后自动在后台探测一次，
+// 完成前列表与详情都显示“探测中”；同一数据源同时只探测一次，重新探测时的第二次触发被合并；
+// 结果带探测时间；连接失败或超时时显示“无法探测”且不显示上一次的结果；整体超时 60 秒
+func TestReprobe(t *testing.T) {
+	convey.Convey("能力探测", t, func() {
+		e := setupTest(t)
+		dbAddr := newDB(t)
+
+		convey.Convey("保存成功后自动后台探测：完成前探测中，完成后有分档汇总、逐项结果与探测时间，超时 60 秒", func() {
+			g := newProbeGate()
+			datasource_svc.SetProbeRunner(g.run)
+			done := make(chan int64, 4)
+			datasource_svc.SetProbeDoneHook(func(id int64) { done <- id })
+			t.Cleanup(func() { datasource_svc.SetProbeDoneHook(nil) })
+
+			item := e.create(t, mysqlForm(t, "orders", dbAddr))
+			require.NotNil(t, item.Probe)
+			assert.Equal(t, "probing", item.Probe.State, "保存成功后列表这一行应显示探测中")
+			assert.Equal(t, "probing", e.get(t, item.ID).Probe.State)
+			assert.Equal(t, "probing", e.findInList(t, item.ID).Probe.State)
+
+			select { // 等后台协程真正跑到 run（触发探测只同步保证标记为“探测中”），再检查它拿到的 ctx
+			case <-g.started:
+			case <-time.After(2 * time.Second):
+				t.Fatal("后台探测未开始")
+			}
+			g.mu.Lock()
+			hasDeadline, deadline := g.hasDeadline, g.deadline
+			g.mu.Unlock()
+			require.True(t, hasDeadline, "探测应受整体超时约束")
+			assert.InDelta(t, 60, time.Until(deadline).Seconds(), 2, "单次探测的超时应为 60 秒")
+
+			close(g.release)
+			waitProbe(t, done)
+
+			got := e.get(t, item.ID)
+			require.NotNil(t, got.Probe)
+			assert.Equal(t, "done", got.Probe.State)
+			assert.Equal(t, 1, got.Probe.OK)
+			assert.Equal(t, 1, got.Probe.Warn)
+			assert.Equal(t, 0, got.Probe.Fail)
+			assert.NotZero(t, got.Probe.Time)
+			require.Len(t, got.Probe.Items, 2)
+			assert.Equal(t, "warn", got.Probe.Items[1].Tier)
+			assert.Equal(t, "fix", got.Probe.Items[1].Fix.En)
+			assert.Equal(t, "done", e.findInList(t, item.ID).Probe.State)
+		})
+
+		convey.Convey("重新探测：探测进行中再次触发会被合并，不会重复探测", func() {
+			done := make(chan int64, 4)
+			datasource_svc.SetProbeDoneHook(func(id int64) { done <- id })
+			t.Cleanup(func() { datasource_svc.SetProbeDoneHook(nil) })
+			item := e.create(t, mysqlForm(t, "orders", dbAddr))
+			waitProbe(t, done) // 先等创建时的自动探测完成，不与接下来手动触发的混在一起
+
+			g := newProbeGate()
+			datasource_svc.SetProbeRunner(g.run)
+
+			resp1 := &api.ReprobeResponse{}
+			require.NoError(t, e.do(&api.ReprobeRequest{ID: item.ID}, resp1))
+			assert.Equal(t, "probing", resp1.Item.Probe.State)
+			resp2 := &api.ReprobeResponse{}
+			require.NoError(t, e.do(&api.ReprobeRequest{ID: item.ID}, resp2))
+			assert.Equal(t, "probing", resp2.Item.Probe.State)
+
+			close(g.release)
+			waitProbe(t, done)
+			select {
+			case <-done:
+				t.Fatal("同一数据源同时只应进行一次探测，第二次触发不应重复探测")
+			case <-time.After(200 * time.Millisecond):
+			}
+			g.mu.Lock()
+			calls := g.calls
+			g.mu.Unlock()
+			assert.Equal(t, 1, calls)
+		})
+
+		convey.Convey("连接失败时显示无法探测且不显示上一次的结果", func() {
+			done := make(chan int64, 4)
+			datasource_svc.SetProbeDoneHook(func(id int64) { done <- id })
+			t.Cleanup(func() { datasource_svc.SetProbeDoneHook(nil) })
+
+			item := e.create(t, mysqlForm(t, "orders", dbAddr)) // 默认假探测：先有一次成功结果
+			waitProbe(t, done)
+			require.Equal(t, "done", e.get(t, item.ID).Probe.State)
+
+			e.conn.setOpenErr(errors.New("dial tcp 127.0.0.1:3306: connect: connection refused"))
+			resp := &api.ReprobeResponse{}
+			require.NoError(t, e.do(&api.ReprobeRequest{ID: item.ID}, resp))
+			waitProbe(t, done)
+
+			got := e.get(t, item.ID)
+			require.NotNil(t, got.Probe)
+			assert.Equal(t, "unprobeable", got.Probe.State)
+			assert.Contains(t, got.Probe.Error, "connection refused")
+			assert.Empty(t, got.Probe.Items, "无法探测时不应显示上一次的结果")
+		})
 	})
 }

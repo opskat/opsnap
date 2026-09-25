@@ -70,6 +70,45 @@ type FailedHop struct {
 	Kind      string `json:"kind"`
 }
 
+// ProbeText 一段中英文文案
+type ProbeText struct {
+	ZhCN string `json:"zh_cn"`
+	En   string `json:"en"`
+}
+
+// ProbeItem 一项能力探测结果（docs/specs/2026-09-25-datasources.md「能力探测」）
+type ProbeItem struct {
+	// Key 稳定标识，如 "mysql.binlog"
+	Key   string    `json:"key"`
+	Title ProbeText `json:"title"`
+	// Tier ok（可用）/ warn（可用但有风险）/ fail（不可用）
+	Tier string `json:"tier"`
+	// Detail 实际读到的值与说明
+	Detail ProbeText `json:"detail"`
+	// Fix 可直接复制的修复方法；没有修复方法时为空
+	Fix ProbeText `json:"fix"`
+	// Tables 非 InnoDB 表等项列出的表名（"库.表"），最多 5 个
+	Tables []string `json:"tables,omitempty"`
+	// TableCount Tables 对应的总数，可能大于 len(Tables)
+	TableCount int `json:"table_count,omitempty"`
+}
+
+// Probe 能力探测的摘要与结果；数据源尚未探测过时为 nil
+type Probe struct {
+	// State probing（正在探测）、done（已给出结果）、unprobeable（连接失败或超时，无法探测）
+	State string `json:"state"`
+	// OK、Warn、Fail State 为 done 时各档的数量，零项的档位在页面上不显示
+	OK   int `json:"ok"`
+	Warn int `json:"warn"`
+	Fail int `json:"fail"`
+	// Error State 为 unprobeable 时的原因（原文，已去掉秘密）
+	Error string `json:"error,omitempty"`
+	// Items State 为 done 时逐项的结果
+	Items []*ProbeItem `json:"items,omitempty"`
+	// Time 本次结果产生的时间；State 为 probing 时是上一次结果的时间（可能为 0）
+	Time int64 `json:"time"`
+}
+
 // Item 一个数据源
 type Item struct {
 	ID       int64  `json:"id"`
@@ -107,6 +146,8 @@ type Item struct {
 	FailedHop *FailedHop `json:"failed_hop"`
 	CheckedAt int64      `json:"checked_at"`
 	CreatedAt int64      `json:"created_at"`
+	// Probe 能力探测的摘要与结果，尚未探测过时为 nil
+	Probe *Probe `json:"probe"`
 }
 
 // ListRequest 列出全部数据源；不会触发测试连接
@@ -196,6 +237,17 @@ type ConfirmHostKeyResponse struct {
 	Item *Item `json:"item"`
 	// HostKey 主机出示的密钥与 Fingerprint 不一致时返回，此时没有保存
 	HostKey *channelapi.HostKeyPrompt `json:"host_key"`
+}
+
+// ReprobeRequest 详情页“重新探测”：在后台重新执行一次能力探测；已经在探测中时这次触发被合并，不重复探测
+type ReprobeRequest struct {
+	mux.Meta `path:"/datasources/:id/reprobe" method:"POST"`
+	ID       int64 `uri:"id" binding:"required"`
+}
+
+type ReprobeResponse struct {
+	// Item 触发后的当前状态，Item.Probe.State 通常为 probing
+	Item *Item `json:"item"`
 }
 
 // DeleteRequest 删除数据源：只删除 OpsNap 中的记录与凭据，不影响数据库或服务器
