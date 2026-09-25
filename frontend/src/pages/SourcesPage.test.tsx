@@ -1,9 +1,10 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { MemoryRouter } from "react-router";
 
 import i18n from "@/i18n";
-import type { ChannelItem } from "@/lib/sources";
+import type { ChannelItem, DataSourceItem } from "@/lib/sources";
 import { SourcesPage } from "@/pages/SourcesPage";
 
 const ok = (data: unknown) => new Response(JSON.stringify({ code: 0, msg: "success", data }), { status: 200 });
@@ -56,7 +57,7 @@ const bastionProd: ChannelItem = {
     { id: 2, name: "bastion-prod", kind: "ssh", address: "bastion.corp:22" },
   ],
   host_key: "SHA256:3fQ1bWmX0pZrK2sQn8vYt4LhE6cJ9dUa7gRiTfNoa9Kc",
-  presented_host_key: "",
+  presented_host_key: "SHA256:Zk8pQe41VbN7mWc0rHs2LtYg5xJ3uKdA9iFoPlT0bw",
   used_by: usedBy(
     [
       { id: 10, name: "db-01" },
@@ -117,6 +118,169 @@ const deepSsh: ChannelItem = {
   created_at: now() - 7000,
 };
 
+// ---- 数据源 fixtures ----
+
+const dbOrders: DataSourceItem = {
+  id: 101,
+  name: "db-01 · orders",
+  kind: "mysql",
+  host: "10.0.1.11",
+  port: 3306,
+  username: "backup",
+  auth_method: "password",
+  has_password: true,
+  has_private_key: false,
+  has_passphrase: false,
+  database: "",
+  tls_mode: "verify_full",
+  tls_ca: "",
+  tls_client_cert: "",
+  has_tls_client_key: false,
+  channel_id: 2,
+  address: "mysql://10.0.1.11:3306",
+  chain: [
+    { id: 1, name: "office-socks", kind: "socks5", address: "10.8.0.1:1080" },
+    { id: 2, name: "bastion-prod", kind: "ssh", address: "bastion.corp:22" },
+    { id: 0, name: "db-01 · orders", kind: "mysql", address: "10.0.1.11:3306" },
+  ],
+  server: { version: "8.0.36", system: "", tls: { version: "TLS 1.3", verified: true } },
+  host_key: "",
+  presented_host_key: "",
+  status: "ok",
+  status_message: "",
+  failed_hop: null,
+  checked_at: now() - 120,
+  created_at: now() - 50000,
+  probe: { state: "done", ok: 7, warn: 1, fail: 0, items: [], time: now() - 120 },
+};
+
+const pgAnalytics: DataSourceItem = {
+  id: 102,
+  name: "pg-analytics-02",
+  kind: "postgres",
+  host: "10.0.2.7",
+  port: 5432,
+  username: "backup",
+  auth_method: "password",
+  has_password: true,
+  has_private_key: false,
+  has_passphrase: false,
+  database: "postgres",
+  tls_mode: "disable",
+  tls_ca: "",
+  tls_client_cert: "",
+  has_tls_client_key: false,
+  channel_id: 0,
+  address: "postgres://10.0.2.7:5432",
+  chain: [{ id: 0, name: "pg-analytics-02", kind: "postgres", address: "10.0.2.7:5432" }],
+  server: { version: "16.2", system: "", tls: null },
+  host_key: "",
+  presented_host_key: "",
+  status: "ok",
+  status_message: "",
+  failed_hop: null,
+  checked_at: now() - 3600,
+  created_at: now() - 40000,
+  probe: { state: "done", ok: 6, warn: 0, fail: 0, items: [], time: now() - 3600 },
+};
+
+const web01: DataSourceItem = {
+  id: 103,
+  name: "web-01",
+  kind: "server_file",
+  host: "web-01",
+  port: 22,
+  username: "deploy",
+  auth_method: "key",
+  has_password: false,
+  has_private_key: true,
+  has_passphrase: false,
+  database: "",
+  tls_mode: "prefer",
+  tls_ca: "",
+  tls_client_cert: "",
+  has_tls_client_key: false,
+  channel_id: 2,
+  address: "ssh://deploy@web-01:22",
+  chain: [
+    { id: 1, name: "office-socks", kind: "socks5", address: "10.8.0.1:1080" },
+    { id: 2, name: "bastion-prod", kind: "ssh", address: "bastion.corp:22" },
+    { id: 0, name: "web-01", kind: "server_file", address: "web-01:22" },
+  ],
+  server: { version: "", system: "Linux x86_64", tls: null },
+  host_key: "SHA256:webSavedFingerprint",
+  presented_host_key: "",
+  status: "ok",
+  status_message: "",
+  failed_hop: null,
+  checked_at: now() - 30,
+  created_at: now() - 30000,
+  probe: { state: "done", ok: 3, warn: 0, fail: 1, items: [], time: now() - 30 },
+};
+
+const dbLegacy: DataSourceItem = {
+  id: 104,
+  name: "db-legacy",
+  kind: "mysql",
+  host: "10.0.9.3",
+  port: 3306,
+  username: "backup",
+  auth_method: "password",
+  has_password: true,
+  has_private_key: false,
+  has_passphrase: false,
+  database: "",
+  tls_mode: "prefer",
+  tls_ca: "",
+  tls_client_cert: "",
+  has_tls_client_key: false,
+  channel_id: 3,
+  address: "mysql://10.0.9.3:3306",
+  chain: [
+    { id: 3, name: "bastion-old", kind: "ssh", address: "203.0.113.9:2222" },
+    { id: 0, name: "db-legacy", kind: "mysql", address: "10.0.9.3:3306" },
+  ],
+  server: { version: "5.7.44", system: "", tls: null },
+  host_key: "",
+  presented_host_key: "",
+  status: "host_key_changed",
+  status_message: "跳板 bastion-old 的密钥与保存的不一致",
+  failed_hop: { hop: 1, channel_id: 3, name: "bastion-old", kind: "ssh" },
+  checked_at: now() - 60,
+  created_at: now() - 20000,
+  probe: { state: "unprobeable", ok: 0, warn: 0, fail: 0, error: "无法连接", time: now() - 3000 },
+};
+
+const pgReport: DataSourceItem = {
+  id: 105,
+  name: "pg-report",
+  kind: "postgres",
+  host: "10.0.3.20",
+  port: 5432,
+  username: "backup",
+  auth_method: "password",
+  has_password: true,
+  has_private_key: false,
+  has_passphrase: false,
+  database: "postgres",
+  tls_mode: "prefer",
+  tls_ca: "",
+  tls_client_cert: "",
+  has_tls_client_key: false,
+  channel_id: 0,
+  address: "postgres://10.0.3.20:5432",
+  chain: [{ id: 0, name: "pg-report", kind: "postgres", address: "10.0.3.20:5432" }],
+  server: null,
+  host_key: "",
+  presented_host_key: "",
+  status: "unreachable",
+  status_message: "认证失败：password authentication failed",
+  failed_hop: { hop: 1, channel_id: 0, name: "pg-report", kind: "postgres" },
+  checked_at: now() - 10,
+  created_at: now() - 10000,
+  probe: { state: "unprobeable", ok: 0, warn: 0, fail: 0, error: "认证失败", time: 0 },
+};
+
 let fetchMock: ReturnType<typeof vi.fn>;
 function respond(...responses: Response[]) {
   for (const r of responses) fetchMock.mockResolvedValueOnce(r);
@@ -142,12 +306,30 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 function renderPage() {
-  render(<SourcesPage />);
+  render(
+    <MemoryRouter>
+      <SourcesPage />
+    </MemoryRouter>
+  );
 }
 
-async function openCreate() {
+/** 页面加载时会同时请求数据源与通道两个列表：数据源分页是默认分页，先请求；通道列表随后请求 */
+function respondLists(dataSources: DataSourceItem[], channels: ChannelItem[]) {
+  respond(ok({ items: dataSources }), ok({ items: channels }));
+}
+
+async function openCreateChannel() {
+  await userEvent.click(await screen.findByRole("tab", { name: /网络通道/ }));
   await userEvent.click(await screen.findByRole("button", { name: "新建通道" }));
   return screen.findByRole("dialog", { name: "新建网络通道" });
+}
+
+// 数据源分页为空时，页头与空状态卡片会同时出现同名的“新建数据源”按钮；
+// 按钮查询限定在页头（<header> 的 banner 角色）范围内，避免二义匹配
+async function openCreateDataSource() {
+  const header = await screen.findByRole("banner");
+  await userEvent.click(within(header).getByRole("button", { name: "新建数据源" }));
+  return screen.findByRole("dialog", { name: "新建数据源" });
 }
 
 async function chooseVia(dialog: HTMLElement, name: string) {
@@ -155,20 +337,19 @@ async function chooseVia(dialog: HTMLElement, name: string) {
   await userEvent.click(await screen.findByRole("option", { name }));
 }
 
-describe("SourcesPage", () => {
-  it("显示两个分页，默认在「数据源」分页展示占位内容", async () => {
-    respond(ok({ items: [officeSocks, bastionProd, bastionOld] }));
+describe("SourcesPage · 网络通道", () => {
+  it("显示两个分页，默认在「数据源」分页", async () => {
+    // 数据源分页非空，避免页头与空状态卡片同时出现同名按钮
+    respondLists([dbOrders], [officeSocks, bastionProd, bastionOld]);
     renderPage();
     expect(await screen.findByRole("tab", { name: /数据源/ })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByText("数据源管理即将推出")).toBeInTheDocument();
-    // 数据源分页没有新建按钮（task 8 才实现）
-    expect(screen.queryByRole("button", { name: "新建通道" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "新建数据源" })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("tab", { name: /网络通道/ }));
     expect(await screen.findByRole("button", { name: "新建通道" })).toBeInTheDocument();
   });
 
   it("加载失败时显示原因与重试", async () => {
-    respond(fail(-1, "网络错误", 500));
+    respond(ok({ items: [] }), fail(-1, "网络错误", 500));
     renderPage();
     await userEvent.click(await screen.findByRole("tab", { name: /网络通道/ }));
     expect(await screen.findByText("无法加载网络通道列表：网络错误")).toBeInTheDocument();
@@ -178,7 +359,7 @@ describe("SourcesPage", () => {
   });
 
   it("空列表显示引导新建", async () => {
-    respond(ok({ items: [] }));
+    respondLists([], []);
     renderPage();
     await userEvent.click(await screen.findByRole("tab", { name: /网络通道/ }));
     expect(await screen.findByText("还没有通道")).toBeInTheDocument();
@@ -186,7 +367,7 @@ describe("SourcesPage", () => {
   });
 
   it("列表显示地址、经由链路与认证方式、使用情况与状态", async () => {
-    respond(ok({ items: [officeSocks, bastionProd, bastionOld] }));
+    respondLists([], [officeSocks, bastionProd, bastionOld]);
     renderPage();
     await userEvent.click(await screen.findByRole("tab", { name: /网络通道/ }));
     const rows = await screen.findAllByRole("row");
@@ -211,7 +392,7 @@ describe("SourcesPage", () => {
   });
 
   it("经由选择框排除自己与会成环的通道", async () => {
-    respond(ok({ items: [officeSocks, bastionProd, bastionOld, deepSsh] }));
+    respondLists([], [officeSocks, bastionProd, bastionOld, deepSsh]);
     renderPage();
     await userEvent.click(await screen.findByRole("tab", { name: /网络通道/ }));
     await userEvent.click((await screen.findAllByRole("button", { name: "编辑 bastion-prod" }))[0]);
@@ -241,10 +422,13 @@ describe("SourcesPage", () => {
       status: "ok",
       status_message: "",
     };
-    respond(ok({ items: [hop5] }));
+    respondLists([], [hop5]);
     renderPage();
     await userEvent.click(await screen.findByRole("tab", { name: /网络通道/ }));
-    const dialog = await openCreate();
+    const dialog = await screen.findByRole("button", { name: "新建通道" }).then(async (btn) => {
+      await userEvent.click(btn);
+      return screen.findByRole("dialog", { name: "新建网络通道" });
+    });
     await userEvent.type(within(dialog).getByLabelText("名称"), "bastion-prod");
     expect(within(dialog).getByText("链路：OpsNap → ?。不能选择会形成环路的通道，链路最多 5 跳。")).toBeInTheDocument();
     await userEvent.type(within(dialog).getByLabelText("主机"), "bastion.corp");
@@ -262,10 +446,9 @@ describe("SourcesPage", () => {
   });
 
   it("首次连接主机密钥：确认后带指纹重试并保存", async () => {
-    respond(ok({ items: [officeSocks] }));
+    respondLists([], [officeSocks]);
     renderPage();
-    await userEvent.click(await screen.findByRole("tab", { name: /网络通道/ }));
-    const dialog = await openCreate();
+    const dialog = await openCreateChannel();
     await userEvent.type(within(dialog).getByLabelText("名称"), "bastion-prod");
     await userEvent.type(within(dialog).getByLabelText("主机"), "bastion.corp");
     await userEvent.type(within(dialog).getByLabelText("用户名"), "jump");
@@ -294,17 +477,16 @@ describe("SourcesPage", () => {
     await userEvent.click(within(confirm).getByRole("button", { name: "信任并继续" }));
 
     await screen.findByText("连接成功，链路已确认。");
-    // call(0) 列表、call(1) 首次探测（host_key 为空）、call(2) 带指纹重试
-    expect(call(1).body.channel.host_key).toBe("");
-    expect(call(2).body.channel.host_key).toBe("SHA256:3fQ1bWmX0pZrK2sQn8vYt4LhE6cJ9dUa7gRiTfNoa9Kc");
+    // call(0) 数据源列表、call(1) 通道列表、call(2) 首次探测（host_key 为空）、call(3) 带指纹重试
+    expect(call(2).body.channel.host_key).toBe("");
+    expect(call(3).body.channel.host_key).toBe("SHA256:3fQ1bWmX0pZrK2sQn8vYt4LhE6cJ9dUa7gRiTfNoa9Kc");
     expect(screen.queryByRole("dialog", { name: "确认主机密钥" })).not.toBeInTheDocument();
   });
 
   it("取消确认主机密钥：不保存，弹窗关闭", async () => {
-    respond(ok({ items: [officeSocks] }));
+    respondLists([], [officeSocks]);
     renderPage();
-    await userEvent.click(await screen.findByRole("tab", { name: /网络通道/ }));
-    const dialog = await openCreate();
+    const dialog = await openCreateChannel();
     await userEvent.type(within(dialog).getByLabelText("名称"), "x");
     await userEvent.type(within(dialog).getByLabelText("主机"), "x.corp");
     await userEvent.type(within(dialog).getByLabelText("用户名"), "root");
@@ -326,11 +508,11 @@ describe("SourcesPage", () => {
     const confirm = await screen.findByRole("dialog", { name: "确认主机密钥" });
     await userEvent.click(within(confirm).getByRole("button", { name: "取消" }));
     expect(screen.queryByRole("dialog", { name: "确认主机密钥" })).not.toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledTimes(2); // 列表 + 一次探测，取消后不再重试
+    expect(fetchMock).toHaveBeenCalledTimes(3); // 数据源列表 + 通道列表 + 一次探测，取消后不再重试
   });
 
   it("编辑时秘密字段显示已保存提示，留空表示不修改", async () => {
-    respond(ok({ items: [bastionProd] }));
+    respondLists([], [bastionProd]);
     renderPage();
     await userEvent.click(await screen.findByRole("tab", { name: /网络通道/ }));
     await userEvent.click(await screen.findByRole("button", { name: "编辑 bastion-prod" }));
@@ -346,14 +528,14 @@ describe("SourcesPage", () => {
     await userEvent.type(within(dialog).getByLabelText("名称"), "bastion-prod-2");
     await userEvent.click(within(dialog).getByRole("button", { name: "保存" }));
     await screen.findByText("bastion-prod-2");
-    expect(call(1).body.channel.private_key).toBe("");
-    expect(call(1).body.channel.passphrase).toBe("");
-    expect(call(1).url).toBe("/api/v1/channels/2");
-    expect(call(1).method).toBe("PUT");
+    expect(call(2).body.channel.private_key).toBe("");
+    expect(call(2).body.channel.passphrase).toBe("");
+    expect(call(2).url).toBe("/api/v1/channels/2");
+    expect(call(2).method).toBe("PUT");
   });
 
   it("主机密钥已变化：并列显示保存与出示的指纹，信任后重新测试", async () => {
-    respond(ok({ items: [bastionOld] }));
+    respondLists([], [bastionOld]);
     renderPage();
     await userEvent.click(await screen.findByRole("tab", { name: /网络通道/ }));
     await userEvent.click(await screen.findByRole("button", { name: "重新确认 bastion-old 的主机密钥" }));
@@ -363,14 +545,14 @@ describe("SourcesPage", () => {
 
     respond(ok({ item: { ...bastionOld, status: "ok", host_key: bastionOld.presented_host_key }, host_key: null }));
     await userEvent.click(within(dialog).getByRole("button", { name: "信任新密钥" }));
-    expect(call(1).url).toBe("/api/v1/channels/3/host-key");
-    expect(call(1).body.fingerprint).toBe(bastionOld.presented_host_key);
+    expect(call(2).url).toBe("/api/v1/channels/3/host-key");
+    expect(call(2).body.fingerprint).toBe(bastionOld.presented_host_key);
     await screen.findByText("正常");
     expect(screen.queryByRole("dialog", { name: "主机密钥已变化" })).not.toBeInTheDocument();
   });
 
   it("编辑表单也能打开「主机密钥已变化」弹窗", async () => {
-    respond(ok({ items: [bastionOld] }));
+    respondLists([], [bastionOld]);
     renderPage();
     await userEvent.click(await screen.findByRole("tab", { name: /网络通道/ }));
     await userEvent.click(await screen.findByRole("button", { name: "编辑 bastion-old" }));
@@ -382,7 +564,7 @@ describe("SourcesPage", () => {
   });
 
   it("删除受保护：显示引用它的对象，菜单项不可用；无引用时可删除", async () => {
-    respond(ok({ items: [officeSocks, deepSsh] }));
+    respondLists([], [officeSocks, deepSsh]);
     renderPage();
     await userEvent.click(await screen.findByRole("tab", { name: /网络通道/ }));
     await userEvent.click(await screen.findByRole("button", { name: "office-socks 的更多操作" }));
@@ -398,7 +580,254 @@ describe("SourcesPage", () => {
     await userEvent.click(within(confirmDialog).getByRole("button", { name: "删除通道" }));
     await vi.waitFor(() => expect(screen.queryByText("deep-ssh")).not.toBeInTheDocument());
     expect(screen.getByText("office-socks")).toBeInTheDocument();
-    // call(0) 列表，call(1) 删除请求
-    expect(call(1)).toMatchObject({ url: "/api/v1/channels/4", method: "DELETE" });
+    // call(0) 数据源列表，call(1) 通道列表，call(2) 删除请求
+    expect(call(2)).toMatchObject({ url: "/api/v1/channels/4", method: "DELETE" });
+  });
+});
+
+describe("SourcesPage · 数据源", () => {
+  it("加载失败时显示原因与重试", async () => {
+    respond(fail(-1, "网络错误", 500), ok({ items: [] }));
+    renderPage();
+    expect(await screen.findByText("无法加载数据源列表：网络错误")).toBeInTheDocument();
+    respond(ok({ items: [] }));
+    await userEvent.click(screen.getByRole("button", { name: "重试" }));
+    expect(await screen.findByText("还没有数据源")).toBeInTheDocument();
+  });
+
+  it("空列表显示引导新建", async () => {
+    respondLists([], []);
+    renderPage();
+    expect(await screen.findByText("还没有数据源")).toBeInTheDocument();
+    expect(screen.getByText("新建一个 MySQL、PostgreSQL 或服务器文件数据源。")).toBeInTheDocument();
+  });
+
+  it("列表显示地址、服务端版本与链路、探测摘要与状态，且点击名称进入详情页", async () => {
+    respondLists([dbOrders, pgAnalytics, web01, dbLegacy, pgReport], []);
+    renderPage();
+    const rows = await screen.findAllByRole("row");
+    const header = rows[0];
+    expect(within(header).getByRole("columnheader", { name: "名称" })).toBeInTheDocument();
+    expect(within(header).getByRole("columnheader", { name: "地址" })).toBeInTheDocument();
+    expect(within(header).getByRole("columnheader", { name: "能力探测" })).toBeInTheDocument();
+    expect(within(header).getByRole("columnheader", { name: "状态" })).toBeInTheDocument();
+    expect(within(header).getByRole("columnheader", { name: "操作" })).toBeInTheDocument();
+
+    const ordersRow = rows[1];
+    expect(within(ordersRow).getByText("mysql://10.0.1.11:3306")).toBeInTheDocument();
+    expect(within(ordersRow).getByText("MySQL 8.0.36 · 经 office-socks → bastion-prod")).toBeInTheDocument();
+    expect(within(ordersRow).getByText("7 通过 · 1 提醒")).toBeInTheDocument();
+    expect(within(ordersRow).getByText("正常")).toBeInTheDocument();
+    const nameLink = within(ordersRow).getByRole("link", { name: "db-01 · orders" });
+    expect(nameLink).toHaveAttribute("href", "/sources/101");
+
+    const pgRow = rows[2];
+    expect(within(pgRow).getByText("PostgreSQL 16.2 · 直连")).toBeInTheDocument();
+    expect(within(pgRow).getByText("6 项全部通过")).toBeInTheDocument();
+
+    const webRow = rows[3];
+    expect(within(webRow).getByText("Linux x86_64 · 经 office-socks → bastion-prod")).toBeInTheDocument();
+    expect(within(webRow).getByText("3 通过 · 1 不可用")).toBeInTheDocument();
+
+    const legacyRow = rows[4];
+    expect(within(legacyRow).getByText("主机密钥已变化")).toBeInTheDocument();
+    expect(within(legacyRow).getByText("无法探测")).toBeInTheDocument();
+    expect(within(legacyRow).getByRole("button", { name: "重新确认 db-legacy 的主机密钥" })).toBeInTheDocument();
+
+    const reportRow = rows[5];
+    expect(within(reportRow).getByText("无法连接")).toBeInTheDocument();
+    expect(within(reportRow).getByText("认证失败：password authentication failed")).toBeInTheDocument();
+    expect(within(reportRow).getByText("直连")).toBeInTheDocument();
+  });
+
+  it("行操作包含测试连接、编辑，以及更多菜单中的查看详情与删除数据源", async () => {
+    respondLists([dbOrders], []);
+    renderPage();
+    const row = (await screen.findAllByRole("row"))[1];
+    expect(within(row).getByRole("button", { name: "测试连接 db-01 · orders" })).toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: "编辑 db-01 · orders" })).toBeInTheDocument();
+    await userEvent.click(within(row).getByRole("button", { name: "db-01 · orders 的更多操作" }));
+    const detailLink = await screen.findByRole("menuitem", { name: "查看详情" });
+    expect(detailLink.querySelector("a")?.getAttribute("href") ?? detailLink.getAttribute("href")).toBe("/sources/101");
+    expect(screen.getByRole("menuitem", { name: "删除数据源" })).toBeInTheDocument();
+  });
+
+  it("新建数据源：三种类型切换默认端口，MySQL 显示密码与 TLS，服务器文件显示认证方式", async () => {
+    respondLists([], [officeSocks, bastionProd]);
+    renderPage();
+    const dialog = await openCreateDataSource();
+    expect(within(dialog).getByLabelText("端口")).toHaveAttribute("placeholder", "3306");
+    expect(within(dialog).getByLabelText("密码")).toBeInTheDocument();
+    expect(within(dialog).getByText("TLS")).toBeInTheDocument();
+
+    await userEvent.click(within(dialog).getByRole("radio", { name: "PostgreSQL" }));
+    expect(within(dialog).getByLabelText("端口")).toHaveAttribute("placeholder", "5432");
+    expect(within(dialog).getByLabelText(/连接数据库/)).toHaveAttribute("placeholder", "postgres");
+
+    await userEvent.click(within(dialog).getByRole("radio", { name: "服务器文件" }));
+    expect(within(dialog).getByLabelText("端口")).toHaveAttribute("placeholder", "22");
+    expect(within(dialog).queryByText("TLS")).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("radiogroup", { name: "认证方式" })).toBeInTheDocument();
+  });
+
+  it("TLS 默认优先加密，校验模式下显示 CA 证书，mTLS 证书与私钥可上传文件", async () => {
+    respondLists([], []);
+    renderPage();
+    const dialog = await openCreateDataSource();
+    expect(within(dialog).getByRole("radio", { name: "优先加密" })).toHaveAttribute("aria-checked", "true");
+    expect(within(dialog).queryByLabelText("CA 证书")).not.toBeInTheDocument();
+
+    await userEvent.click(within(dialog).getByRole("radio", { name: "校验 CA 与主机名" }));
+    expect(within(dialog).getByLabelText("CA 证书")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("客户端证书")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("客户端私钥")).toBeInTheDocument();
+  });
+
+  it("经由通道时实时显示链路预览", async () => {
+    respondLists([], [officeSocks, bastionProd]);
+    renderPage();
+    const dialog = await openCreateDataSource();
+    await userEvent.type(within(dialog).getByLabelText("主机"), "10.0.1.11");
+    expect(within(dialog).getByText("链路：OpsNap → 10.0.1.11:3306")).toBeInTheDocument();
+
+    await userEvent.click(within(dialog).getByRole("combobox", { name: "网络通道" }));
+    await userEvent.click(await screen.findByRole("option", { name: "bastion-prod" }));
+    expect(
+      within(dialog).getByText("链路：OpsNap → office-socks (SOCKS5) → bastion-prod (SSH) → 10.0.1.11:3306")
+    ).toBeInTheDocument();
+  });
+
+  it("首次连接目标主机密钥：确认后带指纹重试并保存（服务器文件）", async () => {
+    respondLists([], []);
+    renderPage();
+    const dialog = await openCreateDataSource();
+    await userEvent.click(within(dialog).getByRole("radio", { name: "服务器文件" }));
+    await userEvent.type(within(dialog).getByLabelText("名称"), "web-02");
+    await userEvent.type(within(dialog).getByLabelText("主机"), "web-02.corp");
+    await userEvent.type(within(dialog).getByLabelText("用户名"), "deploy");
+
+    respond(
+      ok({
+        host_key: {
+          hop: 1,
+          name: "web-02",
+          address: "web-02.corp:22",
+          key_type: "ED25519",
+          fingerprint: "SHA256:webNewFingerprint",
+          changed: false,
+          saved: "",
+        },
+        chain: [],
+        server: null,
+      })
+    );
+    await userEvent.click(within(dialog).getByRole("button", { name: "测试连接" }));
+    const confirm = await screen.findByRole("dialog", { name: "确认主机密钥" });
+
+    respond(ok({ host_key: null, chain: [], server: { version: "", system: "Linux x86_64", tls: null } }));
+    await userEvent.click(within(confirm).getByRole("button", { name: "信任并继续" }));
+    await screen.findByText("连接成功，保存后将自动探测。");
+    // call(0) 数据源列表、call(1) 通道列表、call(2) 首次探测、call(3) 带指纹重试
+    expect(call(2).body.data_source.host_key).toBe("");
+    expect(call(3).body.data_source.host_key).toBe("SHA256:webNewFingerprint");
+  });
+
+  it("编辑时密码显示已保存提示，留空表示不修改", async () => {
+    respondLists([dbOrders], []);
+    renderPage();
+    const row = (await screen.findAllByRole("row"))[1];
+    await userEvent.click(within(row).getByRole("button", { name: "编辑 db-01 · orders" }));
+    const dialog = await screen.findByRole("dialog", { name: "编辑数据源" });
+    expect(within(dialog).getByLabelText("密码")).toHaveAttribute("placeholder", "已保存（加密存储），留空表示不修改");
+    expect(within(dialog).getByLabelText("密码")).toHaveValue("");
+
+    respond(ok({ item: { ...dbOrders, name: "db-01 · orders-2" }, host_key: null }));
+    await userEvent.clear(within(dialog).getByLabelText("名称"));
+    await userEvent.type(within(dialog).getByLabelText("名称"), "db-01 · orders-2");
+    await userEvent.click(within(dialog).getByRole("button", { name: "保存" }));
+    await screen.findByText("db-01 · orders-2");
+    expect(call(2).body.data_source.password).toBe("");
+    expect(call(2).url).toBe("/api/v1/datasources/101");
+    expect(call(2).method).toBe("PUT");
+  });
+
+  it("主机密钥已变化（数据源自身目标主机）：重新确认并列显示指纹，信任后重新测试", async () => {
+    const selfChanged: DataSourceItem = {
+      ...web01,
+      status: "host_key_changed",
+      status_message: "主机密钥已变化",
+      failed_hop: { hop: 1, channel_id: 0, name: "web-01", kind: "server_file" },
+      presented_host_key: "SHA256:webNewFingerprint",
+      channel_id: 0,
+      chain: [{ id: 0, name: "web-01", kind: "server_file", address: "web-01:22" }],
+    };
+    respondLists([selfChanged], []);
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "重新确认 web-01 的主机密钥" }));
+    const dialog = await screen.findByRole("dialog", { name: "主机密钥已变化" });
+    expect(within(dialog).getByText("SHA256:webSavedFingerprint")).toBeInTheDocument();
+    expect(within(dialog).getByText("SHA256:webNewFingerprint")).toBeInTheDocument();
+
+    respond(ok({ item: { ...selfChanged, status: "ok", host_key: selfChanged.presented_host_key }, host_key: null }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "信任新密钥" }));
+    expect(call(2).url).toBe("/api/v1/datasources/103/host-key");
+    expect(call(2).body.fingerprint).toBe("SHA256:webNewFingerprint");
+    await screen.findByText("正常");
+  });
+
+  it("编辑表单也能打开「主机密钥已变化」弹窗", async () => {
+    const selfChanged: DataSourceItem = {
+      ...web01,
+      status: "host_key_changed",
+      status_message: "主机密钥已变化",
+      failed_hop: { hop: 1, channel_id: 0, name: "web-01", kind: "server_file" },
+      presented_host_key: "SHA256:webNewFingerprint",
+      channel_id: 0,
+      chain: [{ id: 0, name: "web-01", kind: "server_file", address: "web-01:22" }],
+    };
+    respondLists([selfChanged], []);
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "编辑 web-01" }));
+    const form = await screen.findByRole("dialog", { name: "编辑数据源" });
+    await userEvent.click(within(form).getByRole("button", { name: "重新确认" }));
+    const changed = await screen.findByRole("dialog", { name: "主机密钥已变化" });
+    expect(within(changed).getByText("SHA256:webSavedFingerprint")).toBeInTheDocument();
+    expect(within(changed).getByText("SHA256:webNewFingerprint")).toBeInTheDocument();
+  });
+
+  it("主机密钥已变化（链路中的通道）：在该通道上重新确认，成功后刷新数据源列表", async () => {
+    respondLists([dbLegacy], [bastionOld]);
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "重新确认 db-legacy 的主机密钥" }));
+    const dialog = await screen.findByRole("dialog", { name: "主机密钥已变化" });
+    // 并列显示的是 bastion-old 这个通道保存与出示的指纹，而不是数据源自身的
+    expect(within(dialog).getByText("SHA256:oldSavedFingerprint")).toBeInTheDocument();
+    expect(within(dialog).getByText("SHA256:Zk8pQe41VbN7mWc0rHs2LtYg5xJ3uKdA9iFoPlT0bw")).toBeInTheDocument();
+
+    // 通道确认成功且没有新的 host_key 待确认时，会在同一次交互中接着重新拉取数据源列表；
+    // 两个响应先一起入队，避免第二次请求先于测试排队而拿不到响应
+    respond(
+      ok({ item: { ...bastionOld, status: "ok", host_key: bastionOld.presented_host_key }, host_key: null }),
+      ok({ items: [{ ...dbLegacy, status: "ok", failed_hop: null }] })
+    );
+    await userEvent.click(within(dialog).getByRole("button", { name: "信任新密钥" }));
+    expect(call(2).url).toBe("/api/v1/channels/3/host-key");
+    expect(call(2).body.fingerprint).toBe(bastionOld.presented_host_key);
+    await screen.findByText("正常");
+    expect(call(3).url).toBe("/api/v1/datasources");
+  });
+
+  it("删除数据源：二次确认后从列表移除", async () => {
+    respondLists([dbOrders], []);
+    renderPage();
+    const row = (await screen.findAllByRole("row"))[1];
+    await userEvent.click(within(row).getByRole("button", { name: "db-01 · orders 的更多操作" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "删除数据源" }));
+    const confirmDialog = await screen.findByRole("dialog", { name: "删除数据源「db-01 · orders」？" });
+    expect(within(confirmDialog).getByText("只删除 OpsNap 中的记录与凭据，不影响数据库或服务器。")).toBeInTheDocument();
+    respond(ok({}));
+    await userEvent.click(within(confirmDialog).getByRole("button", { name: "删除数据源" }));
+    await vi.waitFor(() => expect(screen.queryByText("db-01 · orders")).not.toBeInTheDocument());
+    expect(call(2)).toMatchObject({ url: "/api/v1/datasources/101", method: "DELETE" });
   });
 });

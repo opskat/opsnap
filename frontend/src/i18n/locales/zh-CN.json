@@ -322,10 +322,6 @@
       "dataSources": "数据源",
       "channels": "网络通道"
     },
-    "dataSources": {
-      "comingSoon": "数据源管理即将推出",
-      "comingSoonHint": "MySQL、PostgreSQL 与服务器文件的新建、探测与详情将在后续任务中提供。"
-    },
     "channel": {
       "empty": "还没有通道",
       "emptyHint": "新建一个 SSH 跳板或 SOCKS5 代理，供数据源经由连接。",
@@ -419,6 +415,93 @@
         "presented": "现在出示的密钥",
         "warning": "服务器重装或重新生成密钥会导致这种情况，但也可能是中间人攻击。只有和服务器管理员核对过新指纹后才能信任。",
         "trust": "信任新密钥"
+      }
+    },
+    "dataSource": {
+      "empty": "还没有数据源",
+      "emptyHint": "新建一个 MySQL、PostgreSQL 或服务器文件数据源。",
+      "loadFailed": "无法加载数据源列表：{{message}}",
+      "kind": {
+        "mysql": "MySQL",
+        "postgres": "PostgreSQL",
+        "server_file": "服务器文件"
+      },
+      "status": {
+        "ok": "正常",
+        "unreachable": "无法连接",
+        "host_key_changed": "主机密钥已变化"
+      },
+      "list": {
+        "name": "名称",
+        "address": "地址",
+        "probe": "能力探测",
+        "status": "状态",
+        "actions": "操作",
+        "direct": "直连",
+        "via": "经 {{chain}}",
+        "checked": "{{time}}测试",
+        "probing": "探测中",
+        "unprobeable": "无法探测",
+        "probeAllOk": "{{count}} 项全部通过",
+        "probeOk": "{{count}} 通过",
+        "probeWarn": "{{count}} 提醒",
+        "probeFail": "{{count}} 不可用",
+        "test": "测试连接",
+        "testNamed": "测试连接 {{name}}",
+        "edit": "编辑",
+        "editNamed": "编辑 {{name}}",
+        "more": "{{name}} 的更多操作",
+        "reconfirm": "重新确认",
+        "reconfirmNamed": "重新确认 {{name}} 的主机密钥",
+        "viewDetail": "查看详情",
+        "deleteItem": "删除数据源"
+      },
+      "form": {
+        "createTitle": "新建数据源",
+        "editTitle": "编辑数据源",
+        "hint": "保存前会沿网络通道测试连接；保存后自动探测支持的备份方式。",
+        "kind": "数据源类型",
+        "name": "名称",
+        "host": "主机",
+        "port": "端口",
+        "username": "用户名",
+        "password": "密码",
+        "database": "连接数据库",
+        "authMethod": "认证方式",
+        "privateKey": "私钥",
+        "upload": "上传",
+        "privateKeyHint": "支持 OpenSSH / PEM 格式的 RSA、ECDSA、Ed25519 私钥；粘贴或上传文件。",
+        "passphrase": "私钥口令",
+        "passphraseHint": "私钥已加密时填写口令",
+        "secretKeep": "已保存（加密存储），留空表示不修改",
+        "channel": "网络通道",
+        "channelNone": "不选，由 OpsNap 直连",
+        "chain": "链路：{{chain}}",
+        "optional": "可选",
+        "tls": "TLS",
+        "tlsMode": {
+          "disable": "不加密",
+          "prefer": "优先加密",
+          "require": "必须加密",
+          "verify_ca": "校验 CA",
+          "verify_full": "校验 CA 与主机名"
+        },
+        "tlsCA": "CA 证书",
+        "tlsCAHint": "粘贴 PEM 或上传文件；两种校验模式下留空使用主控端系统信任库。",
+        "tlsClientCert": "客户端证书",
+        "tlsClientCertHint": "mTLS 可选，需与客户端私钥成对提供。",
+        "tlsClientKey": "客户端私钥",
+        "test": "测试连接",
+        "testing": "测试中…",
+        "hostKeyChangedHint": "这台主机出示的密钥与保存的不一致，请先重新确认。"
+      },
+      "result": {
+        "testSuccess": "连接成功，保存后将自动探测。"
+      },
+      "delete": {
+        "title": "删除数据源「{{name}}」？",
+        "hint": "只删除 OpsNap 中的记录与凭据，不影响数据库或服务器。",
+        "confirm": "删除数据源"
       }
     }
   }

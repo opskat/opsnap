@@ -27,6 +27,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ApiError } from "@/lib/api";
 import { ErrorCode } from "@/lib/auth";
 import {
+  DEFAULT_PORT,
   MAX_HOPS,
   availableVia,
   chainPreview,
@@ -128,7 +129,7 @@ export function ChannelFormDialog({
     else setResult({ kind: "error", message });
   };
 
-  const preview = chainPreview(channels, draft.via_id, draft);
+  const preview = chainPreview(channels, draft.via_id, draft, DEFAULT_PORT[draft.kind]);
 
   const test = async () => {
     setBusy("test");

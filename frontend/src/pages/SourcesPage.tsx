@@ -1,11 +1,13 @@
-import { Plus, Waypoints } from "lucide-react";
+import { Database, Plus, Waypoints } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { PageHeader } from "@/components/layout/PageHeader";
 import { ChannelFormDialog } from "@/components/sources/ChannelFormDialog";
 import { ChannelTable } from "@/components/sources/ChannelTable";
-import { DeleteChannelDialog } from "@/components/sources/ConfirmDialogs";
+import { DeleteChannelDialog, DeleteDataSourceDialog } from "@/components/sources/ConfirmDialogs";
+import { DataSourceFormDialog } from "@/components/sources/DataSourceFormDialog";
+import { DataSourceTable } from "@/components/sources/DataSourceTable";
 import { HostKeyDialog } from "@/components/sources/HostKeyDialog";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -13,88 +15,118 @@ import { ApiError } from "@/lib/api";
 import { ErrorCode } from "@/lib/auth";
 import {
   confirmChannelHostKey,
+  confirmDataSourceHostKey,
   listChannels,
+  listDataSources,
   testChannel,
+  testDataSource,
   type ChannelItem,
   type ChannelSaveResult,
+  type DataSourceItem,
+  type DataSourceSaveResult,
   type HostKeyPrompt,
 } from "@/lib/sources";
 
 type Tab = "dataSources" | "channels";
-type State = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; items: ChannelItem[] };
+type ChannelState =
+  { status: "loading" } | { status: "error"; message: string } | { status: "ready"; items: ChannelItem[] };
+type DataSourceState =
+  { status: "loading" } | { status: "error"; message: string } | { status: "ready"; items: DataSourceItem[] };
 
 const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 /** 通道行内“测试连接”或“重新确认”触发的主机密钥弹窗：确认后调用哪个接口由来源决定 */
-interface RowHostKey {
+interface ChannelRowHostKey {
   prompt: HostKeyPrompt;
   confirm: (fingerprint: string) => Promise<ChannelSaveResult>;
+}
+
+/** 数据源行内“测试连接”或“重新确认”触发的主机密钥弹窗 */
+interface DataSourceRowHostKey {
+  prompt: HostKeyPrompt;
+  confirm: (fingerprint: string) => Promise<DataSourceSaveResult>;
 }
 
 export function SourcesPage() {
   const { t } = useTranslation();
   const [tab, setTab] = useState<Tab>("dataSources");
-  const [state, setState] = useState<State>({ status: "loading" });
-  const [attempt, setAttempt] = useState(0);
-  const [form, setForm] = useState<{ editing?: ChannelItem }>({});
-  const [formOpen, setFormOpen] = useState(false);
-  const [formKey, setFormKey] = useState(0);
-  const [deleting, setDeleting] = useState<ChannelItem>();
-  const [testing, setTesting] = useState<ReadonlySet<number>>(new Set());
-  const [actionError, setActionError] = useState<string>();
-  const [rowHostKey, setRowHostKey] = useState<RowHostKey>();
-  const [rowHostKeyBusy, setRowHostKeyBusy] = useState(false);
-  const [rowHostKeyError, setRowHostKeyError] = useState<string>();
+
+  // ---- 数据源：默认分页，先请求 ----
+  const [dsState, setDsState] = useState<DataSourceState>({ status: "loading" });
+  const [dsAttempt, setDsAttempt] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    listDataSources()
+      .then((r) => !cancelled && setDsState({ status: "ready", items: r.items }))
+      .catch((err: unknown) => !cancelled && setDsState({ status: "error", message: errorText(err) }));
+    return () => {
+      cancelled = true;
+    };
+  }, [dsAttempt]);
+
+  // ---- 网络通道：数据源表单的“网络通道”选择框与链路预览也需要这份列表 ----
+  const [chState, setChState] = useState<ChannelState>({ status: "loading" });
+  const [chAttempt, setChAttempt] = useState(0);
+  const [chForm, setChForm] = useState<{ editing?: ChannelItem }>({});
+  const [chFormOpen, setChFormOpen] = useState(false);
+  const [chFormKey, setChFormKey] = useState(0);
+  const [chDeleting, setChDeleting] = useState<ChannelItem>();
+  const [chTesting, setChTesting] = useState<ReadonlySet<number>>(new Set());
+  const [chActionError, setChActionError] = useState<string>();
+  const [chRowHostKey, setChRowHostKey] = useState<ChannelRowHostKey>();
+  const [chRowHostKeyBusy, setChRowHostKeyBusy] = useState(false);
+  const [chRowHostKeyError, setChRowHostKeyError] = useState<string>();
 
   useEffect(() => {
     let cancelled = false;
     listChannels()
-      .then((r) => !cancelled && setState({ status: "ready", items: r.items }))
-      .catch((err: unknown) => !cancelled && setState({ status: "error", message: errorText(err) }));
+      .then((r) => !cancelled && setChState({ status: "ready", items: r.items }))
+      .catch((err: unknown) => !cancelled && setChState({ status: "error", message: errorText(err) }));
     return () => {
       cancelled = true;
     };
-  }, [attempt]);
+  }, [chAttempt]);
 
-  const reload = () => setAttempt((n) => n + 1);
+  const reloadChannels = () => setChAttempt((n) => n + 1);
   // 编辑时替换同 id 的行；新建时该 id 不存在，追加到末尾
-  const replace = (item: ChannelItem) =>
-    setState((s) => {
+  const replaceChannel = (item: ChannelItem) =>
+    setChState((s) => {
       if (s.status !== "ready") return s;
       const exists = s.items.some((i) => i.id === item.id);
       return { ...s, items: exists ? s.items.map((i) => (i.id === item.id ? item : i)) : [...s.items, item] };
     });
-  const remove = (id: number) =>
-    setState((s) => (s.status === "ready" ? { ...s, items: s.items.filter((i) => i.id !== id) } : s));
+  const removeChannel = (id: number) =>
+    setChState((s) => (s.status === "ready" ? { ...s, items: s.items.filter((i) => i.id !== id) } : s));
 
-  const openForm = (editing?: ChannelItem) => {
-    setFormKey((n) => n + 1);
-    setForm({ editing });
-    setFormOpen(true);
+  const openChannelForm = (editing?: ChannelItem) => {
+    setChFormKey((n) => n + 1);
+    setChForm({ editing });
+    setChFormOpen(true);
   };
 
-  const openRowHostKey = (prompt: HostKeyPrompt, confirm: RowHostKey["confirm"]) => {
-    setRowHostKeyError(undefined);
-    setRowHostKey({ prompt, confirm });
+  const openChannelRowHostKey = (prompt: HostKeyPrompt, confirm: ChannelRowHostKey["confirm"]) => {
+    setChRowHostKeyError(undefined);
+    setChRowHostKey({ prompt, confirm });
   };
 
-  const test = async (c: ChannelItem) => {
-    setTesting((ids) => new Set(ids).add(c.id));
-    setActionError(undefined);
+  const testChannelRow = async (c: ChannelItem) => {
+    setChTesting((ids) => new Set(ids).add(c.id));
+    setChActionError(undefined);
     try {
       const res = await testChannel(c.id);
-      replace(res.item);
+      replaceChannel(res.item);
       if (res.host_key) {
-        openRowHostKey(res.host_key, (fingerprint) => confirmChannelHostKey(c.id, fingerprint));
+        openChannelRowHostKey(res.host_key, (fingerprint) => confirmChannelHostKey(c.id, fingerprint));
       }
     } catch (err) {
-      setActionError(
+      setChActionError(
         err instanceof ApiError && err.code === ErrorCode.ChannelHostKeyChanged
           ? t("sources.channel.list.reconfirmFirst")
           : errorText(err)
       );
     } finally {
-      setTesting((ids) => {
+      setChTesting((ids) => {
         const rest = new Set(ids);
         rest.delete(c.id);
         return rest;
@@ -102,8 +134,8 @@ export function SourcesPage() {
     }
   };
 
-  const reconfirm = (c: ChannelItem) => {
-    openRowHostKey(
+  const reconfirmChannel = (c: ChannelItem) => {
+    openChannelRowHostKey(
       {
         hop: 0,
         name: c.name,
@@ -117,26 +149,135 @@ export function SourcesPage() {
     );
   };
 
-  const trustRowHostKey = async () => {
-    if (!rowHostKey) return;
-    setRowHostKeyBusy(true);
-    setRowHostKeyError(undefined);
+  const trustChannelRowHostKey = async () => {
+    if (!chRowHostKey) return;
+    setChRowHostKeyBusy(true);
+    setChRowHostKeyError(undefined);
     try {
-      const res = await rowHostKey.confirm(rowHostKey.prompt.fingerprint);
+      const res = await chRowHostKey.confirm(chRowHostKey.prompt.fingerprint);
       if (res.host_key) {
-        setRowHostKey({ ...rowHostKey, prompt: res.host_key });
+        setChRowHostKey({ ...chRowHostKey, prompt: res.host_key });
         return;
       }
-      if (res.item) replace(res.item);
-      setRowHostKey(undefined);
+      if (res.item) replaceChannel(res.item);
+      setChRowHostKey(undefined);
     } catch (err) {
-      setRowHostKeyError(errorText(err));
+      setChRowHostKeyError(errorText(err));
     } finally {
-      setRowHostKeyBusy(false);
+      setChRowHostKeyBusy(false);
     }
   };
 
-  const items = state.status === "ready" ? state.items : [];
+  const channels = chState.status === "ready" ? chState.items : [];
+
+  // ---- 数据源：其余状态与操作（依赖上面的 channels，用于“经由通道”重新确认） ----
+  const [dsForm, setDsForm] = useState<{ editing?: DataSourceItem }>({});
+  const [dsFormOpen, setDsFormOpen] = useState(false);
+  const [dsFormKey, setDsFormKey] = useState(0);
+  const [dsDeleting, setDsDeleting] = useState<DataSourceItem>();
+  const [dsTesting, setDsTesting] = useState<ReadonlySet<number>>(new Set());
+  const [dsActionError, setDsActionError] = useState<string>();
+  const [dsRowHostKey, setDsRowHostKey] = useState<DataSourceRowHostKey>();
+  const [dsRowHostKeyBusy, setDsRowHostKeyBusy] = useState(false);
+  const [dsRowHostKeyError, setDsRowHostKeyError] = useState<string>();
+
+  const reloadDataSources = () => setDsAttempt((n) => n + 1);
+  const replaceDataSource = (item: DataSourceItem) =>
+    setDsState((s) => {
+      if (s.status !== "ready") return s;
+      const exists = s.items.some((i) => i.id === item.id);
+      return { ...s, items: exists ? s.items.map((i) => (i.id === item.id ? item : i)) : [...s.items, item] };
+    });
+  const removeDataSource = (id: number) =>
+    setDsState((s) => (s.status === "ready" ? { ...s, items: s.items.filter((i) => i.id !== id) } : s));
+
+  const openDataSourceForm = (editing?: DataSourceItem) => {
+    setDsFormKey((n) => n + 1);
+    setDsForm({ editing });
+    setDsFormOpen(true);
+  };
+
+  const openDataSourceRowHostKey = (prompt: HostKeyPrompt, confirm: DataSourceRowHostKey["confirm"]) => {
+    setDsRowHostKeyError(undefined);
+    setDsRowHostKey({ prompt, confirm });
+  };
+
+  const testDataSourceRow = async (d: DataSourceItem) => {
+    setDsTesting((ids) => new Set(ids).add(d.id));
+    setDsActionError(undefined);
+    try {
+      const res = await testDataSource(d.id);
+      replaceDataSource(res.item);
+      if (res.host_key) {
+        openDataSourceRowHostKey(res.host_key, (fingerprint) => confirmDataSourceHostKey(d.id, fingerprint));
+      }
+    } catch (err) {
+      setDsActionError(errorText(err));
+    } finally {
+      setDsTesting((ids) => {
+        const rest = new Set(ids);
+        rest.delete(d.id);
+        return rest;
+      });
+    }
+  };
+
+  // 主机密钥已变化的可能是数据源自身的目标主机（服务器文件），也可能是链路中的某个通道；
+  // 后一种情况要在通道上重新确认（沿用其保存与出示的指纹），确认后刷新数据源列表以反映最新状态
+  const reconfirmDataSource = (d: DataSourceItem) => {
+    const viaChannel = d.failed_hop?.channel_id ? channels.find((c) => c.id === d.failed_hop?.channel_id) : undefined;
+    if (viaChannel) {
+      openDataSourceRowHostKey(
+        {
+          hop: d.failed_hop?.hop ?? 0,
+          name: viaChannel.name,
+          address: viaChannel.address,
+          key_type: "",
+          fingerprint: viaChannel.presented_host_key,
+          changed: true,
+          saved: viaChannel.host_key,
+        },
+        async (fingerprint) => {
+          const res = await confirmChannelHostKey(viaChannel.id, fingerprint);
+          if (res.item) replaceChannel(res.item);
+          if (!res.host_key) reloadDataSources();
+          return { item: null, host_key: res.host_key };
+        }
+      );
+      return;
+    }
+    openDataSourceRowHostKey(
+      {
+        hop: d.failed_hop?.hop ?? 0,
+        name: d.name,
+        address: d.address,
+        key_type: "",
+        fingerprint: d.presented_host_key,
+        changed: true,
+        saved: d.host_key,
+      },
+      (fingerprint) => confirmDataSourceHostKey(d.id, fingerprint)
+    );
+  };
+
+  const trustDataSourceRowHostKey = async () => {
+    if (!dsRowHostKey) return;
+    setDsRowHostKeyBusy(true);
+    setDsRowHostKeyError(undefined);
+    try {
+      const res = await dsRowHostKey.confirm(dsRowHostKey.prompt.fingerprint);
+      if (res.host_key) {
+        setDsRowHostKey({ ...dsRowHostKey, prompt: res.host_key });
+        return;
+      }
+      if (res.item) replaceDataSource(res.item);
+      setDsRowHostKey(undefined);
+    } catch (err) {
+      setDsRowHostKeyError(errorText(err));
+    } finally {
+      setDsRowHostKeyBusy(false);
+    }
+  };
 
   return (
     <>
@@ -145,68 +286,114 @@ export function SourcesPage() {
         subtitle={t("sources.subtitle")}
         actions={
           tab === "channels" ? (
-            <Button onClick={() => openForm()}>
+            <Button onClick={() => openChannelForm()}>
               <Plus />
               {t("sources.createChannel")}
             </Button>
-          ) : undefined
+          ) : (
+            <Button onClick={() => openDataSourceForm()}>
+              <Plus />
+              {t("sources.createDataSource")}
+            </Button>
+          )
         }
       />
       <section className="flex flex-col gap-4 px-8 py-6" aria-live="polite">
         <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
           <TabsList>
-            <TabsTrigger value="dataSources">{t("sources.tabs.dataSources")}</TabsTrigger>
+            <TabsTrigger value="dataSources">
+              {t("sources.tabs.dataSources")}
+              {dsState.status === "ready" && (
+                <span className="rounded-full bg-accent px-1.5 py-0.5 text-2xs text-muted-foreground">
+                  {dsState.items.length}
+                </span>
+              )}
+            </TabsTrigger>
             <TabsTrigger value="channels">
               {t("sources.tabs.channels")}
-              {state.status === "ready" && (
+              {chState.status === "ready" && (
                 <span className="rounded-full bg-accent px-1.5 py-0.5 text-2xs text-muted-foreground">
-                  {state.items.length}
+                  {chState.items.length}
                 </span>
               )}
             </TabsTrigger>
           </TabsList>
           <TabsContent value="dataSources">
-            <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed px-6 py-12 text-center">
-              <Waypoints className="size-8 text-faint-foreground" />
-              <p className="text-md font-medium">{t("sources.dataSources.comingSoon")}</p>
-              <p className="max-w-md text-sm text-muted-foreground">{t("sources.dataSources.comingSoonHint")}</p>
-            </div>
-          </TabsContent>
-          <TabsContent value="channels">
-            {actionError && (
+            {dsActionError && (
               <p role="alert" className="mb-4 rounded-md bg-destructive-soft px-3 py-2.5 text-sm text-destructive">
-                {actionError}
+                {dsActionError}
               </p>
             )}
-            {state.status === "loading" && <p className="text-sm text-muted-foreground">{t("common.loading")}</p>}
-            {state.status === "error" && (
+            {dsState.status === "loading" && <p className="text-sm text-muted-foreground">{t("common.loading")}</p>}
+            {dsState.status === "error" && (
               <div className="flex items-center justify-between gap-3 rounded-md bg-destructive-soft px-4 py-3">
-                <p className="text-sm text-destructive">{t("sources.loadFailed", { message: state.message })}</p>
-                <Button variant="outline" size="sm" onClick={reload}>
+                <p className="text-sm text-destructive">
+                  {t("sources.dataSource.loadFailed", { message: dsState.message })}
+                </p>
+                <Button variant="outline" size="sm" onClick={reloadDataSources}>
                   {t("common.retry")}
                 </Button>
               </div>
             )}
-            {state.status === "ready" && state.items.length === 0 && (
+            {dsState.status === "ready" && dsState.items.length === 0 && (
+              <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed px-6 py-12 text-center">
+                <Database className="size-8 text-faint-foreground" />
+                <p className="text-md font-medium">{t("sources.dataSource.empty")}</p>
+                <p className="max-w-md text-sm text-muted-foreground">{t("sources.dataSource.emptyHint")}</p>
+                <Button onClick={() => openDataSourceForm()}>
+                  <Plus />
+                  {t("sources.createDataSource")}
+                </Button>
+              </div>
+            )}
+            {dsState.status === "ready" && dsState.items.length > 0 && (
+              <DataSourceTable
+                items={dsState.items}
+                testing={dsTesting}
+                actions={{
+                  onTest: (d) => void testDataSourceRow(d),
+                  onEdit: (d) => openDataSourceForm(d),
+                  onReconfirm: reconfirmDataSource,
+                  onDelete: setDsDeleting,
+                }}
+              />
+            )}
+          </TabsContent>
+          <TabsContent value="channels">
+            {chActionError && (
+              <p role="alert" className="mb-4 rounded-md bg-destructive-soft px-3 py-2.5 text-sm text-destructive">
+                {chActionError}
+              </p>
+            )}
+            {chState.status === "loading" && <p className="text-sm text-muted-foreground">{t("common.loading")}</p>}
+            {chState.status === "error" && (
+              <div className="flex items-center justify-between gap-3 rounded-md bg-destructive-soft px-4 py-3">
+                <p className="text-sm text-destructive">{t("sources.loadFailed", { message: chState.message })}</p>
+                <Button variant="outline" size="sm" onClick={reloadChannels}>
+                  {t("common.retry")}
+                </Button>
+              </div>
+            )}
+            {chState.status === "ready" && chState.items.length === 0 && (
               <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed px-6 py-12 text-center">
                 <Waypoints className="size-8 text-faint-foreground" />
                 <p className="text-md font-medium">{t("sources.channel.empty")}</p>
                 <p className="max-w-md text-sm text-muted-foreground">{t("sources.channel.emptyHint")}</p>
-                <Button onClick={() => openForm()}>
+                <Button onClick={() => openChannelForm()}>
                   <Plus />
                   {t("sources.createChannel")}
                 </Button>
               </div>
             )}
-            {state.status === "ready" && state.items.length > 0 && (
+            {chState.status === "ready" && chState.items.length > 0 && (
               <ChannelTable
-                items={state.items}
-                testing={testing}
+                items={chState.items}
+                testing={chTesting}
                 actions={{
-                  onTest: (c) => void test(c),
-                  onEdit: (c) => openForm(c),
-                  onReconfirm: reconfirm,
-                  onDelete: setDeleting,
+                  onTest: (c) => void testChannelRow(c),
+                  onEdit: (c) => openChannelForm(c),
+                  onReconfirm: reconfirmChannel,
+                  onDelete: setChDeleting,
                 }}
               />
             )}
@@ -215,31 +402,59 @@ export function SourcesPage() {
       </section>
 
       <ChannelFormDialog
-        key={formKey}
-        open={formOpen}
-        editing={form.editing}
-        channels={items}
-        onOpenChange={setFormOpen}
+        key={chFormKey}
+        open={chFormOpen}
+        editing={chForm.editing}
+        channels={channels}
+        onOpenChange={setChFormOpen}
         onSaved={(item) => {
-          replace(item);
-          setFormOpen(false);
+          replaceChannel(item);
+          setChFormOpen(false);
         }}
-        onReconfirm={reconfirm}
+        onReconfirm={reconfirmChannel}
       />
       <DeleteChannelDialog
-        channel={deleting}
-        onCancel={() => setDeleting(undefined)}
+        channel={chDeleting}
+        onCancel={() => setChDeleting(undefined)}
         onDeleted={() => {
-          if (deleting) remove(deleting.id);
-          setDeleting(undefined);
+          if (chDeleting) removeChannel(chDeleting.id);
+          setChDeleting(undefined);
         }}
       />
       <HostKeyDialog
-        request={rowHostKey}
-        busy={rowHostKeyBusy}
-        error={rowHostKeyError}
-        onCancel={() => setRowHostKey(undefined)}
-        onTrust={() => void trustRowHostKey()}
+        request={chRowHostKey}
+        busy={chRowHostKeyBusy}
+        error={chRowHostKeyError}
+        onCancel={() => setChRowHostKey(undefined)}
+        onTrust={() => void trustChannelRowHostKey()}
+      />
+
+      <DataSourceFormDialog
+        key={dsFormKey}
+        open={dsFormOpen}
+        editing={dsForm.editing}
+        channels={channels}
+        onOpenChange={setDsFormOpen}
+        onSaved={(item) => {
+          replaceDataSource(item);
+          setDsFormOpen(false);
+        }}
+        onReconfirm={reconfirmDataSource}
+      />
+      <DeleteDataSourceDialog
+        dataSource={dsDeleting}
+        onCancel={() => setDsDeleting(undefined)}
+        onDeleted={() => {
+          if (dsDeleting) removeDataSource(dsDeleting.id);
+          setDsDeleting(undefined);
+        }}
+      />
+      <HostKeyDialog
+        request={dsRowHostKey}
+        busy={dsRowHostKeyBusy}
+        error={dsRowHostKeyError}
+        onCancel={() => setDsRowHostKey(undefined)}
+        onTrust={() => void trustDataSourceRowHostKey()}
       />
     </>
   );

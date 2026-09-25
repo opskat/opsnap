@@ -322,10 +322,6 @@
       "dataSources": "Data Sources",
       "channels": "Network Channels"
     },
-    "dataSources": {
-      "comingSoon": "Data source management is coming soon",
-      "comingSoonHint": "Creating, probing and viewing MySQL, PostgreSQL and server file sources will ship in a later task."
-    },
     "channel": {
       "empty": "No channels yet",
       "emptyHint": "Create an SSH jump host or SOCKS5 proxy for data sources to connect through.",
@@ -419,6 +415,93 @@
         "presented": "Presented key",
         "warning": "A server reinstall or regenerated key can cause this, but it can also be a man-in-the-middle attack. Only trust it after checking the new fingerprint with your server administrator.",
         "trust": "Trust New Key"
+      }
+    },
+    "dataSource": {
+      "empty": "No data sources yet",
+      "emptyHint": "Create a MySQL, PostgreSQL or server file data source.",
+      "loadFailed": "Failed to load data sources: {{message}}",
+      "kind": {
+        "mysql": "MySQL",
+        "postgres": "PostgreSQL",
+        "server_file": "Server File"
+      },
+      "status": {
+        "ok": "OK",
+        "unreachable": "Unreachable",
+        "host_key_changed": "Host Key Changed"
+      },
+      "list": {
+        "name": "Name",
+        "address": "Address",
+        "probe": "Capability Probe",
+        "status": "Status",
+        "actions": "Actions",
+        "direct": "Direct",
+        "via": "via {{chain}}",
+        "checked": "Tested {{time}}",
+        "probing": "Probing",
+        "unprobeable": "Unprobeable",
+        "probeAllOk": "All {{count}} checks passed",
+        "probeOk": "{{count}} passed",
+        "probeWarn": "{{count}} warnings",
+        "probeFail": "{{count}} unavailable",
+        "test": "Test",
+        "testNamed": "Test {{name}}",
+        "edit": "Edit",
+        "editNamed": "Edit {{name}}",
+        "more": "More actions for {{name}}",
+        "reconfirm": "Reconfirm",
+        "reconfirmNamed": "Reconfirm host key for {{name}}",
+        "viewDetail": "View Details",
+        "deleteItem": "Delete data source"
+      },
+      "form": {
+        "createTitle": "New Data Source",
+        "editTitle": "Edit Data Source",
+        "hint": "Saving tests the connection over the network channel first; saving triggers automatic capability probing.",
+        "kind": "Data source type",
+        "name": "Name",
+        "host": "Host",
+        "port": "Port",
+        "username": "Username",
+        "password": "Password",
+        "database": "Database",
+        "authMethod": "Auth method",
+        "privateKey": "Private key",
+        "upload": "Upload",
+        "privateKeyHint": "Supports OpenSSH / PEM RSA, ECDSA and Ed25519 private keys; paste or upload a file.",
+        "passphrase": "Private key passphrase",
+        "passphraseHint": "Required when the private key is encrypted",
+        "secretKeep": "Saved (encrypted); leave blank to keep it",
+        "channel": "Network channel",
+        "channelNone": "None, direct from OpsNap",
+        "chain": "Chain: {{chain}}",
+        "optional": "optional",
+        "tls": "TLS",
+        "tlsMode": {
+          "disable": "Disable",
+          "prefer": "Prefer",
+          "require": "Require",
+          "verify_ca": "Verify CA",
+          "verify_full": "Verify CA & Hostname"
+        },
+        "tlsCA": "CA Certificate",
+        "tlsCAHint": "Paste PEM or upload a file; leave blank in the verify modes to use the controller's system trust store.",
+        "tlsClientCert": "Client Certificate",
+        "tlsClientCertHint": "Optional mTLS; must be provided together with the client private key.",
+        "tlsClientKey": "Client Private Key",
+        "test": "Test Connection",
+        "testing": "Testing…",
+        "hostKeyChangedHint": "This host presented a key that no longer matches the saved one. Reconfirm it first."
+      },
+      "result": {
+        "testSuccess": "Connected successfully; probing will run automatically after saving."
+      },
+      "delete": {
+        "title": "Delete data source \"{{name}}\"?",
+        "hint": "Only the record and credentials in OpsNap are deleted; the database or server is not affected.",
+        "confirm": "Delete Data Source"
       }
     }
   }
