@@ -97,6 +97,18 @@ Requirements: [`specs/2026-09-24-storage.md`](specs/2026-09-24-storage.md). kopi
 - Delete removes the row and `<data dir>/kopia/<id>/`; the repository data stays.
 - Session-only (`account` group): `POST /storages/:id/reveal`, and `GET` / `POST /storages/dirs` for the directory picker. Browsing with no path, or a path that is not an existing directory, opens the parent of the data directory.
 
+### Network chains
+
+Requirements: [`specs/2026-09-25-datasources.md`](specs/2026-09-25-datasources.md). `internal/pkg/netchain` connects through an ordered chain of network channels (SSH jump hosts and SOCKS5 proxies, mixed freely).
+
+- `NewChain([]Hop)` validates before any network I/O: at most `MaxHops` (5) hops (`ErrTooManyHops`), no channel twice (`ErrCycle`, by non-zero `Hop.ID`), complete fields (`ErrInvalidHop`), and a parseable SSH private key. `ParsePrivateKey` accepts OpenSSH and PEM RSA, ECDSA and Ed25519 keys and tells `ErrPassphraseMissing`, `ErrPassphraseWrong` and `ErrKeyInvalid` apart.
+- `Chain.Connect(ctx)` establishes every hop in order and returns a `Tunnel`; the whole attempt is bounded by `ctx`, or by `DefaultTimeout` (30 s) when it has no deadline. `Tunnel.Dial(ctx, network, addr)` has the pgx `DialFunc` signature; `Tunnel.DialSSH(ctx, target)` logs in to a final SSH host (numbered hop `len(hops)+1`) under the same rules as an SSH hop.
+- SSH host keys are checked during key exchange, before any authentication request: an empty `Hop.HostKey` fails with `ErrHostKeyUnknown`, a different one with `ErrHostKeyChanged`, both as `*HostKeyError` carrying the presented `SHA256:` fingerprint, key type and saved fingerprint. No credential is sent and nothing is forwarded through that host.
+- SOCKS5 hops send target host names unresolved (socks5h) and support no authentication or username/password.
+- Every failure is a `*HopError` with the 1-based hop index, the channel's ID, name, kind and address, and a `Reason` (`unreachable`, `timeout`, `canceled`, `protocol`, `negotiation`, `auth_failed`, `host_key_unknown`, `host_key_changed`, key reasons). It never contains secrets; `Hop` also formats without them.
+
+`internal/pkg/fakessh` is the in-process SSH server (password and public-key auth, `exec` with `uname -sm` answered by default, `direct-tcpip`, host key rotation) and SOCKS5 proxy used by these tests; it records authentication attempts, commands and forwarding targets so tests can assert that nothing was sent.
+
 ## Extension recipes
 
 ### Add an endpoint
