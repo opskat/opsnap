@@ -98,6 +98,27 @@ func TestServerFileTimeout(t *testing.T) {
 	assert.Less(t, time.Since(start), 2*time.Second)
 }
 
+// 目标登录后失去响应：打开会话（等待通道确认）这一步同样必须受 ctx 约束，不能超时后仍一直挂起
+func TestServerFileTimeoutAtSessionOpen(t *testing.T) {
+	host, port, fp := stallingSSH(t)
+	cfg := Config{ID: 7, Name: "web-1", Type: TypeServerFile, Host: host, Port: port, User: "root", Password: testPassword, HostKey: fp}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		_, err := Test(ctx, directTunnel(t), cfg)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		var e *Error
+		require.ErrorAs(t, err, &e)
+		assert.Equal(t, ReasonTimeout, e.Reason)
+	case <-time.After(3 * time.Second):
+		t.Fatal("ctx 已超时 2.7 秒，打开会话仍未返回")
+	}
+}
+
 func TestDatabaseErrors(t *testing.T) {
 	for _, typ := range []Type{TypeMySQL, TypePostgreSQL} {
 		t.Run(string(typ)+" 连不上时为 unreachable 并保留原文", func(t *testing.T) {

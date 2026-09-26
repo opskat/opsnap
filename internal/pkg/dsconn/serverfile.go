@@ -50,7 +50,18 @@ func run(ctx context.Context, cl *ssh.Client, cmd string) (string, error) {
 
 // Exec 在 cl 上执行一条命令，返回标准输出、标准错误与退出码；命令能执行但退出码非 0 不算错误。
 // 经链路转发的连接不支持读写截止时间（x/crypto/ssh 的限制），ctx 结束时关闭客户端来打断等待。
+// 打开会话要等对端确认通道，目标失去响应时同样会一直阻塞，所以在打开会话之前就挂上 ctx。
 func Exec(ctx context.Context, cl *ssh.Client, cmd string) (stdout, stderr string, exitCode int, err error) {
+	stop := context.AfterFunc(ctx, func() { _ = cl.Close() })
+	stdout, stderr, exitCode, err = execSession(cl, cmd)
+	if !stop() {
+		return "", "", -1, ctx.Err()
+	}
+	return stdout, stderr, exitCode, err
+}
+
+// execSession 打开一个会话执行 cmd，不感知 ctx（由 Exec 负责打断）
+func execSession(cl *ssh.Client, cmd string) (stdout, stderr string, exitCode int, err error) {
 	sess, err := cl.NewSession()
 	if err != nil {
 		return "", "", -1, err
@@ -58,11 +69,7 @@ func Exec(ctx context.Context, cl *ssh.Client, cmd string) (stdout, stderr strin
 	defer func() { _ = sess.Close() }()
 	var out, errBuf bytes.Buffer
 	sess.Stdout, sess.Stderr = &out, &errBuf
-	stop := context.AfterFunc(ctx, func() { _ = cl.Close() })
 	runErr := sess.Run(cmd)
-	if !stop() {
-		return "", "", -1, ctx.Err()
-	}
 	var exit *ssh.ExitError
 	switch {
 	case errors.As(runErr, &exit):

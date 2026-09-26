@@ -3,12 +3,14 @@ package dsconn
 import (
 	"context"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"math/big"
 	"net"
 	"strconv"
@@ -202,6 +204,56 @@ func silentListener(t *testing.T) (string, int) {
 		}
 	})
 	return splitAddr(t, ln.Addr().String())
+}
+
+// stallingSSH 完成握手与密码认证后不再回应任何通道打开请求的 SSH 服务端，模拟登录后失去响应的目标主机：
+// 客户端的 NewSession 会一直等待通道确认。返回地址与主机密钥指纹
+func stallingSSH(t *testing.T) (host string, port int, fingerprint string) {
+	t.Helper()
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	signer, err := ssh.NewSignerFromKey(priv)
+	require.NoError(t, err)
+	cfg := &ssh.ServerConfig{PasswordCallback: func(c ssh.ConnMetadata, pw []byte) (*ssh.Permissions, error) {
+		if c.User() == "root" && string(pw) == testPassword {
+			return &ssh.Permissions{}, nil
+		}
+		return nil, errors.New("密码错误")
+	}}
+	cfg.AddHostKey(signer)
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	var (
+		mu    sync.Mutex
+		conns []net.Conn
+	)
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			conns = append(conns, c)
+			mu.Unlock()
+			go func() {
+				// 不读取新通道：通道打开请求既不接受也不拒绝，只在连接关闭后随之结束
+				if _, _, reqs, err := ssh.NewServerConn(c, cfg); err == nil {
+					ssh.DiscardRequests(reqs)
+				}
+			}()
+		}
+	}()
+	t.Cleanup(func() {
+		_ = ln.Close()
+		mu.Lock()
+		defer mu.Unlock()
+		for _, c := range conns {
+			_ = c.Close()
+		}
+	})
+	host, port = splitAddr(t, ln.Addr().String())
+	return host, port, ssh.FingerprintSHA256(signer.PublicKey())
 }
 
 // closedPort 一个没有监听的本地端口
