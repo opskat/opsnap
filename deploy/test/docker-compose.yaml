@@ -95,7 +95,8 @@ services:
     volumes:
       - ./ssh-jump-init/10-allow-tcp-forwarding.sh:/custom-cont-init.d/10-allow-tcp-forwarding.sh:ro
     healthcheck:
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/2222"]
+      # 镜像的 /bin/sh 是 busybox ash，不支持 /dev/tcp；改用镜像自带的真实 nc（/usr/bin/nc）以 exec 形式探测端口
+      test: ["CMD", "nc", "-z", "127.0.0.1", "2222"]
       interval: 5s
       retries: 30
 
@@ -110,7 +111,8 @@ services:
       USER_PASSWORD: ${OPSNAP_TEST_PASSWORD:?缺少 OPSNAP_TEST_PASSWORD}
       SUDO_ACCESS: "false"
     healthcheck:
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/2222"]
+      # 同 ssh-jump：/bin/sh 是 busybox ash，不支持 /dev/tcp，改用真实 nc 以 exec 形式探测端口
+      test: ["CMD", "nc", "-z", "127.0.0.1", "2222"]
       interval: 5s
       retries: 30
 
