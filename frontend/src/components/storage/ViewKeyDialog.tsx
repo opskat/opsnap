@@ -15,10 +15,10 @@ import {
 import { ApiError } from "@/lib/api";
 import { ErrorCode, getAuthStatus, type AuthStatus } from "@/lib/auth";
 import { kopiaConnectCommand, locationOf, reauthURL, revealKey, type Storage } from "@/lib/storage";
+import { useResetOnOpen, useRetained } from "@/lib/useRetained";
 
 import { KeyActions } from "./KeyActions";
 import { useDownloadKeyFile } from "./useDownloadKeyFile";
-import { useResetOnOpen, useRetained } from "./useRetained";
 
 /** view：查看密钥；download：验证后直接下载密钥文件 */
 export type RevealIntent = "view" | "download";

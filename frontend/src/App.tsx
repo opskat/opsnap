@@ -8,6 +8,8 @@ import { LoginPage } from "@/pages/LoginPage";
 import { OverviewPage } from "@/pages/OverviewPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { SetupPage } from "@/pages/SetupPage";
+import { SourceDetailPage } from "@/pages/SourceDetailPage";
+import { SourcesPage } from "@/pages/SourcesPage";
 import { StoragePage } from "@/pages/StoragePage";
 
 const router = createBrowserRouter([
@@ -22,8 +24,10 @@ const router = createBrowserRouter([
           { index: true, element: <OverviewPage /> },
           { path: "/settings", element: <SettingsPage /> },
           { path: "/storage", element: <StoragePage /> },
+          { path: "/sources", element: <SourcesPage /> },
+          { path: "/sources/:id", element: <SourceDetailPage /> },
           ...[...mainNav, ...systemNav]
-            .filter((item) => !["/", "/settings", "/storage"].includes(item.path))
+            .filter((item) => !["/", "/settings", "/storage", "/sources"].includes(item.path))
             .map((item) => ({ path: item.path, element: <ComingSoonPage title={item.label} /> })),
         ],
       },

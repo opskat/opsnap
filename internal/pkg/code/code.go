@@ -87,6 +87,71 @@ const (
 	StorageDirCreateFailed
 )
 
+// 网络通道
+const (
+	ChannelNotFound = iota + 10500
+	ChannelNameInvalid
+	ChannelNameDuplicate
+	ChannelHostRequired
+	ChannelPortInvalid
+	ChannelUserRequired
+	ChannelAuthMethodInvalid
+	ChannelPasswordRequired
+	ChannelPrivateKeyRequired
+	ChannelSOCKS5CredentialPair
+	ChannelPassphraseMissing
+	ChannelPassphraseWrong
+	ChannelKeyInvalid
+	ChannelViaNotFound
+	ChannelViaCycle
+	ChannelChainTooLong
+	ChannelHopFailed
+	ChannelHostKeyChanged
+	ChannelInUse
+	ChannelNotSSH
+	// 以下为一跳失败的原因，只用于拼接 ChannelHopFailed 的文案
+	ChannelReasonUnreachable
+	ChannelReasonTimeout
+	ChannelReasonCanceled
+	ChannelReasonProtocol
+	ChannelReasonNegotiation
+	ChannelReasonAuthFailed
+	ChannelReasonHostKeyUnknown
+	ChannelReasonHostKeyChanged
+)
+
+// 数据源
+const (
+	DataSourceNotFound = iota + 10600
+	DataSourceNameInvalid
+	DataSourceNameDuplicate
+	DataSourceHostRequired
+	DataSourcePortInvalid
+	DataSourceUserRequired
+	DataSourceAuthMethodInvalid
+	DataSourcePasswordRequired
+	DataSourcePrivateKeyRequired
+	DataSourcePassphraseMissing
+	DataSourcePassphraseWrong
+	DataSourceKeyInvalid
+	DataSourceTLSPairRequired
+	DataSourceCAInvalid
+	DataSourceClientCertInvalid
+	DataSourceClientKeyInvalid
+	DataSourceChannelNotFound
+	DataSourceConfigInvalid
+	DataSourceTestFailed
+	DataSourceNotServerFile
+	// 以下为数据源本身连接失败的原因，只用于拼接 DataSourceTestFailed 的文案
+	DataSourceReasonUnreachable
+	DataSourceReasonTimeout
+	DataSourceReasonCanceled
+	DataSourceReasonAuthFailed
+	DataSourceReasonTLS
+	DataSourceReasonCertificate
+	DataSourceReasonFailed
+)
+
 func init() {
 	i18n.DefaultLang = LangZhCN
 	i18n.Register(LangZhCN, zhCN)

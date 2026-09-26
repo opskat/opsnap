@@ -16,10 +16,10 @@ import {
 import { ApiError } from "@/lib/api";
 import { ErrorCode } from "@/lib/auth";
 import { createStorage, keyInfo, MIN_KEY_LENGTH, type KeyInfo, type Storage } from "@/lib/storage";
+import { useResetOnOpen, useRetained } from "@/lib/useRetained";
 
 import { KeyActions } from "./KeyActions";
 import type { StorageDraft } from "./StorageFormDialog";
-import { useResetOnOpen, useRetained } from "./useRetained";
 
 type Mode = "generated" | "custom";
 

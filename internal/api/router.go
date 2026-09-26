@@ -7,6 +7,8 @@ import (
 	"github.com/cago-frame/cago/server/mux"
 
 	"github.com/opskat/opsnap/internal/controller/auth_ctr"
+	"github.com/opskat/opsnap/internal/controller/channel_ctr"
+	"github.com/opskat/opsnap/internal/controller/datasource_ctr"
 	"github.com/opskat/opsnap/internal/controller/oidc_ctr"
 	"github.com/opskat/opsnap/internal/controller/storage_ctr"
 	"github.com/opskat/opsnap/internal/controller/system_ctr"
@@ -32,13 +34,18 @@ func Router(ctx context.Context, root *mux.Router) error {
 	token := token_ctr.NewToken()
 	oidc := oidc_ctr.NewOIDC()
 	storage := storage_ctr.NewStorage()
+	channel := channel_ctr.NewChannel()
+	datasource := datasource_ctr.NewDataSource()
 
 	public := r.Group("/")
 	public.Bind(system.Health, auth.Status, auth.Setup, auth.Login, oidc.Login, oidc.Callback)
 
 	authed := r.Group("/", requireAuth())
 	authed.Bind(auth.Logout, auth.Me,
-		storage.List, storage.Probe, storage.Create, storage.Update, storage.Test, storage.Unlock, storage.Delete, storage.Key)
+		storage.List, storage.Probe, storage.Create, storage.Update, storage.Test, storage.Unlock, storage.Delete, storage.Key,
+		channel.List, channel.Probe, channel.Create, channel.Update, channel.Test, channel.ConfirmHostKey, channel.Delete,
+		datasource.List, datasource.Get, datasource.Probe, datasource.Create, datasource.Update, datasource.Test,
+		datasource.ConfirmHostKey, datasource.Reprobe, datasource.Delete)
 
 	account := authed.Group("/", requireSession())
 	account.Bind(auth.ChangePassword, token.List, token.Create, token.Revoke,

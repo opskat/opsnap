@@ -21,7 +21,8 @@ Pick the narrowest boundary that observes the real contract:
 | endpoint input, output and errors | controller | `muxtest.NewTestMux()` + mock repositories (see `internal/controller/system_ctr/system_test.go`) |
 | rendered state, interaction, accessibility | component | Vitest + Testing Library (see `frontend/src/pages/OverviewPage.test.tsx`) |
 | real process, embedded frontend, build output | e2e | Playwright smoke (`e2e/tests/`) |
-| real databases, storage or servers | runtime verification | [`verification.md`](verification.md) |
+| driver behaviour against a real MySQL / PostgreSQL (connection, TLS, probes) | Go package test against docker.lan | `testenv.MySQL(t)` / `testenv.Postgres(t)` (`internal/pkg/testenv`, see below) |
+| end-to-end flows against real databases, storage or servers | runtime verification | [`verification.md`](verification.md) |
 
 ## Covering the behaviour space deliberately
 
@@ -38,6 +39,7 @@ Do not multiply ordinary samples down the same branch. A bug regression test sta
 
 - Assert returned, rendered, persisted or emitted behaviour. Assert a collaborator call only when that call is the contract.
 - Go: repositories are mocked with `go.uber.org/mock` (generated into `internal/repository/*/mock/`) and registered with `RegisterXxx` inside `setupXxxTest`. Structure scenarios with GoConvey (`convey.Convey` nesting) and assert with testify. For service and repository tests against real SQLite, call `testdb.New(t)` (`internal/pkg/testdb`): it creates a temporary database, runs every migration and sets it as cago's default database (see `internal/service/secret_svc/secret_test.go`). OIDC tests use the in-process fake provider `internal/pkg/fakeidp` (`httptest` server; `SetNext` injects cancellation, wrong audience or nonce, expired tokens).
+- Go tests that need a docker.lan service (the `opsnap-test` MySQL 8.0 and PostgreSQL 16) get its address and credentials from `testenv.MySQL(t)` / `testenv.Postgres(t)`. `internal/pkg/testenv` reads `e2e/.env` (environment variables override it; variables in [`../e2e/.env.example`](../e2e/.env.example)) and skips the test, stating which variables are missing, when the service is not configured. Such a skip is not a failure: CI has no databases, so only the in-process parts run there (SSH and SOCKS5 through `internal/pkg/fakessh`). These tests are read-only against the shared instances. Example: `TEST_ENV_HOST=192.168.8.141 go test ./internal/pkg/dsconn/` with the ports and password in `e2e/.env`.
 - Frontend: stub HTTP with `vi.stubGlobal("fetch", ...)`, which works because every request goes through `request()`. Assert what the page shows, not what the mock returned.
 - Keep fixtures minimal and able to tell right from wrong.
 
@@ -75,7 +77,7 @@ make lint                                                        # static checks
 
 - Go: GoConvey + testify + go.uber.org/mock, plus cago's `muxtest` and `testutils`.
 - Frontend: Vitest (happy-dom, `globals: true`) + Testing Library + jest-dom matchers, configured in the `test` block of `frontend/vite.config.ts`.
-- e2e: Playwright; see [`../e2e/README.md`](../e2e/README.md).
+- e2e: Playwright; see [`../e2e/README.md`](../e2e/README.md). Process-level fakes needed only in e2e (not by any Go test) are built as standalone binaries in `tools/` and started by `e2e/global-setup.ts`: `tools/fakeidp` for OIDC, `tools/fakessh` (wraps `internal/pkg/fakessh`) for SSH network channels and server-file data sources.
 
 ## Related
 
