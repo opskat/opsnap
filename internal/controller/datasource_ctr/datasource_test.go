@@ -803,6 +803,7 @@ func TestHostKey(t *testing.T) {
 			srv := newSSH(t)
 			item := e.create(t, serverForm(t, "web-01", srv))
 			old := srv.Fingerprint()
+			gogo.Wait() // 先等保存触发的后台探测结束，否则它的认证会在快照之后才计入
 			require.NoError(t, srv.RotateHostKey())
 			attempts := srv.AuthAttempts()
 
@@ -869,6 +870,7 @@ func TestHostKey(t *testing.T) {
 			f2.ChannelID = jump2.ID
 			deep := e.create(t, f2)
 			other := e.create(t, mysqlForm(t, "elsewhere", dbAddr))
+			gogo.Wait() // 同上：经跳板的后台探测会在快照之后才计入认证和转发
 			require.NoError(t, bastion.RotateHostKey())
 			attempts, forwards := bastion.AuthAttempts(), len(bastion.Forwards())
 
