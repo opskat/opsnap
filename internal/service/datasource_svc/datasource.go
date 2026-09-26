@@ -7,6 +7,7 @@ package datasource_svc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -38,6 +39,8 @@ const (
 	retestConcurrency = 4
 	// probeTimeout 单次能力探测的整体超时（docs/specs/2026-09-25-datasources.md「能力探测」）
 	probeTimeout = 60 * time.Second
+	// probeSaveTimeout 探测结束后保存结果的超时，独立于探测的整体超时
+	probeSaveTimeout = 10 * time.Second
 )
 
 // defaultPorts 各类型的默认端口
@@ -84,9 +87,12 @@ type dataSourceSvc struct {
 	// again 探测进行中数据源的设置被保存：本次结束后按新设置再探测一次（旧设置的结果不能冒充）
 	again     map[int64]bool
 	probeDone func(id int64) // 测试钩子：一次后台探测（无论成功、失败还是被合并跳过）结束后调用，供测试等待完成而不用 sleep
+	// probeLimit 单次探测的整体超时，默认 probeTimeout；测试用 SetProbeTimeout 缩短
+	probeLimit time.Duration
 }
 
-var defaultDataSource = &dataSourceSvc{now: time.Now, connector: dsconn.Default, runner: probe.Run, probing: map[int64]bool{}, again: map[int64]bool{}}
+var defaultDataSource = &dataSourceSvc{now: time.Now, connector: dsconn.Default, runner: probe.Run, probing: map[int64]bool{}, again: map[int64]bool{},
+	probeLimit: probeTimeout}
 
 func DataSource() DataSourceSvc {
 	return defaultDataSource
@@ -117,6 +123,22 @@ func SetProbeDoneHook(fn func(id int64)) {
 	defaultDataSource.probeMu.Lock()
 	defer defaultDataSource.probeMu.Unlock()
 	defaultDataSource.probeDone = fn
+}
+
+// SetProbeTimeout 仅供测试：替换单次探测的整体超时，<=0 恢复为 60 秒
+func SetProbeTimeout(d time.Duration) {
+	if d <= 0 {
+		d = probeTimeout
+	}
+	defaultDataSource.mu.Lock()
+	defer defaultDataSource.mu.Unlock()
+	defaultDataSource.probeLimit = d
+}
+
+func (s *dataSourceSvc) probeLimitNow() time.Duration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.probeLimit
 }
 
 // RegisterChannelHooks 向通道模块注册：引用计数与删除保护计入数据源；通道的主机密钥变化时经过它的数据源同样标记，
@@ -195,11 +217,16 @@ func (s *dataSourceSvc) triggerProbe(id int64, settingsChanged bool) {
 	})
 }
 
-// runProbe 连接数据源、执行一次探测并落库；整体超时 probeTimeout。数据源在此期间被删除时什么也不做
+// runProbe 连接数据源、执行一次探测并落库；整体超时 probeLimitNow。数据源在此期间被删除时什么也不做
 func (s *dataSourceSvc) runProbe(id int64) {
-	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	limit := s.probeLimitNow()
+	ctx, cancel := context.WithTimeout(context.Background(), limit)
 	defer cancel()
 	items, failReason := s.probeOnce(ctx, id)
+	if failReason == "" && items != nil && ctx.Err() != nil {
+		// 探测项跑到整体超时才返回：残缺的结果不能当作完成，整次按“无法探测”处理
+		failReason = fmt.Sprintf("capability probe timed out after %s: %v", limit, ctx.Err())
+	}
 	now := s.now().Unix()
 	// 只写探测结果的列，不覆盖探测期间发生的其它更新（如测试连接的结果）；数据源已被删除时什么也不写
 	ds := &datasource_entity.DataSource{ID: id}
@@ -208,9 +235,13 @@ func (s *dataSourceSvc) runProbe(id int64) {
 	} else {
 		ds.SetProbeDone(items, now)
 	}
-	if err := datasource_repo.DataSource().SaveColumns(ctx, ds, datasource_entity.ProbeColumns...); err != nil &&
+	// 落库不能用探测的 ctx：探测超时时它已到期，保存会以 context deadline exceeded 失败，
+	// 页面继续显示上一次的结果冒充本次。另起一个有独立超时的 ctx，保存不受探测超时影响也不会无限挂起
+	saveCtx, saveCancel := context.WithTimeout(context.WithoutCancel(ctx), probeSaveTimeout)
+	defer saveCancel()
+	if err := datasource_repo.DataSource().SaveColumns(saveCtx, ds, datasource_entity.ProbeColumns...); err != nil &&
 		!errors.Is(err, datasource_repo.ErrNotFound) {
-		logger.Ctx(ctx).Warn("保存能力探测结果失败", zap.Int64("datasource_id", id), zap.Error(err))
+		logger.Ctx(saveCtx).Warn("保存能力探测结果失败", zap.Int64("datasource_id", id), zap.Error(err))
 	}
 }
 

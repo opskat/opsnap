@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"math/big"
 	"net"
 	"net/http"
@@ -75,8 +76,10 @@ type fakeConnector struct {
 	info    dsconn.Info
 	err     error
 	openErr error // 只影响 Open（能力探测用它连接），不影响 Test（先测试后保存用它），用于单独制造“无法探测”
-	cfgs    []dsconn.Config
-	hook    func() // 下一次 Test 连接进行中调用一次，用来制造并发修改
+	// openHang 让接下来的 Open 一直阻塞到 ctx 结束（模拟目标主机失去响应），用于制造探测超时
+	openHang bool
+	cfgs     []dsconn.Config
+	hook     func() // 下一次 Test 连接进行中调用一次，用来制造并发修改
 }
 
 // onTest 下一次 Test 连接进行中调用 fn 一次
@@ -97,6 +100,13 @@ func (f *fakeConnector) setOpenErr(err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.openErr = err
+}
+
+// setOpenHang 让接下来的 Open（能力探测）阻塞到探测的 ctx 结束后才以 ctx 的错误返回
+func (f *fakeConnector) setOpenHang(hang bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.openHang = hang
 }
 
 func (f *fakeConnector) last() dsconn.Config {
@@ -134,8 +144,12 @@ func (f *fakeConnector) Test(ctx context.Context, d dsconn.Dialer, cfg dsconn.Co
 
 func (f *fakeConnector) Open(ctx context.Context, d dsconn.Dialer, cfg dsconn.Config) (*dsconn.Conn, error) {
 	f.mu.Lock()
-	openErr := f.openErr
+	openErr, hang := f.openErr, f.openHang
 	f.mu.Unlock()
+	if hang {
+		<-ctx.Done()
+		return nil, fmt.Errorf("dial tcp %s:%d: %w", cfg.Host, cfg.Port, ctx.Err())
+	}
 	if openErr != nil {
 		return nil, openErr
 	}
@@ -1003,9 +1017,15 @@ func (g *probeGate) run(ctx context.Context, _ dsconn.Type, _ *dsconn.Conn) []pr
 // waitProbe 等待一次后台探测完成（通过测试钩子），而不是靠 sleep 猜时间
 func waitProbe(t *testing.T, done <-chan int64, id int64) {
 	t.Helper()
+	waitProbeWithin(t, done, id, 2*time.Second)
+}
+
+// waitProbeWithin 同 waitProbe，最多等待 d
+func waitProbeWithin(t *testing.T, done <-chan int64, id int64, d time.Duration) {
+	t.Helper()
 	// 钩子是全局的：外层 Convey 先创建的数据源，其后台探测可能在钩子装上之后才结束，
 	// 只认 id 的完成通知，跳过其它数据源的，否则会在 id 仍在探测中时提前返回
-	timeout := time.After(2 * time.Second)
+	timeout := time.After(d)
 	for {
 		select {
 		case got := <-done:
@@ -1146,6 +1166,47 @@ func TestReprobe(t *testing.T) {
 			assert.Equal(t, "unprobeable", got.Probe.State)
 			assert.Contains(t, got.Probe.Error, "connection refused")
 			assert.Empty(t, got.Probe.Items, "无法探测时不应显示上一次的结果")
+		})
+
+		// 探测超时：超时的是探测本身，结果仍须落库为“无法探测”，而不是因保存也用了已到期的 ctx 而失败，
+		// 继续显示上一次的结果。超时设为 1.1 秒：探测时间以秒记，保证超时的这次探测时间严格晚于上一次
+		timedOut := func(hang func(), probeTimeout time.Duration) {
+			done := make(chan int64, 4)
+			datasource_svc.SetProbeDoneHook(func(id int64) { done <- id })
+			t.Cleanup(func() { datasource_svc.SetProbeDoneHook(nil) })
+
+			item := e.create(t, mysqlForm(t, "orders", dbAddr)) // 默认假探测：先有一次成功结果
+			waitProbe(t, done, item.ID)
+			prev := e.get(t, item.ID).Probe
+			require.Equal(t, "done", prev.State)
+
+			datasource_svc.SetProbeTimeout(probeTimeout)
+			t.Cleanup(func() { datasource_svc.SetProbeTimeout(0) })
+			hang()
+			require.NoError(t, e.do(&api.ReprobeRequest{ID: item.ID}, &api.ReprobeResponse{}))
+			waitProbeWithin(t, done, item.ID, 10*time.Second)
+
+			got := e.get(t, item.ID)
+			require.NotNil(t, got.Probe)
+			assert.Equal(t, "unprobeable", got.Probe.State, "探测超时应显示无法探测，而不是上一次的结果")
+			assert.Contains(t, got.Probe.Error, "deadline exceeded")
+			assert.Empty(t, got.Probe.Items, "无法探测时不应显示上一次的结果")
+			assert.Greater(t, got.Probe.Time, prev.Time, "应为超时这次的探测时间")
+			assert.Equal(t, "unprobeable", e.findInList(t, item.ID).Probe.State)
+		}
+
+		convey.Convey("连接阶段超时：显示无法探测（附超时错误与本次探测时间），不显示上一次的结果", func() {
+			timedOut(func() { e.conn.setOpenHang(true) }, 1100*time.Millisecond)
+		})
+
+		convey.Convey("探测项执行阶段超时：同样显示无法探测，不把超时后残缺的结果当作完成", func() {
+			timedOut(func() {
+				datasource_svc.SetProbeRunner(func(ctx context.Context, _ dsconn.Type, _ *dsconn.Conn) []probe.Item {
+					<-ctx.Done() // 目标失去响应：每一项都等到整体超时才返回
+					return []probe.Item{{Key: "a", Title: probe.Text{ZhCN: "项 A", En: "Item A"}, Tier: probe.TierFail,
+						Detail: probe.Text{ZhCN: "超时", En: ctx.Err().Error()}}}
+				})
+			}, 1100*time.Millisecond)
 		})
 	})
 }
