@@ -6,9 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { listDirs, makeDir, type Dir, type DirStatus } from "@/lib/storage";
+import { useResetOnOpen } from "@/lib/useRetained";
 import { cn } from "@/lib/utils";
-
-import { useResetOnOpen } from "./useRetained";
 
 type Listing = { path: string; parent: string; dirs: Dir[] };
 

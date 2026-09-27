@@ -51,6 +51,15 @@ kopia restore <snapshot-id> /restore/target
 
 Enter the key when asked for the password. The key file downloaded from OpsNap contains the key (on the `Key:` line) and the connect command for that storage.
 
+## Data sources
+
+Under Sources, connect the MySQL, PostgreSQL and server-file databases and hosts you want to back up:
+
+- **Network channels** reach a data source that isn't directly reachable: chain up to 5 SSH jump hosts and SOCKS5 proxies, each one reusable by several data sources. A channel's SSH host key is trusted on first connect (TOFU, like `ssh`) and re-checked on every use; if it changes, everything routed through that channel stops until you confirm the new key with your server administrator.
+- Saving a data source tests the connection first (five TLS modes plus optional mTLS for MySQL/PostgreSQL; the same host-key confirmation for server files), so a mistake never overwrites a working configuration.
+- Saving also starts a background capability probe (which backup methods this data source supports, with a copy-pasteable fix for anything missing or risky); reprobe any time from its detail page.
+- A network channel still used by a data source can't be deleted.
+
 ## Forgotten password
 
 On the server, run:

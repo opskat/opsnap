@@ -312,5 +312,237 @@
     "disableHint": "You will only be able to sign in with OIDC. If the IdP is down, run opsnap admin reset-password on the server to turn it back on.",
     "disableConfirm": "Turn off password sign-in",
     "reenableNotice": "Password sign-in will be turned back on."
+  },
+  "sources": {
+    "subtitle": "Databases and servers to back up. Connections can go through network channels (SSH jump hosts, SOCKS5 proxies); saving triggers automatic capability probing.",
+    "loadFailed": "Failed to load channels: {{message}}",
+    "createChannel": "New Channel",
+    "optional": "optional",
+    "upload": "Upload",
+    "createDataSource": "New Data Source",
+    "tabs": {
+      "dataSources": "Data Sources",
+      "channels": "Network Channels"
+    },
+    "channel": {
+      "empty": "No channels yet",
+      "emptyHint": "Create an SSH jump host or SOCKS5 proxy for data sources to connect through.",
+      "kind": {
+        "ssh": "SSH Jump Host",
+        "socks5": "SOCKS5 Proxy"
+      },
+      "status": {
+        "ok": "OK",
+        "unreachable": "Unreachable",
+        "host_key_changed": "Host Key Changed"
+      },
+      "auth": {
+        "password": "Password auth",
+        "key": "Private key auth",
+        "socks5Password": "Username/password auth",
+        "socks5None": "No auth"
+      },
+      "list": {
+        "name": "Name",
+        "address": "Address",
+        "usage": "Usage",
+        "status": "Status",
+        "actions": "Actions",
+        "direct": "Direct",
+        "via": "via {{chain}}",
+        "dataSourceCount": "{{count}} data sources",
+        "dataSourceCount_one": "{{count}} data source",
+        "dataSourceCount_other": "{{count}} data sources",
+        "channelCount": "{{count}} channels",
+        "channelCount_one": "{{count}} channel",
+        "channelCount_other": "{{count}} channels",
+        "unused": "Not in use",
+        "checked": "Tested {{time}}",
+        "test": "Test",
+        "testNamed": "Test {{name}}",
+        "edit": "Edit",
+        "editNamed": "Edit {{name}}",
+        "more": "More actions for {{name}}",
+        "reconfirm": "Reconfirm",
+        "reconfirmNamed": "Reconfirm host key for {{name}}",
+        "deleteItem": "Delete channel",
+        "deleteBlocked": "Still used by {{items}}, cannot delete"
+      },
+      "form": {
+        "createTitle": "New Network Channel",
+        "editTitle": "Edit Network Channel",
+        "hint": "A channel is one hop to a target; it can go through another channel to form a mixed SOCKS5 and SSH chain.",
+        "kind": "Channel type",
+        "name": "Name",
+        "host": "Host",
+        "port": "Port",
+        "username": "Username",
+        "authMethod": "Auth method",
+        "password": "Password",
+        "privateKey": "Private key",
+        "privateKeyHint": "Supports OpenSSH / PEM RSA, ECDSA and Ed25519 private keys; paste or upload a file.",
+        "passphrase": "Private key passphrase",
+        "passphraseHint": "Required when the private key is encrypted",
+        "secretKeep": "Saved (encrypted); leave blank to keep it",
+        "socks5CredentialHint": "Username and password are optional, but fill in both or neither.",
+        "via": "Via",
+        "viaNone": "None, direct from OpsNap",
+        "chain": "Chain: {{chain}}. Channels that would form a cycle can't be selected; the chain has at most 5 hops.",
+        "chainTooLong": "The chain has {{count}} hops, over the limit of {{max}}; it can't be saved.",
+        "test": "Test Connection",
+        "testing": "Testing…",
+        "hostKeyChangedHint": "This host presented a key that no longer matches the saved one. Reconfirm it first."
+      },
+      "result": {
+        "testSuccess": "Connected successfully; the chain has been confirmed."
+      },
+      "delete": {
+        "title": "Delete channel \"{{name}}\"?",
+        "hint": "Only the record and credentials in OpsNap are deleted.",
+        "confirm": "Delete Channel"
+      }
+    },
+    "hostKey": {
+      "confirm": {
+        "title": "Confirm Host Key",
+        "hint": "Connecting to {{address}} for the first time. Check the fingerprint below with your server administrator; confirming continues the connection and saves this key.",
+        "keyType": "Key type",
+        "fingerprint": "Fingerprint",
+        "chain": "Chain",
+        "verifyHint": "Run ssh-keygen -lf <public key file> on the server to see this fingerprint.",
+        "trust": "Trust and Continue"
+      },
+      "changed": {
+        "title": "Host Key Changed",
+        "hint": "{{name}} ({{address}}) presented a host key that doesn't match the saved one. Connections through it are rejected until confirmed.",
+        "saved": "Saved key",
+        "presented": "Presented key",
+        "warning": "A server reinstall or regenerated key can cause this, but it can also be a man-in-the-middle attack. Only trust it after checking the new fingerprint with your server administrator.",
+        "trust": "Trust New Key"
+      }
+    },
+    "dataSource": {
+      "empty": "No data sources yet",
+      "emptyHint": "Create a MySQL, PostgreSQL or server file data source.",
+      "loadFailed": "Failed to load data sources: {{message}}",
+      "kind": {
+        "mysql": "MySQL",
+        "postgres": "PostgreSQL",
+        "server_file": "Server File"
+      },
+      "status": {
+        "ok": "OK",
+        "unreachable": "Unreachable",
+        "host_key_changed": "Host Key Changed"
+      },
+      "list": {
+        "name": "Name",
+        "address": "Address",
+        "probe": "Capability Probe",
+        "status": "Status",
+        "actions": "Actions",
+        "direct": "Direct",
+        "via": "via {{chain}}",
+        "checked": "Tested {{time}}",
+        "probing": "Probing",
+        "unprobeable": "Unprobeable",
+        "probeAllOk": "All {{count}} checks passed",
+        "probeOk": "{{count}} passed",
+        "probeOk_one": "{{count}} passed",
+        "probeOk_other": "{{count}} passed",
+        "probeWarn": "{{count}} warnings",
+        "probeWarn_one": "{{count}} warning",
+        "probeWarn_other": "{{count}} warnings",
+        "probeFail": "{{count}} unavailable",
+        "probeFail_one": "{{count}} unavailable",
+        "probeFail_other": "{{count}} unavailable",
+        "test": "Test",
+        "testNamed": "Test {{name}}",
+        "edit": "Edit",
+        "editNamed": "Edit {{name}}",
+        "more": "More actions for {{name}}",
+        "reconfirm": "Reconfirm",
+        "reconfirmNamed": "Reconfirm host key for {{name}}",
+        "reconfirmChannelStale": "Couldn't get the key channel {{name}} is currently presenting; try again shortly.",
+        "viewDetail": "View Details",
+        "deleteItem": "Delete data source"
+      },
+      "form": {
+        "createTitle": "New Data Source",
+        "editTitle": "Edit Data Source",
+        "hint": "Saving tests the connection over the network channel first; saving triggers automatic capability probing.",
+        "kind": "Data source type",
+        "name": "Name",
+        "host": "Host",
+        "port": "Port",
+        "username": "Username",
+        "password": "Password",
+        "database": "Database",
+        "authMethod": "Auth method",
+        "privateKey": "Private key",
+        "privateKeyHint": "Supports OpenSSH / PEM RSA, ECDSA and Ed25519 private keys; paste or upload a file.",
+        "passphrase": "Private key passphrase",
+        "passphraseHint": "Required when the private key is encrypted",
+        "secretKeep": "Saved (encrypted); leave blank to keep it",
+        "channel": "Network channel",
+        "channelNone": "None, direct from OpsNap",
+        "chain": "Chain: {{chain}}",
+        "tls": "TLS",
+        "tlsMode": {
+          "disable": "Disable",
+          "prefer": "Prefer",
+          "require": "Require",
+          "verify_ca": "Verify CA",
+          "verify_full": "Verify CA & Hostname"
+        },
+        "tlsCA": "CA Certificate",
+        "tlsCAHint": "Paste PEM or upload a file; leave blank in the verify modes to use the controller's system trust store.",
+        "tlsClientCert": "Client Certificate",
+        "tlsClientCertHint": "Optional mTLS; must be provided together with the client private key.",
+        "tlsClientKey": "Client Private Key",
+        "test": "Test Connection",
+        "testing": "Testing…",
+        "hostKeyChangedHint": "This host presented a key that no longer matches the saved one. Reconfirm it first."
+      },
+      "result": {
+        "testSuccess": "Connected successfully; probing will run automatically after saving.",
+        "testSuccessWith": "Connected successfully: {{info}}. Probing will run automatically after saving.",
+        "tlsVerified": "{{version}}, certificate verified",
+        "tlsUnverified": "{{version}}, certificate not verified",
+        "noTls": "not encrypted"
+      },
+      "delete": {
+        "title": "Delete data source \"{{name}}\"?",
+        "hint": "Only the record and credentials in OpsNap are deleted; the database or server is not affected.",
+        "confirm": "Delete Data Source"
+      },
+      "detail": {
+        "back": "Back to {{name}}",
+        "loadFailed": "Couldn't load the data source: {{message}}",
+        "notFoundTitle": "Data source not found",
+        "notFoundHint": "It may have been deleted, or the link is incorrect.",
+        "backToList": "Back to list",
+        "reprobe": "Reprobe",
+        "reprobing": "Reprobing…",
+        "connection": {
+          "title": "Connection",
+          "type": "Type",
+          "address": "Address",
+          "username": "Username",
+          "tls": "TLS",
+          "recentTest": "Recent test",
+          "chain": "Network chain",
+          "controller": "Controller",
+          "clientCert": "Client certificate",
+          "untested": "Not yet connected successfully"
+        },
+        "probe": {
+          "title": "Capability Probe",
+          "probedAt": "Probed {{time}}",
+          "tables": "{{tables}} ({{count}} total)",
+          "fix": "Fix"
+        }
+      }
+    }
   }
 }

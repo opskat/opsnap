@@ -21,8 +21,11 @@ import (
 
 	"github.com/opskat/opsnap/internal/api"
 	"github.com/opskat/opsnap/internal/middleware"
+	"github.com/opskat/opsnap/internal/pkg/probe"
 	"github.com/opskat/opsnap/internal/pkg/secret"
 	"github.com/opskat/opsnap/internal/repository/admin_repo"
+	"github.com/opskat/opsnap/internal/repository/channel_repo"
+	"github.com/opskat/opsnap/internal/repository/datasource_repo"
 	"github.com/opskat/opsnap/internal/repository/oidc_repo"
 	"github.com/opskat/opsnap/internal/repository/session_repo"
 	"github.com/opskat/opsnap/internal/repository/setting_repo"
@@ -30,6 +33,7 @@ import (
 	"github.com/opskat/opsnap/internal/repository/system_repo"
 	"github.com/opskat/opsnap/internal/repository/token_repo"
 	"github.com/opskat/opsnap/internal/service/auth_svc"
+	"github.com/opskat/opsnap/internal/service/datasource_svc"
 	"github.com/opskat/opsnap/internal/service/secret_svc"
 	"github.com/opskat/opsnap/internal/service/storage_svc"
 	"github.com/opskat/opsnap/internal/web"
@@ -58,6 +62,7 @@ func main() {
 	}
 
 	registerRepositories()
+	registerHooks()
 	// 调试模式下 cago 启用 gin 的访问日志（输出到 gin.DefaultWriter，含查询参数）；
 	// 必须在 HTTP 组件创建它之前换成会隐去 OIDC 授权码的输出
 	gin.DefaultWriter = middleware.RedactAccessLog(os.Stdout)
@@ -88,6 +93,11 @@ func main() {
 			storage_svc.SetDataDir(dataDir(ctx, cfg))
 			return nil
 		})).
+		Registry(cago.FuncComponent(func(ctx context.Context, cfg *configs.Config) error {
+			// 能力探测中主控端工具（mysqldump、pg_dump）在 PATH 之外的备用查找目录，留空则只在 PATH 中查找
+			probe.SetToolsDir(toolsDir(ctx, cfg))
+			return nil
+		})).
 		Registry(cago.FuncComponent(printSetupCode)).
 		RegistryCancel(mux.HTTP(api.Router)).
 		Start()
@@ -105,6 +115,12 @@ func dataDir(ctx context.Context, cfg *configs.Config) string {
 // ensureDataDir SQLite 不会自动创建数据库文件所在目录
 func ensureDataDir(ctx context.Context, cfg *configs.Config) error {
 	return os.MkdirAll(dataDir(ctx, cfg), 0o750)
+}
+
+// toolsDir 配置项 tools.dir（见 configs/config.example.yaml）：能力探测中主控端工具（mysqldump、
+// pg_dump）在 PATH 中找不到时的备用查找目录；未配置时为空
+func toolsDir(ctx context.Context, cfg *configs.Config) string {
+	return cfg.String(ctx, "tools.dir")
 }
 
 // initSecret 加载主密钥；与数据库不匹配时返回错误，阻止服务启动
@@ -144,4 +160,11 @@ func registerRepositories() {
 	token_repo.RegisterToken(token_repo.NewToken())
 	oidc_repo.RegisterOIDC(oidc_repo.NewOIDC())
 	storage_repo.RegisterStorage(storage_repo.NewStorage())
+	channel_repo.RegisterChannel(channel_repo.NewChannel())
+	datasource_repo.RegisterDataSource(datasource_repo.NewDataSource())
+}
+
+// registerHooks 注册模块之间的钩子：通道的引用计数与删除保护计入数据源；通道的主机密钥变化时经过它的数据源同样标记，重新确认后重新测试这些数据源
+func registerHooks() {
+	datasource_svc.RegisterChannelHooks()
 }

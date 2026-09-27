@@ -21,3 +21,8 @@ logger:
 db:
   driver: sqlite
   dsn: "./runtime/opsnap.db?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
+
+# tools:
+#   # 能力探测中“主控端工具”（mysqldump、pg_dump）的查找目录：先在 PATH 中查找，
+#   # PATH 中找不到时再来这里找，为以后预装多个版本的 Docker 镜像做准备。留空或不配置时只在 PATH 中查找
+#   dir: /opt/opsnap/tools

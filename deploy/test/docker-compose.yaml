@@ -1,6 +1,7 @@
 # docker.local 上的真实环境测试服务（compose 项目名 opsnap-test）。
 # 只用于本地真实验证，不用于 CI；由 scripts/test-env.sh 部署。密码来自同目录 .env（部署脚本生成，不提交）。
-# 端口避开宿主机上其他项目已占用的 3306/5432/6379 等（docs/verification.md#test-environment）。
+# 端口避开宿主机上其他项目已占用的 3306/5432/6379 等，以及本文件里已用过的端口
+# （docs/verification.md#test-environment）。
 name: opsnap-test
 
 services:
@@ -13,6 +14,8 @@ services:
       - --gtid-mode=ON
       - --enforce-gtid-consistency=ON
       - --innodb-buffer-pool-size=128M
+      # 首包有时要 20-40s（疑似客户端反向 DNS 解析等待），跳过它
+      - --skip-name-resolve
     environment:
       MYSQL_ROOT_PASSWORD: ${OPSNAP_TEST_PASSWORD:?缺少 OPSNAP_TEST_PASSWORD}
     ports:
@@ -73,6 +76,55 @@ services:
       test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q UP <&3"]
       interval: 5s
       retries: 60
+
+  ssh-jump:
+    # 数据源轮（docs/specs/2026-09-25-datasources.md）运行时验证用的网络通道跳板；用户 opsnap，
+    # 密码为测试密码。ssh-target 不发布端口，只能从这台跳板（同一 compose 网络）到达。
+    # 镜像默认 AllowTcpForwarding no，当不了跳板；用 custom-cont-init.d 下的脚本在启动时开启转发
+    # （见 ssh-jump-init/10-allow-tcp-forwarding.sh），避免拉取 DOCKER_MODS（镜像代理不稳定）
+    image: ${REGISTRY_MIRROR:-}docker.io/linuxserver/openssh-server
+    environment:
+      PUID: 1000
+      PGID: 1000
+      PASSWORD_ACCESS: "true"
+      USER_NAME: opsnap
+      USER_PASSWORD: ${OPSNAP_TEST_PASSWORD:?缺少 OPSNAP_TEST_PASSWORD}
+      SUDO_ACCESS: "false"
+    ports:
+      - "12222:2222"
+    volumes:
+      - ./ssh-jump-init/10-allow-tcp-forwarding.sh:/custom-cont-init.d/10-allow-tcp-forwarding.sh:ro
+    healthcheck:
+      # 镜像的 /bin/sh 是 busybox ash，不支持 /dev/tcp；改用镜像自带的真实 nc（/usr/bin/nc）以 exec 形式探测端口
+      test: ["CMD", "nc", "-z", "127.0.0.1", "2222"]
+      interval: 5s
+      retries: 30
+
+  ssh-target:
+    # 服务器文件数据源的目标主机；只经 ssh-jump 转发到达（不发布端口），验证「SOCKS5 → SSH → 目标主机」链路
+    image: ${REGISTRY_MIRROR:-}docker.io/linuxserver/openssh-server
+    environment:
+      PUID: 1000
+      PGID: 1000
+      PASSWORD_ACCESS: "true"
+      USER_NAME: opsnap
+      USER_PASSWORD: ${OPSNAP_TEST_PASSWORD:?缺少 OPSNAP_TEST_PASSWORD}
+      SUDO_ACCESS: "false"
+    healthcheck:
+      # 同 ssh-jump：/bin/sh 是 busybox ash，不支持 /dev/tcp，改用真实 nc 以 exec 形式探测端口
+      test: ["CMD", "nc", "-z", "127.0.0.1", "2222"]
+      interval: 5s
+      retries: 30
+
+  socks5:
+    # 用户名密码认证的 SOCKS5 代理，验证「SOCKS5 → SSH/MySQL/PG」链路
+    image: ${REGISTRY_MIRROR:-}docker.io/serjs/go-socks5-proxy
+    environment:
+      PROXY_USER: opsnap
+      PROXY_PASSWORD: ${OPSNAP_TEST_PASSWORD:?缺少 OPSNAP_TEST_PASSWORD}
+    ports:
+      # 11080 在 docker.lan 上已被宿主机的 sockd 占用，改发布到 11081
+      - "11081:1080"
 
 volumes:
   mysql80:

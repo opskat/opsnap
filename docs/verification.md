@@ -14,6 +14,9 @@ Test services run on docker.local (opsctl asset `local-docker`, 192.168.8.141) a
 | PostgreSQL 16 | `192.168.8.141:15432`, user `postgres` | `wal_level=logical`, 10 replication slots |
 | MinIO (S3) | API `192.168.8.141:19000`, console `:19001`, user `opsnap` | pinned to `RELEASE.2025-04-22T22-12-26Z` |
 | Keycloak 26.4 (OIDC) | `http://192.168.8.141:18080`, realm `opsnap`, issuer `http://192.168.8.141:18080/realms/opsnap` | client `opsnap` (secret = test password), users `ops` and `other`; allowed callbacks are OpsNap on `127.0.0.1`/`localhost` ports 8210 and 18293 (`deploy/test/keycloak/opsnap-realm.json`); admin user `admin` |
+| SSH jump host (network channel) | `192.168.8.141:12222`, user `opsnap` | `linuxserver/openssh-server`; password sign-in only, no sudo |
+| SSH server-file target | not published; reachable only from `ssh-jump` (same compose network, hostname `ssh-target:2222`) | same image and user; exercises "SOCKS5 → SSH → target host" |
+| SOCKS5 proxy | `192.168.8.141:11081`, user `opsnap` | `serjs/go-socks5-proxy`, username/password auth |
 
 All services share one test password, stored as `OPSNAP_TEST_PASSWORD` in the local, gitignored `e2e/.env`; `make test-env-up` generates it on first run.
 
@@ -32,6 +35,9 @@ Constraints:
 - The host has about 7.8 GiB of memory. Start services as needed; do not keep every engine version running.
 - Images are pulled through the `katch.ggnb.top/` mirror (`<mirror>/docker.io/...`, `<mirror>/quay.io/...`). On another host set `OPSNAP_TEST_REGISTRY_MIRROR`; an empty value pulls directly.
 - MongoDB, Redis, Kafka and the LVM SSH target (privileged container with a loop device) are not deployed yet; they are added to the compose file in the rounds that need them.
+- `mysql80` runs with `--skip-name-resolve`: without it the first packet to a fresh connection sometimes takes 20-40s, most likely reverse DNS on the client address (seen while verifying task 3 of the datasources round, not fully root-caused).
+- The real chain to verify for the datasources round: `SOCKS5 (192.168.8.141:11081) → ssh-jump (12222) → ssh-target` for server-file, and `SOCKS5 → mysql80` / `SOCKS5 → pg16` directly (mysql80/pg16 have no SSH in front of them). `socks5` publishes 11081 rather than 11080 because 11080 is already taken on docker.lan by the host's own `sockd`.
+- To rotate `ssh-jump`'s host key for the key-changed scenario: its `/config` is an anonymous volume, so simply recreating the container keeps the same key; instead remove both the whole `/config/ssh_host_keys` directory and the container's own `/etc/ssh/ssh_host_*` keys, then restart the container. On restart the image runs `ssh-keygen -A`, which only generates missing keys, and copies `/etc/ssh/ssh_host_*` into `/config/ssh_host_keys`; removing only `/config/ssh_host_keys` therefore brings the old key back.
 
 ## Workflow
 
