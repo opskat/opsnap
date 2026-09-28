@@ -5,13 +5,17 @@ import { Link, useNavigate, useParams } from "react-router";
 
 import { CancelWizardDialog } from "@/components/jobs/CancelWizardDialog";
 import { errorMessage, type Loadable } from "@/components/jobs/loadable";
+import { StepConfirm } from "@/components/jobs/StepConfirm";
 import { StepContent } from "@/components/jobs/StepContent";
 import { StepDestination } from "@/components/jobs/StepDestination";
+import { StepSchedule, type SchedulePreview } from "@/components/jobs/StepSchedule";
 import { StepSource } from "@/components/jobs/StepSource";
 import { WizardSteps } from "@/components/jobs/WizardSteps";
 import { Button } from "@/components/ui/button";
 import { ApiError } from "@/lib/api";
+import { ErrorCode } from "@/lib/auth";
 import {
+  createJob,
   draftOf,
   dumpToolUnavailable,
   emptyDraft,
@@ -20,7 +24,9 @@ import {
   invalidExcludes,
   listJobs,
   prefixConflict,
+  schedulePreview,
   selectDataSource,
+  updateJob,
   validPrefix,
   WIZARD_STEPS,
   type JobDraft,
@@ -29,6 +35,79 @@ import {
 } from "@/lib/jobs";
 import { listDataSources, type DataSourceItem } from "@/lib/sources";
 import { listStorages, type Storage } from "@/lib/storage";
+
+/** 服务端字段级错误码 → 向导字段；决定校验失败时跳回哪一步、哪个字段 */
+const FIELD_OF_CODE: Partial<Record<number, keyof WizardErrors>> = {
+  [ErrorCode.JobNameInvalid]: "name",
+  [ErrorCode.JobNameDuplicate]: "name",
+  [ErrorCode.JobDatabasesRequired]: "databases",
+  [ErrorCode.JobExcludeInvalid]: "exclude",
+  [ErrorCode.JobPrefixInvalid]: "prefix",
+  [ErrorCode.JobPrefixConflict]: "prefix",
+  [ErrorCode.JobScheduleInvalid]: "schedule",
+  [ErrorCode.JobTimezoneInvalid]: "timezone",
+  [ErrorCode.JobRetentionDaysInvalid]: "retentionDays",
+  [ErrorCode.JobRetentionWeeksInvalid]: "retentionWeeks",
+  [ErrorCode.JobRetentionMonthsInvalid]: "retentionMonths",
+  [ErrorCode.JobRetriesInvalid]: "retries",
+  [ErrorCode.JobRetryIntervalInvalid]: "retryInterval",
+  [ErrorCode.JobTimeoutInvalid]: "timeout",
+};
+
+/** 向导字段 → 所在步骤 */
+const STEP_OF_FIELD: Record<keyof WizardErrors, number> = {
+  source: 0,
+  method: 1,
+  databases: 1,
+  exclude: 1,
+  storage: 2,
+  prefix: 2,
+  schedule: 3,
+  timezone: 3,
+  retentionDays: 3,
+  retentionWeeks: 3,
+  retentionMonths: 3,
+  retries: 3,
+  retryInterval: 3,
+  timeout: 3,
+  name: 4,
+};
+
+/** 修改某个字段所属的草稿键时，清掉该字段上一次的服务端错误 */
+const ERROR_FIELDS_OF_PATCH_KEY: Partial<Record<keyof JobDraft, (keyof WizardErrors)[]>> = {
+  datasourceId: ["source"],
+  storageId: ["storage"],
+  prefix: ["prefix"],
+  databases: ["databases"],
+  excludeText: ["exclude"],
+  schedule: ["schedule", "timezone"],
+  retention: ["retentionDays", "retentionWeeks", "retentionMonths"],
+  failure: ["retries", "retryInterval", "timeout"],
+  name: ["name"],
+};
+
+/** 计划、保留策略的本地取值范围校验；Cron 语法与频率能否触发交给服务端预览 */
+function localScheduleErrors(
+  draft: JobDraft,
+  t: (key: string) => string
+): Pick<
+  WizardErrors,
+  "schedule" | "retentionDays" | "retentionWeeks" | "retentionMonths" | "retries" | "retryInterval" | "timeout"
+> {
+  const e: WizardErrors = {};
+  const { kind, cron, weekdays } = draft.schedule;
+  if (kind === "cron" && cron.trim() === "") e.schedule = t("jobs.wizard.errors.cronRequired");
+  else if (kind === "weekly" && weekdays.length === 0) e.schedule = t("jobs.wizard.errors.weekdaysRequired");
+  const { days, weeks, months } = draft.retention;
+  if (days < 1 || days > 365) e.retentionDays = t("jobs.wizard.errors.retentionDaysInvalid");
+  if (weeks < 0 || weeks > 520) e.retentionWeeks = t("jobs.wizard.errors.retentionWeeksInvalid");
+  if (months < 0 || months > 120) e.retentionMonths = t("jobs.wizard.errors.retentionMonthsInvalid");
+  const { retries, retry_interval: retryInterval, timeout } = draft.failure;
+  if (retries < 0 || retries > 5) e.retries = t("jobs.wizard.errors.retriesInvalid");
+  if (retryInterval < 1 || retryInterval > 120) e.retryInterval = t("jobs.wizard.errors.retryIntervalInvalid");
+  if (timeout < 10 || timeout > 2880) e.timeout = t("jobs.wizard.errors.timeoutInvalid");
+  return e;
+}
 
 type EditState =
   { status: "new" } | { status: "loading" } | { status: "not_found" } | { status: "error"; message: string };
@@ -61,6 +140,12 @@ export function JobWizardPage() {
   const [storages, setStorages] = useState<Loadable<Storage[]>>({ status: "loading" });
   const [storagesAttempt, setStoragesAttempt] = useState(0);
   const [jobs, setJobs] = useState<JobItem[]>([]);
+
+  /** 服务端返回的字段级错误（预览或提交）；编辑对应字段时清空 */
+  const [fieldErrors, setFieldErrors] = useState<Partial<WizardErrors>>({});
+  const [preview, setPreview] = useState<Loadable<SchedulePreview>>({ status: "loading" });
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string>();
 
   useEffect(() => {
     let cancelled = false;
@@ -108,11 +193,51 @@ export function JobWizardPage() {
     };
   }, [edit.status, editId]);
 
+  // 第 4、5 步都需要预览；用布尔值而不是 step 本身做依赖，这样在两步之间来回切换
+  // 不会被当成“变化”，不会取消正在进行的请求或重新发起一次
+  const reachedSchedule = step >= 3;
+
+  // 第 4 步：本地取值范围合法时，防抖请求服务端预览（接下来三次执行时间与最多保留份数）
+  useEffect(() => {
+    if (!reachedSchedule) return;
+    if (Object.keys(localScheduleErrors(draft, t)).length > 0) return;
+    let cancelled = false;
+    const handle = window.setTimeout(() => {
+      schedulePreview({ schedule: draft.schedule, retention: draft.retention })
+        .then((r) => {
+          if (cancelled) return;
+          setPreview({ status: "ready", data: { nextRuns: r.next_runs, maxSnapshots: r.max_snapshots } });
+        })
+        .catch((err: unknown) => {
+          if (cancelled) return;
+          setPreview({ status: "error", message: errorMessage(err) });
+          const field = err instanceof ApiError ? FIELD_OF_CODE[err.code] : undefined;
+          if (field) setFieldErrors((f) => ({ ...f, [field]: errorMessage(err) }));
+        });
+    }, 300);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(handle);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- t 每次渲染都变，只按实际用到的字段防抖
+  }, [reachedSchedule, draft.schedule, draft.retention]);
+
   const sourceList = sources.status === "ready" ? sources.data : [];
   const source = sourceList.find((d) => d.id === draft.datasourceId);
   const storageList = storages.status === "ready" ? storages.data : [];
 
-  const update = (patch: Partial<JobDraft>) => setDraft((d) => ({ ...d, ...patch }));
+  const update = (patch: Partial<JobDraft>) => {
+    setDraft((d) => ({ ...d, ...patch }));
+    const fields = (Object.keys(patch) as (keyof JobDraft)[]).flatMap((k) => ERROR_FIELDS_OF_PATCH_KEY[k] ?? []);
+    if (fields.length > 0) {
+      setFieldErrors((f) => {
+        if (fields.every((k) => f[k] === undefined)) return f;
+        const next = { ...f };
+        for (const k of fields) delete next[k];
+        return next;
+      });
+    }
+  };
   const onSourceChange = useCallback(
     (item: DataSourceItem) =>
       setSources((s) => (s.status === "ready" ? { ...s, data: s.data.map((d) => (d.id === item.id ? item : d)) } : s)),
@@ -154,10 +279,20 @@ export function JobWizardPage() {
         if (other) e.prefix = t("jobs.wizard.errors.prefixConflict", { name: other.name });
       }
     }
+    if (i === 3) Object.assign(e, localScheduleErrors(draft, t));
+    if (i === 4) {
+      const len = draft.name.trim().length;
+      if (len === 0 || len > 64) e.name = t("jobs.wizard.errors.nameInvalid");
+    }
+    // 服务端返回的字段错误（预览或上一次提交失败）：本地未发现问题时补上
+    for (const k of Object.keys(fieldErrors) as (keyof WizardErrors)[]) {
+      if (STEP_OF_FIELD[k] === i && e[k] === undefined) e[k] = fieldErrors[k];
+    }
     return e;
   };
 
-  const errors = attempted.has(step) ? stepErrors(step) : {};
+  // 第 4、5 步的错误来自实时校验（含防抖预览与上一次提交），不需要先点过“下一步”
+  const errors = attempted.has(step) || step >= 3 ? stepErrors(step) : {};
 
   const goNext = () => {
     if (Object.keys(stepErrors(step)).length > 0) {
@@ -171,6 +306,34 @@ export function JobWizardPage() {
   const cancel = () => {
     if (JSON.stringify(draft) !== JSON.stringify(initial)) setConfirmCancel(true);
     else leave();
+  };
+
+  const submit = async () => {
+    if (submitting) return;
+    setSubmitting(true);
+    setSubmitError(undefined);
+    try {
+      if (editing && editId !== undefined) {
+        const res = await updateJob(editId, draft);
+        navigate(`/jobs/${res.item.id}`);
+      } else {
+        const res = await createJob(draft);
+        navigate(`/jobs/${res.item.id}`);
+      }
+    } catch (err) {
+      const field = err instanceof ApiError ? FIELD_OF_CODE[err.code] : undefined;
+      const message = errorMessage(err);
+      if (field) {
+        setFieldErrors((f) => ({ ...f, [field]: message }));
+        const target = STEP_OF_FIELD[field];
+        setStep(target);
+        setAttempted((s) => new Set(s).add(target));
+      } else {
+        setSubmitError(message);
+      }
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const title = t(editing ? "jobs.wizard.editTitle" : "jobs.wizard.title");
@@ -217,7 +380,13 @@ export function JobWizardPage() {
             sources={sources}
             locked={editing}
             error={errors.source}
-            onSelect={(ds) => setDraft((d) => selectDataSource(d, ds))}
+            onSelect={(ds) =>
+              setDraft((d) => {
+                const next = selectDataSource(d, ds);
+                if (next === d || next.nameEdited) return next;
+                return { ...next, name: t("jobs.wizard.confirm.defaultName", { name: ds.name }) };
+              })
+            }
             onRetry={() => {
               setSources({ status: "loading" });
               setSourcesAttempt((n) => n + 1);
@@ -246,21 +415,45 @@ export function JobWizardPage() {
             }}
           />
         )}
-        {step > 2 && <p className="text-sm text-muted-foreground">{t("common.comingSoon")}</p>}
+        {step === 3 && <StepSchedule draft={draft} errors={errors} preview={preview} onChange={update} />}
+        {step === 4 && (
+          <StepConfirm
+            draft={draft}
+            editing={editing}
+            source={source}
+            storage={storageList.find((s) => s.id === draft.storageId)}
+            preview={preview}
+            errors={errors}
+            submitError={submitError}
+            onChangeName={(name) => update({ name, nameEdited: true })}
+            onChangeRunNow={(runNow) => update({ runNow })}
+            onGoStep={setStep}
+          />
+        )}
       </div>
 
       <footer className="sticky bottom-0 flex items-center justify-between gap-3 border-t bg-background px-8 py-4">
-        <Button variant="ghost" onClick={cancel}>
+        <Button variant="ghost" disabled={submitting} onClick={cancel}>
           {t("common.cancel")}
         </Button>
         <div className="flex items-center gap-2">
-          <Button variant="outline" disabled={step === 0} onClick={() => setStep((s) => Math.max(s - 1, 0))}>
+          <Button
+            variant="outline"
+            disabled={step === 0 || submitting}
+            onClick={() => setStep((s) => Math.max(s - 1, 0))}
+          >
             {t("jobs.wizard.back")}
           </Button>
-          <Button disabled={step === WIZARD_STEPS.length - 1} onClick={goNext}>
-            {t("jobs.wizard.next")}
-            <ArrowRight />
-          </Button>
+          {step === WIZARD_STEPS.length - 1 ? (
+            <Button disabled={submitting} onClick={() => void submit()}>
+              {submitting ? t("common.submitting") : t(editing ? "common.save" : "jobs.wizard.confirm.create")}
+            </Button>
+          ) : (
+            <Button onClick={goNext}>
+              {t("jobs.wizard.next")}
+              <ArrowRight />
+            </Button>
+          )}
         </div>
       </footer>
 

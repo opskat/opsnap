@@ -91,12 +91,56 @@ export function listDatabases(dataSourceId: number) {
   return request<{ databases: DatabaseInfo[] }>(`/datasources/${dataSourceId}/databases`);
 }
 
+/** 第 4 步的预览：按所选时区计算的接下来三次执行时间（RFC3339），以及按当前计划最多保留的快照份数 */
+export function schedulePreview(body: { schedule: JobSchedule; retention: JobRetention }) {
+  return request<{ next_runs: string[]; max_snapshots: number }>("/jobs/schedule-preview", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+/** 新建 / 编辑任务提交给后端的字段；数据源、存储、路径前缀在编辑时不发送真实值（发 0 / 空串表示不变） */
+function jobPayload(draft: JobDraft, editing: boolean) {
+  return {
+    name: draft.name.trim(),
+    type: draft.type,
+    datasource_id: editing ? 0 : draft.datasourceId,
+    storage_id: editing ? 0 : draft.storageId,
+    prefix: editing ? "" : draft.prefix,
+    scope: draft.scope,
+    databases: draft.databases,
+    method: draft.method,
+    options: draft.options,
+    exclude_tables: excludeLines(draft.excludeText),
+    compression: draft.compression,
+    schedule: draft.schedule,
+    retention: draft.retention,
+    failure: draft.failure,
+  };
+}
+
+/** 新建并启用任务（向导第 5 步“创建任务”） */
+export function createJob(draft: JobDraft) {
+  return request<{ item: JobItem }>("/jobs", {
+    method: "POST",
+    body: JSON.stringify({ ...jobPayload(draft, false), run_now: draft.runNow }),
+  });
+}
+
+/** 编辑任务：数据源、存储、路径前缀创建后不能修改，不在请求中发送 */
+export function updateJob(id: number, draft: JobDraft) {
+  return request<{ item: JobItem }>(`/jobs/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(jobPayload(draft, true)),
+  });
+}
+
 // ============ 向导状态 ============
 
 export const WIZARD_STEPS = ["source", "content", "destination", "schedule", "confirm"] as const;
 export type WizardStep = (typeof WIZARD_STEPS)[number];
 
-/** 向导中填写的内容；返回修改时保留。第 4、5 步的字段由后续步骤补充 */
+/** 向导中填写的内容；返回修改时保留 */
 export interface JobDraft {
   type: JobType;
   datasourceId: number;
@@ -111,7 +155,38 @@ export interface JobDraft {
   /** 用户改过前缀后，换数据源不再覆盖为默认前缀 */
   prefixEdited: boolean;
   compression: Compression;
+  schedule: JobSchedule;
+  retention: JobRetention;
+  failure: JobFailure;
+  /** 任务名称，第 5 步展示与编辑 */
+  name: string;
+  /** 用户改过名称后，换数据源不再覆盖为默认名称 */
+  nameEdited: boolean;
+  /** 第 5 步“创建后”：true 为立即执行一次，false 为等下一次计划 */
+  runNow: boolean;
 }
+
+/** 新建时的默认计划：时区取浏览器时区（不支持时退回 UTC） */
+function defaultTimezone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
+
+export const defaultSchedule = (): JobSchedule => ({
+  kind: "daily",
+  minute: 0,
+  hour: 2,
+  weekdays: [],
+  cron: "",
+  timezone: defaultTimezone(),
+});
+
+export const defaultRetention = (): JobRetention => ({ days: 7, weeks: 4, months: 6 });
+
+export const defaultFailure = (): JobFailure => ({ retries: 2, retry_interval: 5, timeout: 120 });
 
 export const defaultOptions = (): JobOptions => ({
   routines: true,
@@ -133,6 +208,12 @@ export const emptyDraft = (): JobDraft => ({
   prefix: "",
   prefixEdited: false,
   compression: "zstd",
+  schedule: defaultSchedule(),
+  retention: defaultRetention(),
+  failure: defaultFailure(),
+  name: "",
+  nameEdited: false,
+  runNow: true,
 });
 
 /** 编辑已有任务时的初始内容 */
@@ -149,6 +230,12 @@ export function draftOf(job: JobItem): JobDraft {
     prefix: job.prefix,
     prefixEdited: true,
     compression: job.compression,
+    schedule: { ...job.schedule, weekdays: [...job.schedule.weekdays] },
+    retention: { ...job.retention },
+    failure: { ...job.failure },
+    name: job.name,
+    nameEdited: true,
+    runNow: true,
   };
 }
 
@@ -166,7 +253,7 @@ export function selectDataSource(draft: JobDraft, ds: DataSourceItem): JobDraft 
   };
 }
 
-/** 向导各步骤显示在字段旁的错误；第 4、5 步的字段由后续步骤补充 */
+/** 向导各步骤显示在字段旁的错误 */
 export interface WizardErrors {
   source?: string;
   method?: string;
@@ -174,6 +261,15 @@ export interface WizardErrors {
   exclude?: string;
   storage?: string;
   prefix?: string;
+  schedule?: string;
+  timezone?: string;
+  retentionDays?: string;
+  retentionWeeks?: string;
+  retentionMonths?: string;
+  retries?: string;
+  retryInterval?: string;
+  timeout?: string;
+  name?: string;
 }
 
 // ============ 校验 ============
@@ -258,4 +354,21 @@ export function formatBytes(bytes: number): string {
     i++;
   }
   return i === 0 ? `${v} B` : `${v.toFixed(1)} ${units[i]}`;
+}
+
+/** IANA 时区列表；环境不支持时只给出当前浏览器时区，避免下拉框为空 */
+export function timezoneList(): string[] {
+  try {
+    return Intl.supportedValuesOf("timeZone").sort();
+  } catch {
+    return [defaultTimezone()];
+  }
+}
+
+/**
+ * 服务端返回的接下来一次执行时间（RFC3339，带所选时区的偏移）→ 该时区下的挂钟时间 `YYYY-MM-DD HH:mm`。
+ * 直接截取字符串而不经过 Date，避免被浏览器本地时区覆盖。
+ */
+export function formatScheduleTime(iso: string): string {
+  return iso.length >= 16 ? `${iso.slice(0, 10)} ${iso.slice(11, 16)}` : iso;
 }

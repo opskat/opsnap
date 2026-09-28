@@ -29,6 +29,8 @@ const router = createBrowserRouter([
           { path: "/sources/:id", element: <SourceDetailPage /> },
           { path: "/jobs/new", element: <JobWizardPage /> },
           { path: "/jobs/:id/edit", element: <JobWizardPage /> },
+          // 任务详情页在后续任务中落地；创建 / 编辑保存后先跳转到这里，保持导航完整
+          { path: "/jobs/:id", element: <ComingSoonPage title="nav.jobs" /> },
           ...[...mainNav, ...systemNav]
             .filter((item) => !["/", "/settings", "/storage", "/sources"].includes(item.path))
             .map((item) => ({ path: item.path, element: <ComingSoonPage title={item.label} /> })),

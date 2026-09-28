@@ -1,4 +1,4 @@
-import { act, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -206,6 +206,8 @@ const databases = [
   { name: "users", size: 2048 },
 ];
 
+const NEXT_RUNS = ["2026-09-29T02:00:00+08:00", "2026-09-30T02:00:00+08:00", "2026-10-01T02:00:00+08:00"];
+
 type Handler = (init: RequestInit | undefined) => Response | Promise<Response>;
 let routes: Record<string, Handler>;
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -240,6 +242,7 @@ beforeEach(() => {
   route("GET /api/v1/datasources/2/databases", ok({ databases: [{ name: "analytics", size: 1024 }] }));
   route("GET /api/v1/storages", ok({ items: [localStore, minio] }));
   route("GET /api/v1/jobs", ok({ items: [existingJob] }));
+  route("POST /api/v1/jobs/schedule-preview", ok({ next_runs: NEXT_RUNS, max_snapshots: 42 }));
 });
 afterEach(() => vi.unstubAllGlobals());
 
@@ -250,6 +253,7 @@ function renderWizard(path = "/jobs/new") {
         <Route path="/jobs/new" element={<JobWizardPage />} />
         <Route path="/jobs/:id/edit" element={<JobWizardPage />} />
         <Route path="/jobs" element={<div>任务列表页</div>} />
+        <Route path="/jobs/:id" element={<div>任务详情页</div>} />
       </Routes>
     </MemoryRouter>
   );
@@ -277,6 +281,25 @@ async function toStep3() {
   await screen.findByRole("checkbox", { name: /orders/ });
   await next();
   return screen.findByRole("textbox", { name: "路径前缀" });
+}
+
+/** 第 3 步选择一个不冲突的存储与前缀，进入第 4 步 */
+async function toStep4() {
+  const prefix = await toStep3();
+  await userEvent.click(
+    within(await screen.findByRole("radiogroup", { name: "存储" })).getByRole("radio", { name: /backup-local/ })
+  );
+  await userEvent.clear(prefix);
+  await userEvent.type(prefix, "mysql/db-01-orders-v2");
+  await next();
+  await screen.findByRole("radiogroup", { name: "频率" });
+}
+
+/** 进入第 5 步（默认计划与保留都合法，可以直接下一步） */
+async function toStep5() {
+  await toStep4();
+  await next();
+  await screen.findByRole("textbox", { name: "任务名称" });
 }
 
 describe("新建任务向导 · 框架", () => {
@@ -650,5 +673,216 @@ describe("编辑任务", () => {
     renderWizard("/jobs/9/edit");
     expect(await screen.findByText("任务不存在")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "返回任务列表" })).toHaveAttribute("href", "/jobs");
+  });
+
+  it("载入已有任务的计划与保留；数据源、存储、前缀不参与请求体（0 / 空串表示不变）", async () => {
+    route("GET /api/v1/jobs/9", ok({ item: existingJob }));
+    renderWizard("/jobs/9/edit");
+    await screen.findByRole("radiogroup", { name: "数据源" });
+    await next();
+    await screen.findByRole("region", { name: /能力探测/ });
+    await next();
+    await screen.findByRole("textbox", { name: "路径前缀" });
+    await next();
+
+    expect(await screen.findByRole("radio", { name: "每天" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("spinbutton", { name: "保留最近 N 天内的全部快照" })).toHaveValue(7);
+    expect(screen.getByRole("spinbutton", { name: "更早的，每周保留最后一份" })).toHaveValue(4);
+    expect(screen.getByRole("spinbutton", { name: "每月保留最后一份" })).toHaveValue(6);
+    expect(screen.getByRole("spinbutton", { name: "重试间隔（分钟）" })).toHaveValue(10);
+    expect(await screen.findByText("按当前计划，最多保留约 42 份快照")).toBeInTheDocument();
+
+    await next();
+    const nameField = await screen.findByRole("textbox", { name: "任务名称" });
+    expect(nameField).toHaveValue("orders-nightly");
+    // 编辑时不显示“创建后”的选择
+    expect(screen.queryByText("立即执行一次")).not.toBeInTheDocument();
+
+    const putHandler = vi.fn(() => ok({ item: { ...existingJob, name: "orders-nightly" } }));
+    route("PUT /api/v1/jobs/9", putHandler);
+    await userEvent.click(screen.getByRole("button", { name: "保存" }));
+    expect(await screen.findByText("任务详情页")).toBeInTheDocument();
+    const [, init] = fetchMock.mock.calls.find(
+      ([url, i]) => url === "/api/v1/jobs/9" && (i as RequestInit)?.method === "PUT"
+    )!;
+    const body = JSON.parse((init as RequestInit).body as string) as Record<string, unknown>;
+    expect(body).toMatchObject({ datasource_id: 0, storage_id: 0, prefix: "", name: "orders-nightly" });
+  });
+});
+
+describe("新建任务向导 · 第 4 步 计划与保留", () => {
+  it("默认每天 02:00、浏览器时区；显示接下来三次执行时间与最多保留份数", async () => {
+    await toStep4();
+    expect(screen.getByRole("radio", { name: "每天" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByLabelText("执行时刻")).toHaveValue("02:00");
+    expect(screen.getByRole("combobox", { name: "时区" })).toHaveValue(
+      Intl.DateTimeFormat().resolvedOptions().timeZone
+    );
+    expect(screen.getByRole("spinbutton", { name: "保留最近 N 天内的全部快照" })).toHaveValue(7);
+    expect(screen.getByRole("spinbutton", { name: "更早的，每周保留最后一份" })).toHaveValue(4);
+    expect(screen.getByRole("spinbutton", { name: "每月保留最后一份" })).toHaveValue(6);
+    expect(screen.getByRole("spinbutton", { name: "失败重试次数" })).toHaveValue(2);
+    expect(screen.getByRole("spinbutton", { name: "重试间隔（分钟）" })).toHaveValue(5);
+    expect(screen.getByRole("spinbutton", { name: "超时时长（分钟）" })).toHaveValue(120);
+
+    expect(await screen.findByText("2026-09-29 02:00")).toBeInTheDocument();
+    expect(screen.getByText("2026-09-30 02:00")).toBeInTheDocument();
+    expect(screen.getByText("2026-10-01 02:00")).toBeInTheDocument();
+    expect(screen.getByText("按当前计划，最多保留约 42 份快照")).toBeInTheDocument();
+    expect(screen.getByText("本任务最新的一份成功快照始终保留")).toBeInTheDocument();
+  });
+
+  it("每小时：选择第几分钟；每周：至少选一个星期几才能下一步", async () => {
+    await toStep4();
+    await userEvent.click(screen.getByRole("radio", { name: "每小时" }));
+    expect(screen.queryByLabelText("执行时刻")).not.toBeInTheDocument();
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "第几分钟执行" }), "30");
+
+    await userEvent.click(screen.getByRole("radio", { name: "每周" }));
+    await next();
+    expect(screen.getByText("至少选择一个星期几")).toBeInTheDocument();
+    expect(currentStep()).toHaveTextContent("计划与保留");
+    await userEvent.click(screen.getByRole("checkbox", { name: "周一" }));
+    expect(screen.queryByText("至少选择一个星期几")).not.toBeInTheDocument();
+    await next();
+    expect(currentStep()).toHaveTextContent("确认");
+  });
+
+  it("自定义 Cron：留空提示需要输入；服务端判定不合法时在字段旁显示原因，修正后恢复", async () => {
+    await toStep4();
+    await userEvent.click(screen.getByRole("radio", { name: "自定义 Cron" }));
+    await next();
+    expect(screen.getByText("请输入 Cron 表达式")).toBeInTheDocument();
+    expect(currentStep()).toHaveTextContent("计划与保留");
+
+    route("POST /api/v1/jobs/schedule-preview", fail(10716, "执行计划不正确：无法识别的字段"));
+    await userEvent.type(screen.getByRole("textbox", { name: "Cron 表达式" }), "bad cron");
+    expect(await screen.findByText("执行计划不正确：无法识别的字段")).toBeInTheDocument();
+
+    route("POST /api/v1/jobs/schedule-preview", ok({ next_runs: NEXT_RUNS, max_snapshots: 10 }));
+    await userEvent.clear(screen.getByRole("textbox", { name: "Cron 表达式" }));
+    await userEvent.type(screen.getByRole("textbox", { name: "Cron 表达式" }), "*/5 * * * *");
+    await waitFor(() => expect(screen.queryByText("执行计划不正确：无法识别的字段")).not.toBeInTheDocument());
+    expect(await screen.findByText("按当前计划，最多保留约 10 份快照")).toBeInTheDocument();
+    await next();
+    expect(currentStep()).toHaveTextContent("确认");
+  });
+
+  it.each([
+    ["保留最近 N 天内的全部快照", "0", "保留天数须为 1–365 的整数"],
+    ["更早的，每周保留最后一份", "521", "保留周数须为 0–520 的整数"],
+    ["每月保留最后一份", "-1", "保留月数须为 0–120 的整数"],
+    ["失败重试次数", "6", "失败重试须为 0–5 的整数"],
+    ["重试间隔（分钟）", "0", "重试间隔须为 1–120 分钟"],
+    ["超时时长（分钟）", "9", "超时时长须为 10–2880 分钟（10 分钟到 48 小时）"],
+  ])("%s 为 %s 时阻止下一步并提示原因", async (label, value, message) => {
+    await toStep4();
+    const field = screen.getByRole("spinbutton", { name: label });
+    // 用 fireEvent 直接改值：数字输入框逐字符敲负号在 jsdom 下不可靠
+    fireEvent.change(field, { target: { value } });
+    await next();
+    expect(screen.getByText(message)).toBeInTheDocument();
+    expect(currentStep()).toHaveTextContent("计划与保留");
+  });
+});
+
+describe("新建任务向导 · 第 5 步 确认", () => {
+  it("默认任务名为“<数据源名称> 全量备份”；四组摘要与“修改”入口；估算所选库的源数据量", async () => {
+    await toStep5();
+    const name = screen.getByRole("textbox", { name: "任务名称" });
+    expect(name).toHaveValue("db-01 · orders 全量备份");
+
+    expect(screen.getByText("备份 · db-01 · orders")).toBeInTheDocument();
+    // 第 2 步没有切换到“指定数据库”，默认整个实例
+    expect(screen.getByText("整个实例")).toBeInTheDocument();
+    expect(screen.getByText("backup-local:/mysql/db-01-orders-v2")).toBeInTheDocument();
+    expect(screen.getByText("每天 02:00")).toBeInTheDocument();
+
+    // 整个实例：估算所有库（orders + payments + users）的总量
+    expect(await screen.findByText("首次为全量备份，所选库的源数据量约 12.3 GB")).toBeInTheDocument();
+
+    expect(screen.getByRole("radio", { name: "立即执行一次" })).toHaveAttribute("aria-checked", "true");
+    await userEvent.click(screen.getByRole("radio", { name: "等下一次计划" }));
+    expect(await screen.findByText("下次执行：2026-09-29 02:00")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "修改目的地" }));
+    expect(currentStep()).toHaveTextContent("目的地");
+    expect(screen.getByRole("textbox", { name: "路径前缀" })).toHaveValue("mysql/db-01-orders-v2");
+  });
+
+  it("源数据量读取失败时显示“无法估算”，不影响创建", async () => {
+    // 第 2 步用同一个接口列出可选库，须先成功一次向导才能往后走；第 5 步自己的估算再取一次，这次失败
+    let calls = 0;
+    route("GET /api/v1/datasources/1/databases", () => {
+      calls += 1;
+      return calls === 1 ? ok({ databases }) : fail(-1, "读取失败");
+    });
+    await toStep5();
+    expect(await screen.findByText("无法估算")).toBeInTheDocument();
+  });
+
+  it("创建任务：提交完整字段、加载状态防止重复提交、成功后进入任务详情页", async () => {
+    await toStep5();
+    let resolveCreate: (r: Response) => void = () => {};
+    const createHandler = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveCreate = resolve;
+        })
+    );
+    route("POST /api/v1/jobs", createHandler);
+
+    const submit = screen.getByRole("button", { name: "创建任务" });
+    await userEvent.click(submit);
+    await userEvent.click(submit);
+    expect(await screen.findByRole("button", { name: "提交中…" })).toBeDisabled();
+    expect(createHandler).toHaveBeenCalledTimes(1);
+
+    resolveCreate(ok({ item: { ...existingJob, id: 42 } }));
+    expect(await screen.findByText("任务详情页")).toBeInTheDocument();
+
+    const [, init] = fetchMock.mock.calls.find(
+      ([url, i]) => url === "/api/v1/jobs" && (i as RequestInit)?.method === "POST"
+    )!;
+    const body = JSON.parse((init as RequestInit).body as string) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      name: "db-01 · orders 全量备份",
+      type: "backup",
+      datasource_id: 1,
+      storage_id: 7,
+      prefix: "mysql/db-01-orders-v2",
+      scope: "instance",
+      databases: [],
+      method: "full",
+      compression: "zstd",
+      run_now: true,
+    });
+    expect(body.schedule).toMatchObject({ kind: "daily", hour: 2, minute: 0 });
+    expect(body.retention).toMatchObject({ days: 7, weeks: 4, months: 6 });
+    expect(body.failure).toMatchObject({ retries: 2, retry_interval: 5, timeout: 120 });
+  });
+
+  it("创建失败：任务重名映射到名称字段，停在第 5 步", async () => {
+    await toStep5();
+    route("POST /api/v1/jobs", fail(10702, "已有同名的任务"));
+    await userEvent.click(screen.getByRole("button", { name: "创建任务" }));
+    expect(await screen.findByText("已有同名的任务")).toBeInTheDocument();
+    expect(currentStep()).toHaveTextContent("确认");
+  });
+
+  it("创建失败：路径前缀冲突映射回第 3 步的前缀字段", async () => {
+    await toStep5();
+    route("POST /api/v1/jobs", fail(10714, "路径前缀与任务“orders-nightly”在同一存储中重复或互为上下级"));
+    await userEvent.click(screen.getByRole("button", { name: "创建任务" }));
+    expect(currentStep()).toHaveTextContent("目的地");
+    expect(await screen.findByText("路径前缀与任务“orders-nightly”在同一存储中重复或互为上下级")).toBeInTheDocument();
+  });
+
+  it("创建失败：无法归到具体字段的原因显示在表单顶部，停在第 5 步", async () => {
+    await toStep5();
+    route("POST /api/v1/jobs", fail(-1, "数据库繁忙", 500));
+    await userEvent.click(screen.getByRole("button", { name: "创建任务" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("数据库繁忙");
+    expect(currentStep()).toHaveTextContent("确认");
   });
 });
