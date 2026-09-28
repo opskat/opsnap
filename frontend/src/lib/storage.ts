@@ -1,14 +1,10 @@
 import { request } from "@/lib/api";
+import type { JobRef } from "@/lib/sources";
 
 export type StorageKind = "local" | "s3";
 export type StorageStatus = "ok" | "wrong_key" | "unreachable";
 /** 测试连接时目标位置的情况 */
 export type ProbeState = "empty" | "repository" | "not_empty";
-
-export interface JobRef {
-  id: number;
-  name: string;
-}
 
 /** 引用该存储的任务（docs/specs/2026-09-27-backup-jobs.md「对已有页面的影响」） */
 export interface StorageUsedBy {

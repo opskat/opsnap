@@ -9,6 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	// 任务按 IANA 时区调度：内嵌时区数据库，没有系统时区数据的主机（精简镜像、Windows）上也能解析时区
+	_ "time/tzdata"
+
 	"github.com/cago-frame/cago"
 	"github.com/cago-frame/cago/configs"
 	"github.com/cago-frame/cago/database/db"

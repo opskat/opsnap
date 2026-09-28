@@ -25,6 +25,7 @@ import (
 	tokenapi "github.com/opskat/opsnap/internal/api/token"
 	"github.com/opskat/opsnap/internal/middleware"
 	"github.com/opskat/opsnap/internal/model/entity/datasource_entity"
+	"github.com/opskat/opsnap/internal/model/entity/job_entity"
 	"github.com/opskat/opsnap/internal/model/entity/storage_entity"
 	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/dsconn"
@@ -74,7 +75,6 @@ func setupTest(t *testing.T) *env {
 	_, err := secret_svc.Secret().Init(ctx, secret_svc.InitOptions{DataDir: t.TempDir()})
 	require.NoError(t, err)
 	storage_svc.SetDataDir(t.TempDir())
-	t.Cleanup(func() { job_svc.SetActiveRunChecker(nil) })
 	// 运行在后台执行：先等它们结束，再恢复连接器并释放数据库
 	t.Cleanup(func() {
 		datasource_svc.SetConnector(nil)
@@ -288,6 +288,8 @@ func TestJobCreateValidation(t *testing.T) {
 		{"MySQL 排除表少一段", func(r *api.CreateRequest) { r.ExcludeTables = []string{"logs"} }, code.JobExcludeInvalid},
 		{"MySQL 排除表多一段", func(r *api.CreateRequest) { r.ExcludeTables = []string{"shop.public.logs"} }, code.JobExcludeInvalid},
 		{"排除表有空段", func(r *api.CreateRequest) { r.ExcludeTables = []string{"shop."} }, code.JobExcludeInvalid},
+		// 导出时（dump.ValidateExcludeTable）每段不能有首尾空白，保存时同样拒绝，否则每次运行都在连接数据源一步失败
+		{"排除表的段带首尾空白", func(r *api.CreateRequest) { r.ExcludeTables = []string{"shop. logs"} }, code.JobExcludeInvalid},
 		{"PostgreSQL 排除表少一段", func(r *api.CreateRequest) {
 			r.DataSourceID, r.Options, r.ExcludeTables = e.pg.ID, api.Options{}, []string{"app.sessions"}
 		}, code.JobExcludeInvalid},
@@ -546,23 +548,19 @@ func TestJobDelete(t *testing.T) {
 
 		convey.Convey("任务正在运行或排队时不能删除", func() {
 			item := e.create(t, e.validCreate("运行中", "busy/job"))
-			var asked []int64
-			job_svc.SetActiveRunChecker(func(_ context.Context, jobID int64) (bool, error) {
-				asked = append(asked, jobID)
-				return jobID == item.ID, nil
-			})
-			defer job_svc.SetActiveRunChecker(nil)
-			err := e.do(&api.DeleteRequest{ID: item.ID, DeleteSnapshots: true}, &api.DeleteResponse{})
-			assert.Equal(t, code.JobRunActive, errCode(err))
-			assert.Equal(t, []int64{item.ID}, asked)
-			require.NoError(t, e.do(&api.GetRequest{ID: item.ID}, &api.GetResponse{}), "任务仍在")
+			for _, status := range []string{job_entity.RunQueued, job_entity.RunRunning} {
+				run := &job_entity.Run{JobID: item.ID, Status: status, Trigger: job_entity.TriggerManual, Log: "[]"}
+				require.NoError(t, job_repo.Run().Create(e.ctx, run))
+				err := e.do(&api.DeleteRequest{ID: item.ID, DeleteSnapshots: true}, &api.DeleteResponse{})
+				assert.Equal(t, code.JobRunActive, errCode(err), status)
+				require.NoError(t, e.do(&api.GetRequest{ID: item.ID}, &api.GetResponse{}), "任务仍在")
 
-			job_svc.SetActiveRunChecker(func(context.Context, int64) (bool, error) { return false, errors.New("boom") })
-			require.Error(t, e.do(&api.DeleteRequest{ID: item.ID}, &api.DeleteResponse{}))
-			require.NoError(t, e.do(&api.GetRequest{ID: item.ID}, &api.GetResponse{}), "查询运行状态失败时不删除")
-
-			job_svc.SetActiveRunChecker(nil)
-			require.NoError(t, e.do(&api.DeleteRequest{ID: item.ID}, &api.DeleteResponse{}), "默认没有进行中的运行")
+				run.Status = job_entity.RunCanceled
+				ok, err := job_repo.Run().SaveIf(e.ctx, run, status)
+				require.NoError(t, err)
+				require.True(t, ok)
+			}
+			require.NoError(t, e.do(&api.DeleteRequest{ID: item.ID}, &api.DeleteResponse{}), "运行结束后可以删除")
 		})
 
 		convey.Convey("任务不存在", func() {

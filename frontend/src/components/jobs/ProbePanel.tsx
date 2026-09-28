@@ -1,7 +1,8 @@
-import { Check, CircleAlert, CircleCheck, Copy, Loader2, RefreshCw, TriangleAlert } from "lucide-react";
+import { Loader2, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { FixBlock, TierIcon } from "@/components/sources/ProbeParts";
 import { Button } from "@/components/ui/button";
 import { relativeTime } from "@/lib/format";
 import {
@@ -10,7 +11,6 @@ import {
   pickProbeText,
   reprobeDataSource,
   type DataSourceItem,
-  type ProbeItem,
   type ProbeText,
 } from "@/lib/sources";
 import { cn } from "@/lib/utils";
@@ -19,45 +19,6 @@ import { errorMessage } from "./loadable";
 
 /** 探测进行中时的轮询间隔，与数据源详情页一致 */
 const POLL_INTERVAL_MS = 3000;
-
-const tierStyle: Record<string, string> = {
-  ok: "text-success",
-  warn: "text-warning",
-  fail: "text-destructive",
-};
-
-export function TierIcon({ tier }: { tier: ProbeItem["tier"] }) {
-  const cls = cn("size-4 shrink-0", tierStyle[tier]);
-  if (tier === "fail") return <CircleAlert className={cls} />;
-  if (tier === "warn") return <TriangleAlert className={cls} />;
-  return <CircleCheck className={cls} />;
-}
-
-/** 修复方法：与数据源详情页一致，可复制 */
-export function FixBlock({ fix }: { fix: ProbeText }) {
-  const { t, i18n } = useTranslation();
-  const [copied, setCopied] = useState(false);
-  const text = pickProbeText(fix, i18n.language);
-  if (!text) return null;
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // 剪贴板不可用时静默失败
-    }
-  };
-  return (
-    <div className="flex items-center justify-between gap-3 rounded-md bg-warning-soft px-3 py-2 text-xs text-warning">
-      <code className="break-all whitespace-pre-wrap">{text}</code>
-      <Button type="button" variant="outline" size="xs" className="shrink-0" onClick={() => void copy()}>
-        {copied ? <Check /> : <Copy />}
-        {copied ? t("common.copied") : t("common.copy")}
-      </Button>
-    </div>
-  );
-}
 
 /**
  * 第 2 步的探测面板：所选数据源的探测结果与探测时间，可以重新探测；探测进行中时定时刷新。
@@ -68,7 +29,8 @@ export function ProbePanel({ item, onChange }: { item: DataSourceItem; onChange:
   const [reprobing, setReprobing] = useState(false);
   const [error, setError] = useState<string>();
   const probe = item.probe;
-  const probing = !probe || probe.state === "probing";
+  // 只有探测进行中才轮询、禁用重新探测；还没有探测结果（null，如探测进行中 OpsNap 重启过）时可以重新探测
+  const probing = probe?.state === "probing";
 
   useEffect(() => {
     if (!probing) return;
@@ -80,7 +42,7 @@ export function ProbePanel({ item, onChange }: { item: DataSourceItem; onChange:
           .then((r) => {
             if (cancelled) return;
             onChange(r.item);
-            if (!r.item.probe || r.item.probe.state === "probing") poll();
+            if (r.item.probe?.state === "probing") poll();
           })
           .catch(() => {
             if (!cancelled) poll();
@@ -130,7 +92,8 @@ export function ProbePanel({ item, onChange }: { item: DataSourceItem; onChange:
           {error}
         </p>
       )}
-      {probing && (
+      {/* 与数据源详情页一致：还没有探测结果时也显示“探测中” */}
+      {(!probe || probing) && (
         <p className="flex items-center gap-2 px-4 py-4 text-sm text-muted-foreground">
           <Loader2 className="size-4 shrink-0 animate-spin" />
           {t("sources.dataSource.list.probing")}

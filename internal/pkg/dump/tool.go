@@ -119,6 +119,8 @@ func (r *toolRun) finish(readErr error) error {
 		r.kill()
 	}
 	werr := r.wait()
+	// 输出已读完或已放弃：关闭管道，不在整次导出期间占着文件描述符
+	r.closeStdout()
 	if err := r.s.ctx.Err(); err != nil {
 		return err
 	}
@@ -192,6 +194,11 @@ func (r *toolRun) wait() error {
 func (r *toolRun) stop() {
 	r.kill()
 	_ = r.wait()
+	r.closeStdout()
+}
+
+// closeStdout 关闭输出管道的读端；可重复调用
+func (r *toolRun) closeStdout() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.stdout != nil {

@@ -435,10 +435,20 @@ func systemCABundle() string {
 	return ""
 }
 
-// toolEnv 导出工具的环境变量：不继承 OpsNap 的环境（避免 MYSQL_PWD、PG* 等变量混入），
+// libraryPathVars 传给导出工具的动态库搜索路径：探测与“准备”步骤读取工具版本时继承 OpsNap 的完整环境，
+// 导出时也要能找到同样的动态库（如放在 tools.dir 中、自带库的客户端）
+var libraryPathVars = []string{"LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH"}
+
+// toolEnv 导出工具的环境变量：不继承 OpsNap 的其他环境（避免 MYSQL_PWD、PG* 等变量混入），
 // HOME 指向运行临时目录，工具不会读到主控端用户目录下的配置与证书
 func (s *Session) toolEnv(extra ...string) []string {
-	return append([]string{"HOME=" + s.dir, "PATH=" + os.Getenv("PATH"), "LC_ALL=C"}, extra...)
+	env := []string{"HOME=" + s.dir, "PATH=" + os.Getenv("PATH"), "LC_ALL=C"}
+	for _, k := range libraryPathVars {
+		if v, ok := os.LookupEnv(k); ok {
+			env = append(env, k+"="+v)
+		}
+	}
+	return append(env, extra...)
 }
 
 // staticFile 内存中已生成的导出文件（MySQL 账号与权限）

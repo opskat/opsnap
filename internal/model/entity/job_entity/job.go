@@ -14,6 +14,8 @@ import (
 
 	"github.com/opskat/opsnap/internal/model/entity/datasource_entity"
 	"github.com/opskat/opsnap/internal/pkg/code"
+	"github.com/opskat/opsnap/internal/pkg/dsconn"
+	"github.com/opskat/opsnap/internal/pkg/dump"
 	"github.com/opskat/opsnap/internal/pkg/kopiarepo"
 	"github.com/opskat/opsnap/internal/pkg/schedule"
 )
@@ -195,24 +197,6 @@ func cleanList(in []string) []string {
 	return out
 }
 
-// validExclude 排除表每段非空：MySQL 为 库.表（2 段），PostgreSQL 为 库.模式.表（3 段）
-func validExclude(kind, s string) bool {
-	parts := strings.Split(s, ".")
-	want := 2
-	if kind == datasource_entity.KindPostgreSQL {
-		want = 3
-	}
-	if len(parts) != want {
-		return false
-	}
-	for _, p := range parts {
-		if strings.TrimSpace(p) == "" {
-			return false
-		}
-	}
-	return true
-}
-
 // CheckSchedule 校验并规范化计划：时区须为 IANA 时区，频率各字段在范围内，且按计划能够触发
 func CheckSchedule(ctx context.Context, s schedule.Spec) (schedule.Spec, error) {
 	if s.Timezone == "" || s.Timezone == "Local" {
@@ -223,7 +207,7 @@ func CheckSchedule(ctx context.Context, s schedule.Spec) (schedule.Spec, error) 
 	}
 	parsed, err := schedule.Parse(s)
 	if err != nil {
-		return s, scheduleError(ctx, err)
+		return s, ScheduleError(ctx, err)
 	}
 	// 只保留该频率用到的字段
 	switch parsed.Kind {
@@ -239,15 +223,15 @@ func CheckSchedule(ctx context.Context, s schedule.Spec) (schedule.Spec, error) 
 	}
 	if _, err := parsed.Next(time.Now(), 1); err != nil {
 		if errors.Is(err, schedule.ErrNeverFires) {
-			return s, scheduleError(ctx, err)
+			return s, ScheduleError(ctx, err)
 		}
 		return s, err
 	}
 	return parsed, nil
 }
 
-// scheduleError 计划不合法：同时给出中英文原因，JobScheduleInvalid 的文案按界面语言取用其中之一
-func scheduleError(ctx context.Context, err error) error {
+// ScheduleError 计划不合法（*schedule.ValidationError 或 schedule.ErrNeverFires）：同时给出中英文原因，JobScheduleInvalid 的文案按界面语言取用其中之一
+func ScheduleError(ctx context.Context, err error) error {
 	zh, en := err.Error(), err.Error()
 	var ve *schedule.ValidationError
 	switch {
@@ -306,7 +290,8 @@ func (j *Job) Check(ctx context.Context, dsKind string) error {
 	}
 	excludes := cleanList(j.ExcludeTableList())
 	for _, s := range excludes {
-		if !validExclude(dsKind, s) {
+		// 与导出时的检查是同一条规则：保存时通过的排除规则，运行时不会因格式被拒绝
+		if dump.ValidateExcludeTable(dsconn.Type(dsKind), s) != nil {
 			return i18n.NewError(ctx, code.JobExcludeInvalid, s)
 		}
 	}

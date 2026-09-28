@@ -32,7 +32,7 @@ type RunRepo interface {
 	LastSuccess(ctx context.Context, jobID int64) (*job_entity.Run, error)
 	// HasScheduled 任务是否已有对应该计划时间（秒）的运行记录（计划或补跑，含跳过）
 	HasScheduled(ctx context.Context, jobID int64, scheduledAt int64) (bool, error)
-	// Trim 只保留任务最近 keep 条运行记录（按 ID），删除更早的
+	// Trim 只保留任务最近 keep 条运行记录（按 ID），删除更早的；等待中与运行中的记录无论多早都不删除
 	Trim(ctx context.Context, jobID int64, keep int) error
 	// DeleteByJob 删除任务的全部运行记录
 	DeleteByJob(ctx context.Context, jobID int64) error
@@ -136,7 +136,8 @@ func (r *runRepo) HasScheduled(ctx context.Context, jobID int64, scheduledAt int
 
 func (r *runRepo) Trim(ctx context.Context, jobID int64, keep int) error {
 	keepIDs := db.Ctx(ctx).Model(&job_entity.Run{}).Select("id").Where("job_id = ?", jobID).Order("id DESC").Limit(keep)
-	return db.Ctx(ctx).Where("job_id = ? AND id NOT IN (?)", jobID, keepIDs).Delete(&job_entity.Run{}).Error
+	return db.Ctx(ctx).Where("job_id = ? AND id NOT IN (?) AND status NOT IN ?", jobID, keepIDs, activeStatuses).
+		Delete(&job_entity.Run{}).Error
 }
 
 func (r *runRepo) DeleteByJob(ctx context.Context, jobID int64) error {

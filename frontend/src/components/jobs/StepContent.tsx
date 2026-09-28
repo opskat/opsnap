@@ -3,6 +3,7 @@ import { useEffect, useId, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Segmented } from "@/components/form/Segmented";
+import { FixBlock } from "@/components/sources/ProbeParts";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
@@ -21,7 +22,7 @@ import { cn } from "@/lib/utils";
 
 import { Choice, FieldError, LoadError, SectionTitle, SoonBadge } from "./Choice";
 import { errorMessage, type Loadable } from "./loadable";
-import { FixBlock, ProbePanel } from "./ProbePanel";
+import { ProbePanel } from "./ProbePanel";
 
 /** 第 2 步：内容与方式（MySQL / PostgreSQL 两种） */
 export function StepContent({

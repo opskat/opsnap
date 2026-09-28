@@ -99,11 +99,11 @@ func TestMySQLExport(t *testing.T) {
 		"--ignore-table=app.logs", "--ignore-table=app.missing"} {
 		assert.Contains(t, r.argv, a)
 	}
-	assert.Equal(t, []string{"--databases", "app", "shop"}, r.argv[len(r.argv)-3:])
+	assert.Equal(t, []string{"--databases", "--", "app", "shop"}, r.argv[len(r.argv)-4:])
 
 	cnf, mode := r.copied(t, r.arg("--defaults-file="))
 	assert.Equal(t, os.FileMode(0o600), mode)
-	assert.Contains(t, cnf, "password='s3cret#pw\"x'")
+	assert.Contains(t, cnf, `password="s3cret#pw\"x"`)
 	assert.Contains(t, cnf, "host=127.0.0.1\n")
 	assert.Contains(t, cnf, "port="+port+"\n")
 	assert.Contains(t, cnf, "ssl-mode=PREFERRED\n")
@@ -733,4 +733,99 @@ func TestToolStderrMergedIntoLog(t *testing.T) {
 		}
 		assert.Regexp(t, `^warning-line-\d+$`, msg, "没有被截断的半行")
 	}
+}
+
+// 库名以 - 开头时不能被 mysqldump 当成选项：“整个实例”的库名来自服务端，能建库的账号可以建
+// 名为 --host=... 或 --result-file=... 的库，让导出连到别处（带着选项文件中的密码）或覆盖本机文件
+func TestMySQLDatabaseNamesAreNotOptions(t *testing.T) {
+	e := newFakeEnv(t)
+	e.tool("mysqldump", oracleVersion, mysqlOK)
+	(&fakeDB{answer: tablesOnly()}).install(t)
+	s, err := Start(context.Background(), e.base, mysqlSource(), Options{Databases: []string{"app", "--host=evil.example"}})
+	require.NoError(t, err)
+	_, err = readAll(t, s)
+	require.NoError(t, err)
+	require.NoError(t, s.Close())
+	runs := e.runs("mysqldump")
+	require.Len(t, runs, 1)
+	argv := runs[0].argv
+	assert.Equal(t, []string{"--databases", "--", "app", "--host=evil.example"}, argv[len(argv)-4:],
+		"-- 之后的参数只作为库名")
+}
+
+// 任何密码都能写进 mysqldump 的选项文件：同时含单引号、双引号、# 与反斜杠的密码也不例外
+// （MySQL / MariaDB 的选项文件在双引号内识别 \" 与 \\ 转义，# 在引号内不是注释）
+func TestMySQLOptionFileQuotesAnyPassword(t *testing.T) {
+	e := newFakeEnv(t)
+	e.tool("mysqldump", oracleVersion, mysqlOK)
+	(&fakeDB{answer: tablesOnly()}).install(t)
+	src := mysqlSource()
+	src.Config.Password = `s3cret'"#\pw`
+	s, err := Start(context.Background(), e.base, src, Options{Databases: []string{"app"}})
+	require.NoError(t, err, "密码可以写进选项文件")
+	_, err = readAll(t, s)
+	require.NoError(t, err)
+	require.NoError(t, s.Close())
+	runs := e.runs("mysqldump")
+	require.Len(t, runs, 1)
+	cnf, _ := runs[0].copied(t, runs[0].arg("--defaults-file="))
+	assert.Contains(t, cnf, `password="s3cret'\"#\\pw"`+"\n")
+}
+
+// pg 密码文件一行一条，无法表示含换行的密码：明确拒绝，而不是写出一个认证必然失败的密码文件
+func TestPostgresPasswordWithNewline(t *testing.T) {
+	e := newFakeEnv(t)
+	e.tool("pg_dump", pgDumpVersion, pgDumpOK)
+	src := pgSource()
+	src.Config.Password = "s3cret\npw"
+	_, err := Start(context.Background(), e.base, src, Options{Databases: []string{"app"}})
+	require.ErrorIs(t, err, ErrInvalidOptions)
+	assert.NotContains(t, err.Error(), "s3cret")
+	assert.Empty(t, e.leftEntries(), "失败时不留下临时文件")
+	assert.Empty(t, e.runs("pg_dump"))
+}
+
+// 每个工具的输出读完后即关闭管道：“整个实例”有很多库时，不会在整次导出期间一库占一个文件描述符
+func TestToolOutputClosedAfterEOF(t *testing.T) {
+	e := newFakeEnv(t)
+	e.tool("pg_dump", pgDumpVersion, pgDumpOK)
+	const n = 40
+	dbs := make([]string, n)
+	for i := range dbs {
+		dbs[i] = "db" + strconv.Itoa(i)
+	}
+	before := openFDs(t)
+	s, err := Start(context.Background(), e.base, pgSource(), Options{Databases: dbs})
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+	_, err = readAll(t, s)
+	require.NoError(t, err)
+	assert.Less(t, openFDs(t)-before, n/2, "读完的工具输出已关闭")
+}
+
+func openFDs(t *testing.T) int {
+	t.Helper()
+	ents, err := os.ReadDir("/dev/fd")
+	if err != nil {
+		t.Skip("没有 /dev/fd")
+	}
+	return len(ents)
+}
+
+// 导出工具的环境不继承 OpsNap 的数据库变量，但保留动态库搜索路径：放在 tools.dir 中、靠
+// LD_LIBRARY_PATH 找到自带库的客户端，在探测时能运行，导出时也要能运行
+func TestToolEnvKeepsLibraryPath(t *testing.T) {
+	e := newFakeEnv(t)
+	e.tool("pg_dump", pgDumpVersion, pgDumpOK)
+	t.Setenv("LD_LIBRARY_PATH", "/opt/pgclient/lib")
+	t.Setenv("PGPASSWORD", "from-env")
+	s, err := Start(context.Background(), e.base, pgSource(), Options{Databases: []string{"app"}})
+	require.NoError(t, err)
+	_, err = readAll(t, s)
+	require.NoError(t, err)
+	require.NoError(t, s.Close())
+	runs := e.runs("pg_dump")
+	require.Len(t, runs, 1)
+	assert.Equal(t, "/opt/pgclient/lib", runs[0].env["LD_LIBRARY_PATH"])
+	assert.NotContains(t, runs[0].env, "PGPASSWORD")
 }

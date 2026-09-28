@@ -261,5 +261,7 @@ func TestJobRunsPagination(t *testing.T) {
 		assert.Len(t, second.Items, 5)
 		assert.Equal(t, first.Items, e.runs(t, item.ID, 0).Items, "缺省为第 1 页")
 		assert.Empty(t, e.runs(t, item.ID, 3).Items)
+		// 极大的页码不能因为偏移量溢出而回到第 1 页
+		assert.Empty(t, e.runs(t, item.ID, 1<<62).Items, "超出范围的页码没有记录")
 	})
 }

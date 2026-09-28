@@ -242,7 +242,7 @@ func (s *Scheduler) fire(ctx context.Context, j *job_entity.Job, p time.Time, ki
 	run, err := defaultRunner.Enqueue(ctx, j.ID, t)
 	switch {
 	case errors.Is(err, ErrRunActive):
-		if _, err := defaultRunner.skip(ctx, j.ID, t, job_entity.ReasonStillRunning); err != nil {
+		if _, err := defaultRunner.skip(ctx, j.ID, t, job_entity.ReasonStillRunning); err != nil && !errors.Is(err, job_repo.ErrNotFound) {
 			log.Error("记录跳过失败", zap.Error(err))
 		}
 	case err != nil:

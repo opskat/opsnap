@@ -619,6 +619,27 @@ func TestRunKeepsLatestRecords(t *testing.T) {
 	assert.NotNil(t, kept)
 }
 
+// 只保留最近 1000 条时不删除仍在排队或运行的记录：每分钟触发的任务在一次长时间运行期间会记下上千条“跳过”，
+// 删掉进行中的记录会让它的结果无处保存，并让任务在它还没结束时再次入队
+func TestRunTrimKeepsActiveRun(t *testing.T) {
+	e := newRunEnv(t)
+	active, err := Runs().Enqueue(e.ctx, e.job.ID, Trigger{Kind: job_entity.TriggerManual})
+	require.NoError(t, err)
+	for i := 0; i < job_entity.MaxRunsPerJob; i++ {
+		_, err := defaultRunner.skip(e.ctx, e.job.ID, Trigger{Kind: job_entity.TriggerSchedule, ScheduledAt: int64(i + 1)},
+			job_entity.ReasonStillRunning)
+		require.NoError(t, err)
+	}
+	kept, err := job_repo.Run().Find(e.ctx, active.ID)
+	require.NoError(t, err)
+	require.NotNil(t, kept, "进行中的记录不被清理")
+	_, err = Runs().Enqueue(e.ctx, e.job.ID, Trigger{Kind: job_entity.TriggerManual})
+	assert.ErrorIs(t, err, ErrRunActive, "任务仍有排队中的运行")
+	final, err := Runs().Execute(e.ctx, active.ID)
+	require.NoError(t, err)
+	assert.Equal(t, job_entity.RunSuccess, final.Status, final.Reason)
+}
+
 func TestRunRecover(t *testing.T) {
 	e := newRunEnv(t)
 	mk := func(status string) *job_entity.Run {

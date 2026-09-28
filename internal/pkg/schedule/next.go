@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// maxDayScan 是 Next/Prev 逐日搜索的上限，避免 Cron 组合（如 2 月 31 日）永不匹配时死循环。
+// maxDayScan 是 Next/Prev 在两次触发之间逐日搜索的上限，避免 Cron 组合（如 2 月 31 日）永不匹配时死循环。
 // 4 年多可以覆盖闰年周期，足够判定"确实不会触发"。
 const maxDayScan = 4*366 + 1
 
@@ -34,6 +34,7 @@ func (s Spec) Next(after time.Time, n int) ([]time.Time, error) {
 	out := make([]time.Time, 0, n)
 	cursor := after
 	y, mo, d := cursor.In(loc).Date()
+	// scanned 为距上一次找到触发时间的天数：上限按每两次触发之间计算，稀疏但合法的计划（如 2 月 29 日）也能给出多次
 	for scanned := 0; len(out) < n; scanned++ {
 		if scanned > maxDayScan {
 			return nil, ErrNeverFires
@@ -42,13 +43,13 @@ func (s Spec) Next(after time.Time, n int) ([]time.Time, error) {
 			if c.After(cursor) {
 				out = append(out, c)
 				cursor = c
+				scanned = 0
 				if len(out) == n {
 					break
 				}
 			}
 		}
-		next := time.Date(y, mo, d, 0, 0, 0, 0, loc).AddDate(0, 0, 1)
-		y, mo, d = next.Date()
+		y, mo, d = addDays(y, mo, d, 1)
 	}
 	return out, nil
 }
@@ -77,10 +78,15 @@ func (s Spec) Prev(at time.Time) (time.Time, error) {
 				return candidates[i], nil
 			}
 		}
-		prevDay := time.Date(y, mo, d, 0, 0, 0, 0, loc).AddDate(0, 0, -1)
-		y, mo, d = prevDay.Date()
+		y, mo, d = addDays(y, mo, d, -1)
 	}
 	return time.Time{}, ErrNeverFires
+}
+
+// addDays 日历日加减：按 UTC 计算，不经过时区。夏令时在午夜开始的时区（如 America/Santiago）当天没有 00:00，
+// 用该时区的午夜推进会落回前一天
+func addDays(y int, mo time.Month, d, n int) (int, time.Month, int) {
+	return time.Date(y, mo, d+n, 0, 0, 0, 0, time.UTC).Date()
 }
 
 // candidatesOnDay 返回给定日历日（按 loc 的墙上时间）内，按升序排列的所有候选触发时间。
@@ -95,7 +101,7 @@ func candidatesOnDay(loc *time.Location, y int, mo time.Month, d int, s Spec, cs
 	case KindDaily:
 		return []time.Time{localDateTime(loc, y, mo, d, s.Hour, s.Minute)}
 	case KindWeekly:
-		wd := time.Date(y, mo, d, 0, 0, 0, 0, loc).Weekday()
+		wd := time.Date(y, mo, d, 0, 0, 0, 0, time.UTC).Weekday()
 		if !weekdayIn(s.Weekdays, wd) {
 			return nil
 		}

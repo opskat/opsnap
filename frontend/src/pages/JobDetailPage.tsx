@@ -1,8 +1,9 @@
 import { ArrowLeft, Lock, Pause, Play } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useParams } from "react-router";
 
+import type { JobRowBusy } from "@/components/jobs/JobRowActions";
 import { errorMessage, type Loadable } from "@/components/jobs/loadable";
 import { lastRunDetail } from "@/components/jobs/runFormat";
 import { RunsTable } from "@/components/jobs/RunsTable";
@@ -10,7 +11,8 @@ import { scheduleDescription } from "@/components/jobs/schedule";
 import type { SchedulePreview } from "@/components/jobs/StepSchedule";
 import { Button } from "@/components/ui/button";
 import { ApiError } from "@/lib/api";
-import { formatDateTime } from "@/lib/format";
+import { ErrorCode } from "@/lib/auth";
+import { formatDateTime, joinNames } from "@/lib/format";
 import {
   cancelRun,
   enableJob,
@@ -41,7 +43,8 @@ type LoadState =
   | { status: "error"; message: string }
   | { status: "ready"; item: JobItem };
 
-type Busy = "run" | "cancel" | "pause" | "enable" | undefined;
+/** 最近一次运行的标识：变化（新的运行，或同一运行的状态变化）时刷新统计 */
+const runKey = (run?: Run | null) => (run ? `${run.id}:${run.status}` : "");
 
 /** 任务详情页：/jobs/:id（docs/specs/2026-09-27-backup-jobs.md「任务详情」） */
 export function JobDetailPage() {
@@ -52,7 +55,11 @@ export function JobDetailPage() {
 
   const [job, setJob] = useState<LoadState>(() => (validId ? { status: "loading" } : { status: "not_found" }));
   const [jobAttempt, setJobAttempt] = useState(0);
-  const [busy, setBusy] = useState<Busy>();
+  const [busy, setBusy] = useState<JobRowBusy>();
+  // 请求进行中：头部的操作在上一个请求返回前不能再次提交
+  const inflight = useRef(false);
+  // 每次操作改动任务后加一：在它之前发出的轮询请求返回时已过时，丢弃其任务数据，避免把刚做的修改改回去
+  const mutations = useRef(0);
   const [actionError, setActionError] = useState<string>();
 
   const [stats, setStats] = useState<Loadable<JobStats>>({ status: "loading" });
@@ -127,8 +134,13 @@ export function JobDetailPage() {
   }, [jobId, page, runsAttempt]);
 
   // 自动刷新任务与运行记录：运行中或排队中时每 3 秒，其余时候低频刷新（计划触发的运行开始后也能看到）；
-  // 运行结束时同时刷新统计（快照数、占用、最近成功与成功率）
+  // 有运行结束（包括在两次低频刷新之间开始又结束的运行）时同时刷新统计（快照数、占用、最近成功与成功率）
   const active = job.status === "ready" && isRunActive(job.item.last_run);
+  const lastRunKey = useRef("");
+  const currentRunKey = job.status === "ready" ? runKey(job.item.last_run) : "";
+  useEffect(() => {
+    lastRunKey.current = currentRunKey;
+  }, [currentRunKey]);
   useEffect(() => {
     if (!jobId) return;
     let cancelled = false;
@@ -137,17 +149,22 @@ export function JobDetailPage() {
       timer = window.setTimeout(
         () => {
           if (cancelled) return;
+          const seq = mutations.current;
+          const before = lastRunKey.current;
           Promise.all([getJob(jobId), listRuns(jobId, page)])
             .then(([j, r]) => {
               if (cancelled) return;
               const nowActive = isRunActive(j.item.last_run);
-              setJob({ status: "ready", item: j.item });
+              if (seq === mutations.current) setJob({ status: "ready", item: j.item });
               setRuns({ status: "ready", data: r });
-              if (wasActive && !nowActive) setStatsAttempt((n) => n + 1);
+              if (!nowActive && runKey(j.item.last_run) !== before) setStatsAttempt((n) => n + 1);
               poll(nowActive);
             })
-            .catch(() => {
-              if (!cancelled) poll(wasActive);
+            .catch((err: unknown) => {
+              if (cancelled) return;
+              // 任务已在别处被删除：显示“不存在”，不再轮询
+              if (err instanceof ApiError && err.status === 404) setJob({ status: "not_found" });
+              else poll(wasActive);
             });
         },
         wasActive ? POLL_INTERVAL_MS : IDLE_POLL_INTERVAL_MS
@@ -186,49 +203,65 @@ export function JobDetailPage() {
     setStatsAttempt((n) => n + 1);
   };
 
-  const runJob = async () => {
-    if (job.status !== "ready") return;
-    setBusy("run");
+  /** 按操作结果更新任务（基于当前的任务，而不是发起操作时的快照） */
+  const updateJob = (update: (item: JobItem) => JobItem) => {
+    mutations.current++;
+    setJob((j) => (j.status === "ready" ? { status: "ready", item: update(j.item) } : j));
+  };
+
+  /** 立即重新读取任务（操作被拒绝时，界面上的状态已经过时） */
+  const reloadJob = (id: number) => {
+    const seq = ++mutations.current;
+    getJob(id)
+      .then((r) => seq === mutations.current && setJob({ status: "ready", item: r.item }))
+      .catch(() => {
+        // 下一次自动刷新会再试
+      });
+  };
+
+  const withBusy = async (kind: NonNullable<JobRowBusy>, fn: (item: JobItem) => Promise<void>) => {
+    if (job.status !== "ready" || inflight.current) return;
+    inflight.current = true;
+    setBusy(kind);
     setActionError(undefined);
     try {
-      const { run } = await runJobNow(job.item.id);
-      setJob({ status: "ready", item: { ...job.item, last_run: run } });
+      await fn(job.item);
+    } catch (err) {
+      setActionError(errorMessage(err));
+      // 已在运行或排队、运行已结束：按服务端的当前状态刷新，换成正确的操作
+      if (
+        err instanceof ApiError &&
+        (err.code === ErrorCode.JobRunAlreadyActive || err.code === ErrorCode.JobRunFinished)
+      ) {
+        reloadJob(job.item.id);
+        retryRuns();
+      }
+    } finally {
+      inflight.current = false;
+      setBusy(undefined);
+    }
+  };
+
+  const runJob = () =>
+    withBusy("run", async (item) => {
+      const { run } = await runJobNow(item.id);
+      updateJob((j) => ({ ...j, last_run: run }));
       refreshRuns();
-    } catch (err) {
-      setActionError(errorMessage(err));
-    } finally {
-      setBusy(undefined);
-    }
-  };
+    });
 
-  const cancel = async () => {
-    if (job.status !== "ready" || !job.item.last_run) return;
-    setBusy("cancel");
-    setActionError(undefined);
-    try {
-      const { run } = await cancelRun(job.item.id, job.item.last_run.id);
-      setJob({ status: "ready", item: { ...job.item, last_run: run } });
+  const cancel = () =>
+    withBusy("cancel", async (item) => {
+      if (!item.last_run) return;
+      const { run } = await cancelRun(item.id, item.last_run.id);
+      updateJob((j) => (j.last_run?.id === run.id ? { ...j, last_run: run } : j));
       retryRuns();
-    } catch (err) {
-      setActionError(errorMessage(err));
-    } finally {
-      setBusy(undefined);
-    }
-  };
+    });
 
-  const togglePause = async () => {
-    if (job.status !== "ready") return;
-    setBusy(job.item.enabled ? "pause" : "enable");
-    setActionError(undefined);
-    try {
-      const { item } = job.item.enabled ? await pauseJob(job.item.id) : await enableJob(job.item.id);
-      setJob({ status: "ready", item });
-    } catch (err) {
-      setActionError(errorMessage(err));
-    } finally {
-      setBusy(undefined);
-    }
-  };
+  const togglePause = () =>
+    withBusy(job.status === "ready" && job.item.enabled ? "pause" : "enable", async (item) => {
+      const { item: updated } = item.enabled ? await pauseJob(item.id) : await enableJob(item.id);
+      updateJob(() => updated);
+    });
 
   if (job.status === "loading") {
     return (
@@ -282,15 +315,14 @@ export function JobDetailPage() {
     item.scope === "instance"
       ? t("jobs.wizard.confirm.scopeInstance")
       : t("jobs.wizard.confirm.scopeDatabases", { count: item.databases.length });
-  const listSep = lang.toLowerCase().startsWith("zh") ? "、" : ", ";
   const databasesList =
-    item.scope === "databases" && item.databases.length > 0 ? item.databases.join(listSep) : undefined;
+    item.scope === "databases" && item.databases.length > 0 ? joinNames(item.databases, lang) : undefined;
 
   const optionKeys = (
     item.datasource_kind === "postgres" ? ["globals"] : ["routines", "triggers", "events", "users"]
   ) as ("routines" | "triggers" | "events" | "users" | "globals")[];
   const included = optionKeys.filter((k) => item.options[k]).map((k) => t(`jobs.wizard.content.options.${k}`));
-  const includedText = included.length > 0 ? included.join(listSep) : t("jobs.detail.config.includedNone");
+  const includedText = included.length > 0 ? joinNames(included, lang) : t("jobs.detail.config.includedNone");
 
   const storage = storages.find((s) => s.id === item.storage_id);
 
@@ -328,11 +360,7 @@ export function JobDetailPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              disabled={busy === "pause" || busy === "enable"}
-              onClick={() => void togglePause()}
-            >
+            <Button variant="outline" disabled={busy !== undefined} onClick={() => void togglePause()}>
               {item.enabled ? <Pause /> : <Play />}
               {item.enabled ? t("jobs.list.actions.pause") : t("jobs.list.actions.enable")}
             </Button>
@@ -341,11 +369,11 @@ export function JobDetailPage() {
             </Button>
             {/* 运行中或排队中：立即执行换成取消运行 */}
             {active ? (
-              <Button variant="outline" disabled={busy === "cancel"} onClick={() => void cancel()}>
+              <Button variant="outline" disabled={busy !== undefined} onClick={() => void cancel()}>
                 {busy === "cancel" ? t("common.submitting") : t("jobs.list.actions.cancel")}
               </Button>
             ) : (
-              <Button disabled={busy === "run"} onClick={() => void runJob()}>
+              <Button disabled={busy !== undefined} onClick={() => void runJob()}>
                 {busy === "run" ? t("common.submitting") : t("jobs.list.actions.run")}
               </Button>
             )}

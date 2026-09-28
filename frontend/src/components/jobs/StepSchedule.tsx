@@ -146,7 +146,7 @@ export function StepSchedule({
             error={errors.timezone}
             onChange={(e) => setSchedule({ timezone: e.target.value })}
           >
-            {timezoneList().map((tz) => (
+            {timezoneList(schedule.timezone).map((tz) => (
               <option key={tz} value={tz}>
                 {tz}
               </option>

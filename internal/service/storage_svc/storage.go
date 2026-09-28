@@ -74,6 +74,16 @@ type storageSvc struct {
 
 var defaultStorage = &storageSvc{now: time.Now}
 
+// refMu 串行化“没有任务引用该存储”的检查与删除、更改位置，以及新建任务时对存储的检查与写入（LockReferences）：
+// 检查之后、删除或保存新位置之前新建的任务会指向一个已删除或已换了位置的存储
+var refMu sync.Mutex
+
+// LockReferences 新建任务时持有，直到任务写入；返回解锁函数
+func LockReferences() (unlock func()) {
+	refMu.Lock()
+	return refMu.Unlock
+}
+
 // SetJobReferrer 由任务模块注册：查询使用某个存储的任务，用于引用计数、删除与位置更改保护；
 // nil 表示没有任务模块
 func SetJobReferrer(fn JobReferrer) {
@@ -484,6 +494,8 @@ func (s *storageSvc) Update(ctx context.Context, req *api.UpdateRequest) (*api.U
 	}
 	changed := loc.Key() != st.LocationKey
 	if changed {
+		// 持有到保存新位置之后：期间新建的任务要等位置改完，看到的是新位置
+		defer LockReferences()()
 		jobs, err := s.referencingJobs(ctx, st.ID)
 		if err != nil {
 			return nil, err
@@ -644,6 +656,7 @@ func (s *storageSvc) Unlock(ctx context.Context, req *api.UnlockRequest) (*api.U
 }
 
 func (s *storageSvc) Delete(ctx context.Context, req *api.DeleteRequest) (*api.DeleteResponse, error) {
+	defer LockReferences()()
 	st, err := s.find(ctx, req.ID)
 	if err != nil {
 		return nil, err

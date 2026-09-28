@@ -1,4 +1,4 @@
-import { act, render, screen, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -157,9 +157,44 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-/** 依次响应任务详情页首次加载的五个请求：任务、统计、存储列表、计划预览、运行记录第一页 */
-function respondInitialLoad(job: JobItem = baseJob, s: JobStats = stats) {
-  respond(ok({ item: job }), ok(s), ok({ items: [storageItem] }), ok(previewResponse), ok(runsPage1));
+/**
+ * 按地址响应任务详情页首次加载的五个请求（任务、统计、存储列表、计划预览、运行记录第一页），与发出顺序无关。
+ * 之后用 respond 排队的响应优先于这里的默认响应
+ */
+function respondInitialLoad(
+  job: JobItem = baseJob,
+  s: JobStats = stats,
+  runs: { items: Run[]; total: number } = runsPage1
+) {
+  const routes: Record<string, unknown> = {
+    "/api/v1/jobs/1": { item: job },
+    "/api/v1/jobs/1/stats": s,
+    "/api/v1/storages": { items: [storageItem] },
+    "/api/v1/jobs/schedule-preview": previewResponse,
+    "/api/v1/jobs/1/runs?page=1": runs,
+  };
+  fetchMock.mockImplementation((url: string) =>
+    Promise.resolve(url in routes ? ok(routes[url]) : fail(404, `unexpected ${url}`, 404))
+  );
+}
+
+const INITIAL_URLS = [
+  "/api/v1/jobs/1",
+  "/api/v1/jobs/1/stats",
+  "/api/v1/storages",
+  "/api/v1/jobs/schedule-preview",
+  "/api/v1/jobs/1/runs?page=1",
+];
+
+/**
+ * 渲染并等首次加载的五个请求都已发出：之后用 respond 排队的响应只会被之后的请求（操作、轮询）取走，
+ * 不会被还没发出的首次加载请求抢先取走
+ */
+async function renderLoaded() {
+  renderPage();
+  await waitFor(() => {
+    for (const url of INITIAL_URLS) expect(fetchMock.mock.calls.some(([u]) => u === url)).toBe(true);
+  });
 }
 
 function renderPage(id = "1") {
@@ -173,25 +208,22 @@ function renderPage(id = "1") {
 }
 
 describe("任务详情页", () => {
-  it("加载后依次请求任务、统计、存储、计划预览与运行记录", async () => {
+  it("计划预览按任务的计划与保留策略请求", async () => {
     respondInitialLoad();
-    renderPage();
+    await renderLoaded();
 
-    expect(await screen.findByText("orders-prod 全量备份")).toBeInTheDocument();
-    expect(call(0)).toMatchObject({ url: "/api/v1/jobs/1", method: "GET" });
-    expect(call(1)).toMatchObject({ url: "/api/v1/jobs/1/stats", method: "GET" });
-    expect(call(2)).toMatchObject({ url: "/api/v1/storages", method: "GET" });
-    expect(call(3)).toMatchObject({
-      url: "/api/v1/jobs/schedule-preview",
+    const region = await screen.findByRole("region", { name: "配置" });
+    expect(await within(region).findByText("2026-09-29 02:00")).toBeInTheDocument();
+    const preview = fetchMock.mock.calls.findIndex(([url]) => url === "/api/v1/jobs/schedule-preview");
+    expect(call(preview)).toMatchObject({
       method: "POST",
       body: { schedule: baseJob.schedule, retention: baseJob.retention },
     });
-    expect(call(4)).toMatchObject({ url: "/api/v1/jobs/1/runs?page=1", method: "GET" });
   });
 
   it("头部：名称、启用状态、数据源→存储、计划与下次执行、返回入口", async () => {
     respondInitialLoad();
-    renderPage();
+    await renderLoaded();
 
     expect(await screen.findByText("orders-prod 全量备份")).toBeInTheDocument();
     const header = screen.getByRole("banner");
@@ -205,7 +237,7 @@ describe("任务详情页", () => {
 
   it("配置卡片：数据源、范围、一并备份、方式、存储、仓库内位置、压缩、加密指纹、计划、保留、失败处理", async () => {
     respondInitialLoad();
-    renderPage();
+    await renderLoaded();
 
     const region = await screen.findByRole("region", { name: "配置" });
     // 存储列表与计划预览是各自独立的异步请求，等它们落地后再断言其余内容
@@ -227,7 +259,7 @@ describe("任务详情页", () => {
 
   it("统计卡片：快照数与最早时间、仓库占用与节省、最近成功、近 30 次成功率", async () => {
     respondInitialLoad();
-    renderPage();
+    await renderLoaded();
 
     const region = await screen.findByRole("region", { name: "统计" });
     // 统计是独立的异步请求，等它落地后再断言其余内容
@@ -243,20 +275,14 @@ describe("任务详情页", () => {
   });
 
   it("统计接口报告仓库不可读时显示非阻塞提示", async () => {
-    respond(
-      ok({ item: baseJob }),
-      ok({
-        ...stats,
-        snapshot_count: 0,
-        earliest_snapshot_at: 0,
-        packed_bytes: 0,
-        storage_error: "仓库不可读：连接超时",
-      }),
-      ok({ items: [storageItem] }),
-      ok(previewResponse),
-      ok(runsPage1)
-    );
-    renderPage();
+    respondInitialLoad(baseJob, {
+      ...stats,
+      snapshot_count: 0,
+      earliest_snapshot_at: 0,
+      packed_bytes: 0,
+      storage_error: "仓库不可读：连接超时",
+    });
+    await renderLoaded();
 
     expect(await screen.findByText("仓库不可读：连接超时")).toBeInTheDocument();
     expect(screen.getByText("还没有快照")).toBeInTheDocument();
@@ -264,15 +290,14 @@ describe("任务详情页", () => {
 
   it("运行记录表：列与行内容，分页信息", async () => {
     respondInitialLoad();
-    renderPage();
+    await renderLoaded();
 
     const rows = await screen.findAllByRole("row");
     expect(within(rows[0]).getByRole("columnheader", { name: "状态" })).toBeInTheDocument();
-    const successRow = rows.find((r) => within(r).queryByText("成功"));
-    expect(successRow).toBeDefined();
-    expect(within(successRow!).getByText(/耗时 4m12s|4m12s/)).toBeTruthy();
-    expect(within(successRow!).getByText("200.0 MB / 186.0 MB")).toBeInTheDocument();
-    expect(within(successRow!).getByText("k1a2b3")).toBeInTheDocument();
+    const successRow = rows.find((r) => within(r).queryByText("成功"))!;
+    expect(within(successRow).getByText("4m12s")).toBeInTheDocument();
+    expect(within(successRow).getByText("200.0 MB / 186.0 MB")).toBeInTheDocument();
+    expect(within(successRow).getByText("k1a2b3")).toBeInTheDocument();
 
     expect(screen.getByText("第 1 / 3 页")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "上一页" })).toBeDisabled();
@@ -281,17 +306,20 @@ describe("任务详情页", () => {
 
   it("翻页请求下一页运行记录", async () => {
     respondInitialLoad();
-    renderPage();
+    await renderLoaded();
     await screen.findAllByRole("row");
 
     respond(ok({ items: [], total: 45 }));
     await userEvent.click(screen.getByRole("button", { name: "下一页" }));
     expect(call(5)).toMatchObject({ url: "/api/v1/jobs/1/runs?page=2", method: "GET" });
+    // 这一页没有记录（例如期间被清理）时仍显示页码与翻页，可以回到上一页
+    expect(await screen.findByText("第 2 / 3 页")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "上一页" })).not.toBeDisabled();
   });
 
   it("点击失败的运行行：展开失败步骤与原因，懒加载执行日志，含省略标记", async () => {
     respondInitialLoad();
-    renderPage();
+    await renderLoaded();
     const rows = await screen.findAllByRole("row");
     const failedRow = rows.find((r) => within(r).queryByText("失败"))!;
 
@@ -313,7 +341,7 @@ describe("任务详情页", () => {
 
   it("立即执行：请求 POST /jobs/:id/run，运行中变为取消运行", async () => {
     respondInitialLoad({ ...baseJob, last_run: undefined });
-    renderPage();
+    await renderLoaded();
     await screen.findByText("orders-prod 全量备份");
 
     const runButton = screen.getByRole("button", { name: "立即执行" });
@@ -325,7 +353,7 @@ describe("任务详情页", () => {
 
   it("排队中：立即执行不可用，可以取消排队中的运行", async () => {
     respondInitialLoad({ ...baseJob, last_run: queuedRun });
-    renderPage();
+    await renderLoaded();
 
     const cancelButton = await screen.findByRole("button", { name: "取消运行" });
     expect(screen.queryByRole("button", { name: "立即执行" })).not.toBeInTheDocument();
@@ -340,14 +368,8 @@ describe("任务详情页", () => {
 
   it("没有失败步骤的失败运行（如 OpsNap 重启中断）只显示原因，不出现未翻译的键", async () => {
     const interrupted: Run = { ...failedRun, failed_step: "", reason: "OpsNap 重启，运行中断" };
-    respond(
-      ok({ item: baseJob }),
-      ok(stats),
-      ok({ items: [storageItem] }),
-      ok(previewResponse),
-      ok({ items: [interrupted], total: 1 })
-    );
-    renderPage();
+    respondInitialLoad(baseJob, stats, { items: [interrupted], total: 1 });
+    await renderLoaded();
     const rows = await screen.findAllByRole("row");
     const row = rows.find((r) => within(r).queryByText("失败"))!;
     respond(ok({ lines: [] }));
@@ -360,7 +382,7 @@ describe("任务详情页", () => {
     await i18n.changeLanguage("en");
     try {
       respondInitialLoad();
-      renderPage();
+      await renderLoaded();
       const rows = await screen.findAllByRole("row");
       const failedRow = rows.find((r) => within(r).queryByText("Failed"))!;
       respond(ok({ lines: [] }));
@@ -373,7 +395,7 @@ describe("任务详情页", () => {
 
   it("统计中的数字与时间用等宽字体", async () => {
     respondInitialLoad();
-    renderPage();
+    await renderLoaded();
     const region = await screen.findByRole("region", { name: "统计" });
     expect(await within(region).findByText(/12 份快照/)).toHaveClass("font-mono");
     expect(within(region).getByText(/18 成功 · 2 失败 · 成功率 90%/)).toHaveClass("font-mono");
@@ -430,7 +452,7 @@ describe("任务详情页", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       respondInitialLoad();
-      renderPage();
+      await renderLoaded();
       await screen.findByRole("button", { name: "立即执行" });
 
       respond(ok({ item: { ...baseJob, last_run: runningRun } }), ok({ items: [runningRun, successRun], total: 46 }));
@@ -445,7 +467,7 @@ describe("任务详情页", () => {
 
   it("运行中：立即执行换成取消运行，点击后请求取消接口并更新状态", async () => {
     respondInitialLoad({ ...baseJob, last_run: runningRun });
-    renderPage();
+    await renderLoaded();
     const cancelButton = await screen.findByRole("button", { name: "取消运行" });
 
     respond(
@@ -460,7 +482,7 @@ describe("任务详情页", () => {
 
   it("暂停与启用", async () => {
     respondInitialLoad();
-    renderPage();
+    await renderLoaded();
     await screen.findByText("orders-prod 全量备份");
 
     respond(ok({ item: { ...baseJob, enabled: false, next_run_at: 0 } }));
@@ -473,7 +495,7 @@ describe("任务详情页", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       respondInitialLoad({ ...baseJob, last_run: runningRun });
-      renderPage();
+      await renderLoaded();
       await screen.findByRole("button", { name: "取消运行" });
 
       respond(ok({ item: { ...baseJob, last_run: { ...runningRun, status: "success" } } }), ok(runsPage1), ok(stats));
@@ -508,5 +530,117 @@ describe("任务详情页", () => {
     respondInitialLoad();
     await userEvent.click(screen.getByRole("button", { name: "重试" }));
     expect(await screen.findByText("orders-prod 全量备份")).toBeInTheDocument();
+  });
+
+  it("暂停先于在途的轮询返回：较早发出的任务数据不能把它改回已启用", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      respondInitialLoad();
+      await renderLoaded();
+      await screen.findByRole("button", { name: "暂停" });
+
+      let resolvePoll!: (r: Response) => void;
+      fetchMock.mockReturnValueOnce(new Promise<Response>((r) => (resolvePoll = r)));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30000);
+      });
+
+      respond(ok({ item: { ...baseJob, enabled: false, next_run_at: 0 } }));
+      await userEvent.click(screen.getByRole("button", { name: "暂停" }));
+      expect(await screen.findByRole("button", { name: "启用" })).toBeInTheDocument();
+
+      await act(async () => {
+        resolvePoll(ok({ item: baseJob }));
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(screen.getByRole("button", { name: "启用" })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("两次低频刷新之间完成的运行也刷新统计", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      respondInitialLoad();
+      await renderLoaded();
+      const region = await screen.findByRole("region", { name: "统计" });
+      await within(region).findByText(/12 份快照/);
+
+      const quick: Run = { ...successRun, id: 102, snapshot_id: "k2" };
+      respondInitialLoad(
+        { ...baseJob, last_run: quick },
+        { ...stats, snapshot_count: 13 },
+        {
+          items: [quick, successRun],
+          total: 46,
+        }
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30000);
+      });
+      expect(await within(region).findByText(/13 份快照/)).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("轮询时发现任务已被删除：显示任务不存在，不再继续轮询", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      respondInitialLoad();
+      await renderLoaded();
+      await screen.findByRole("button", { name: "暂停" });
+
+      fetchMock.mockImplementation(() => Promise.resolve(fail(10700, "任务不存在", 404)));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30000);
+      });
+      expect(await screen.findByText("任务不存在")).toBeInTheDocument();
+      const calls = fetchMock.mock.calls.length;
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(90000);
+      });
+      expect(fetchMock.mock.calls.length).toBe(calls);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("日志读取失败后，收起再展开会重新读取", async () => {
+    respondInitialLoad();
+    await renderLoaded();
+    const rows = await screen.findAllByRole("row");
+    const failedRow = rows.find((r) => within(r).queryByText("失败"))!;
+
+    respond(fail(-1, "连接超时"));
+    await userEvent.click(failedRow);
+    expect(await screen.findByText("无法加载日志：连接超时")).toBeInTheDocument();
+
+    respond(ok({ lines: [{ time: Date.UTC(2026, 8, 28, 1, 30, 0), step: "connect", message: "建立链路" }] }));
+    await userEvent.click(failedRow);
+    await userEvent.click(failedRow);
+    expect(await screen.findByText(/建立链路/)).toBeInTheDocument();
+  });
+
+  it("请求进行中其他操作也不可用：立即执行未返回时不能暂停", async () => {
+    respondInitialLoad();
+    await renderLoaded();
+    await screen.findByRole("button", { name: "暂停" });
+
+    fetchMock.mockReturnValueOnce(new Promise<Response>(() => {}));
+    await userEvent.click(screen.getByRole("button", { name: "立即执行" }));
+    expect(screen.getByRole("button", { name: "暂停" })).toBeDisabled();
+  });
+
+  it("立即执行被拒绝（已在运行或排队）时立刻刷新任务状态，换成取消运行", async () => {
+    respondInitialLoad();
+    await renderLoaded();
+    await screen.findByRole("button", { name: "立即执行" });
+
+    respond(fail(10728, "任务已在运行或排队"), ok({ item: { ...baseJob, last_run: runningRun } }));
+    await userEvent.click(screen.getByRole("button", { name: "立即执行" }));
+    expect(await screen.findByText("任务已在运行或排队")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "取消运行" })).toBeInTheDocument();
   });
 });

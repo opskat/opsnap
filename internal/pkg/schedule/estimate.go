@@ -70,10 +70,8 @@ func estimateCronRunsInDays(cs cronSchedule, days int) int {
 		matchingDaysUpper = ceilDiv(days, 7)*dowCount + ceilDiv(days, 28)*domCount
 	}
 
-	monthsCount := countTrue(cs.months[1:])
-	if monthsCount < 12 {
-		matchingDaysUpper = ceilDiv(matchingDaysUpper*monthsCount, 12)
-	}
+	// 只在部分月份触发时不按月份比例缩小：保留窗口可能整个落在所选月份里（如 1 月里的 30 天），
+	// 按比例得到的是平均值而不是上界
 
 	return perMatchingDay * matchingDaysUpper
 }

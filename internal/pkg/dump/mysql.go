@@ -106,22 +106,16 @@ func (p *mysqlPlan) args(cnfPath string) []string {
 	for _, ex := range p.opts.ExcludeTables {
 		args = append(args, "--ignore-table="+ex)
 	}
-	args = append(args, "--databases")
+	// "--" 之后的参数只作为库名：“整个实例”的库名来自服务端，以 - 开头的库名不能被当成选项
+	args = append(args, "--databases", "--")
 	return append(args, p.opts.Databases...)
 }
 
 // optionFile mysqldump 的选项文件：账号、密码、本机转发端口与 TLS 设置
 func (p *mysqlPlan) optionFile(s *Session) (string, error) {
 	cfg := p.src.Config
-	user, err := optionQuote(cfg.User)
-	if err != nil {
-		return "", fmt.Errorf("%w：用户名%w", ErrInvalidOptions, err)
-	}
-	pass, err := optionQuote(cfg.Password)
-	if err != nil {
-		return "", fmt.Errorf("%w：密码%w", ErrInvalidOptions, err)
-	}
-	lines := []string{"[client]", "user=" + user, "password=" + pass, "host=127.0.0.1", "port=" + s.localPort(), "protocol=TCP"}
+	lines := []string{"[client]", "user=" + optionQuote(cfg.User), "password=" + optionQuote(cfg.Password), "host=127.0.0.1",
+		"port=" + s.localPort(), "protocol=TCP"}
 
 	files, err := s.writeTLS(cfg.TLS)
 	if err != nil {
@@ -143,11 +137,7 @@ func (p *mysqlPlan) optionFile(s *Session) (string, error) {
 		if kv[1] == "" {
 			continue
 		}
-		q, err := optionQuote(kv[1])
-		if err != nil {
-			return "", err
-		}
-		lines = append(lines, kv[0]+"="+q)
+		lines = append(lines, kv[0]+"="+optionQuote(kv[1]))
 	}
 	return strings.Join(lines, "\n") + "\n", nil
 }
@@ -165,20 +155,10 @@ func oracleSSLMode(m dsconn.TLSMode) string {
 	return "PREFERRED"
 }
 
-// optionQuote 按 MySQL 选项文件的规则给值加引号：两端引号只按首尾字符去掉，
-// 反斜杠转义在去引号之后处理，因此内容中的反斜杠与控制字符都要转义。
-// 值中不含双引号时用双引号，否则用单引号；两种引号都有且含 #（会被当成注释）时无法表达
-func optionQuote(v string) (string, error) {
-	esc := strings.NewReplacer(`\`, `\\`, "\n", `\n`, "\r", `\r`, "\t", `\t`, "\b", `\b`).Replace(v)
-	switch {
-	case !strings.Contains(v, `"`):
-		return `"` + esc + `"`, nil
-	case !strings.Contains(v, `'`):
-		return `'` + esc + `'`, nil
-	case !strings.Contains(v, "#"):
-		return `"` + esc + `"`, nil
-	}
-	return "", errors.New("同时包含单引号、双引号和 #，无法写入 mysqldump 的选项文件")
+// optionQuote 按 MySQL / MariaDB 选项文件的规则把值写在双引号中：两端引号按首尾字符去掉；引号内的 # 不是注释；
+// 反斜杠转义在去引号之后处理，因此内容中的反斜杠、双引号与控制字符都要转义。任何值都能这样表达
+func optionQuote(v string) string {
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`, "\r", `\r`, "\t", `\t`, "\b", `\b`).Replace(v) + `"`
 }
 
 // checkTables 经 Go 连接列出选中库中的表：排除规则未匹配任何表、非 InnoDB 表都写进运行日志

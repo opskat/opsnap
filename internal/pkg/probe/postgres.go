@@ -159,7 +159,7 @@ func decidePgDump(serverVersion string, tool toolStatus) Item {
 			En:   "pg_dump was not found in PATH or tools.dir; logical full backup is unavailable.",
 		}, Fix: pgDumpFix}
 	}
-	sMajor, _, _ := parseMajorMinor(serverVersion)
+	sMajor, _, _ := ParseMajorMinor(serverVersion)
 	if tool.Err != nil {
 		return Item{Key: "postgres.pg_dump", Title: itemTitles["postgres.pg_dump"], Tier: TierFail, Detail: Text{
 			ZhCN: fmt.Sprintf("找到 pg_dump，但无法确定其版本：%s", tool.Err),

@@ -287,6 +287,7 @@ func TestWriteSnapshot(t *testing.T) {
 			Files:  []SnapshotFile{{Name: "a.sql", Reader: strings.NewReader("data")}},
 		})
 		require.ErrorIs(t, err, bad)
+		assert.ErrorIs(t, err, ErrVerify, "调用方据此把失败归入“校验”一步")
 		assert.Equal(t, 0, snapshotCount(t, loc))
 	})
 }

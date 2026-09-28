@@ -389,8 +389,18 @@ func (r *runner) RunPending(ctx context.Context) error {
 	return nil
 }
 
-// skip 记一条“跳过”的运行：计划到点时任务已在运行或排队；reasonCode 为固定原因（job_entity.Reason*）
+// skip 记一条“跳过”的运行：计划到点时任务已在运行或排队；reasonCode 为固定原因（job_entity.Reason*）。
+// 与删除任务互斥：任务在此之前已被删除时返回 job_repo.ErrNotFound，不留下没有任务的记录
 func (r *runner) skip(ctx context.Context, jobID int64, t Trigger, reasonCode string) (*job_entity.Run, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	j, err := job_repo.Job().Find(ctx, jobID)
+	if err != nil {
+		return nil, err
+	}
+	if j == nil {
+		return nil, job_repo.ErrNotFound
+	}
 	now := r.clock()
 	run := &job_entity.Run{JobID: jobID, Status: job_entity.RunSkipped, Trigger: t.Kind, RetryAttempt: t.Attempt,
 		RetryTotal: t.Total, ScheduledAt: t.ScheduledAt, FinishedAt: now.UnixMilli(), Log: "[]",
@@ -639,7 +649,7 @@ func (x *execution) export(ctx context.Context) (*kopiarepo.SnapshotResult, erro
 	if err != nil {
 		step := job_entity.StepExport
 		// 完整性检查（完成标记、归档头）与读回校验属于“校验”
-		if errors.Is(err, dump.ErrIncomplete) || strings.Contains(err.Error(), "读回校验快照") {
+		if errors.Is(err, dump.ErrIncomplete) || errors.Is(err, kopiarepo.ErrVerify) {
 			step = job_entity.StepVerify
 		}
 		return nil, &stepError{step: step, err: err}

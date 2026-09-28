@@ -1,5 +1,6 @@
 import type { TFunction } from "i18next";
 
+import { joinNames } from "@/lib/format";
 import type { JobSchedule } from "@/lib/jobs";
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -13,11 +14,10 @@ export function scheduleDescription(t: TFunction, language: string, schedule: Jo
   if (schedule.kind === "hourly") return t("jobs.wizard.confirm.scheduleHourly", { minute: pad(schedule.minute) });
   if (schedule.kind === "daily") return t("jobs.wizard.confirm.scheduleDaily", { time });
   if (schedule.kind === "weekly") {
-    const sep = language.toLowerCase().startsWith("zh") ? "、" : ", ";
-    const weekdays = [...schedule.weekdays]
-      .sort((a, b) => a - b)
-      .map((d) => t(`jobs.wizard.schedule.weekday.${d}`))
-      .join(sep);
+    const weekdays = joinNames(
+      [...schedule.weekdays].sort((a, b) => a - b).map((d) => t(`jobs.wizard.schedule.weekday.${d}`)),
+      language
+    );
     return t("jobs.wizard.confirm.scheduleWeekly", { weekdays, time });
   }
   return t("jobs.wizard.confirm.scheduleCron", { cron: schedule.cron });

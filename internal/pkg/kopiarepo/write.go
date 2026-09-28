@@ -86,6 +86,9 @@ const (
 // ErrInvalidSnapshot 写快照的请求不完整或不合法，未写入任何数据
 var ErrInvalidSnapshot = errors.New("快照请求不合法")
 
+// ErrVerify 快照清单已保存但读回校验没有通过，清单随即被删除（删除也失败时错误中一并说明）；调用方据此把失败归入“校验”一步
+var ErrVerify = errors.New("读回校验快照")
+
 func (c Compression) compressor() (compression.Name, error) {
 	switch c {
 	case CompressionNone:
@@ -262,9 +265,9 @@ func (w *Writer) confirm(ctx context.Context, id manifest.ID, files []FileResult
 		func(ctx context.Context, rw repo.RepositoryWriter) error {
 			return rw.DeleteManifest(ctx, id)
 		}); derr != nil {
-		return fmt.Errorf("读回校验快照: %w（删除清单也失败: %w）", err, derr)
+		return fmt.Errorf("%w: %w（删除清单也失败: %w）", ErrVerify, err, derr)
 	}
-	return fmt.Errorf("读回校验快照: %w", err)
+	return fmt.Errorf("%w: %w", ErrVerify, err)
 }
 
 // readBack 读回快照清单，核对文件集合、每个文件的大小，并确认其内容全部在仓库索引中。测试可替换

@@ -427,4 +427,59 @@ describe("任务列表页", () => {
       vi.useRealTimers();
     }
   });
+
+  it("暂停先于在途的列表刷新返回：较早发出的刷新结果不能把任务改回已启用", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      respond(ok({ items: [ordersProd] }));
+      renderPage();
+      await screen.findAllByRole("row");
+
+      let resolvePoll!: (r: Response) => void;
+      fetchMock.mockReturnValueOnce(new Promise<Response>((r) => (resolvePoll = r)));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30000);
+      });
+      expect(call(1)).toMatchObject({ url: "/api/v1/jobs", method: "GET" });
+
+      respond(ok({ item: { ...ordersProd, enabled: false, next_run_at: 0 } }));
+      await userEvent.click(screen.getByRole("button", { name: "orders-prod 全量备份 的更多操作" }));
+      await userEvent.click(await screen.findByRole("menuitem", { name: "暂停" }));
+      expect(await screen.findByText("MySQL · 4 个库 · 已暂停")).toBeInTheDocument();
+
+      await act(async () => {
+        resolvePoll(ok({ items: [ordersProd] }));
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(screen.getByText("MySQL · 4 个库 · 已暂停")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("一行的请求未返回时，该行其他操作也不可用，防止重复提交", async () => {
+    respond(ok({ items: [brandNew] }));
+    renderPage();
+    const row = (await screen.findAllByRole("row"))[1];
+
+    fetchMock.mockReturnValueOnce(new Promise<Response>(() => {}));
+    await userEvent.click(within(row).getByRole("button", { name: "立即执行 new-job 首次运行前" }));
+    await userEvent.click(within(row).getByRole("button", { name: "new-job 首次运行前 的更多操作" }));
+    expect(await screen.findByRole("menuitem", { name: "暂停" })).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("立即执行被拒绝（已在运行或排队）时立刻刷新任务状态，换成取消运行", async () => {
+    respond(ok({ items: [brandNew] }));
+    renderPage();
+    const row = (await screen.findAllByRole("row"))[1];
+
+    respond(
+      fail(10728, "任务已在运行或排队"),
+      ok({ items: [{ ...brandNew, last_run: { ...runningRun, job_id: 5 } }] })
+    );
+    await userEvent.click(within(row).getByRole("button", { name: "立即执行 new-job 首次运行前" }));
+    expect(await screen.findByText("任务已在运行或排队")).toBeInTheDocument();
+    expect(await within(row).findByRole("button", { name: "取消运行 new-job 首次运行前" })).toBeInTheDocument();
+    expect(call(2)).toMatchObject({ url: "/api/v1/jobs", method: "GET" });
+  });
 });

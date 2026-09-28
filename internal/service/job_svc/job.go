@@ -40,7 +40,7 @@ type JobSvc interface {
 	Update(ctx context.Context, req *api.UpdateRequest) (*api.UpdateResponse, error)
 	Pause(ctx context.Context, req *api.PauseRequest) (*api.PauseResponse, error)
 	Enable(ctx context.Context, req *api.EnableRequest) (*api.EnableResponse, error)
-	// Delete 删除任务；有进行中的运行（见 SetActiveRunChecker）时拒绝。删除快照失败不影响删除任务，份数与提示在响应中
+	// Delete 删除任务；有等待中或运行中的运行时拒绝。删除快照失败不影响删除任务，份数与提示在响应中
 	Delete(ctx context.Context, req *api.DeleteRequest) (*api.DeleteResponse, error)
 	// SchedulePreview 按所选时区计算接下来三次执行时间，并估算最多保留的快照份数
 	SchedulePreview(ctx context.Context, req *api.SchedulePreviewRequest) (*api.SchedulePreviewResponse, error)
@@ -61,16 +61,10 @@ type JobSvc interface {
 	Stats(ctx context.Context, req *api.StatsRequest) (*api.StatsResponse, error)
 }
 
-// ActiveRunChecker 查询任务是否有正在运行或排队的运行
-type ActiveRunChecker func(ctx context.Context, jobID int64) (bool, error)
-
 type jobSvc struct {
 	now func() time.Time
 	// mu 串行化写操作：重名与前缀冲突检查到写入之间不被其他请求插入，整行保存也不互相覆盖
 	mu sync.Mutex
-
-	hookMu    sync.RWMutex
-	activeRun ActiveRunChecker
 }
 
 var defaultJob = &jobSvc{now: time.Now}
@@ -79,29 +73,11 @@ func Job() JobSvc {
 	return defaultJob
 }
 
-// SetActiveRunChecker 替换删除任务前“是否有正在运行或排队的运行”的查询；nil 恢复为默认：
-// 查询运行记录中等待中或运行中的运行（Runs().HasActive）
-func SetActiveRunChecker(fn ActiveRunChecker) {
-	defaultJob.hookMu.Lock()
-	defer defaultJob.hookMu.Unlock()
-	defaultJob.activeRun = fn
-}
-
 // RegisterReferenceHooks 向数据源与存储模块注册任务对它们的引用：被引用的数据源不能删除，
 // 被引用的存储不能删除也不能更改位置（docs/specs/2026-09-27-backup-jobs.md「对已有页面的影响」）
 func RegisterReferenceHooks() {
 	datasource_svc.SetJobReferrer(defaultJob.ByDataSource)
 	storage_svc.SetJobReferrer(defaultJob.ByStorage)
-}
-
-func (s *jobSvc) hasActiveRun(ctx context.Context, jobID int64) (bool, error) {
-	s.hookMu.RLock()
-	fn := s.activeRun
-	s.hookMu.RUnlock()
-	if fn == nil {
-		return defaultRunner.HasActive(ctx, jobID)
-	}
-	return fn(ctx, jobID)
 }
 
 // settings 新建与编辑共用的可修改字段
@@ -305,30 +281,8 @@ func (s *jobSvc) Create(ctx context.Context, req *api.CreateRequest) (*api.Creat
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	ds, err := s.dataSource(ctx, j.DataSourceID, true)
+	ds, st, err := s.insert(ctx, j, req.RunNow)
 	if err != nil {
-		return nil, err
-	}
-	st, err := storage_repo.Storage().Find(ctx, j.StorageID)
-	if err != nil {
-		return nil, err
-	}
-	if st == nil {
-		return nil, i18n.NewError(ctx, code.JobStorageNotFound)
-	}
-	if st.Status != storage_entity.StatusOK {
-		return nil, i18n.NewError(ctx, code.JobStorageNotReady)
-	}
-	if err := j.Check(ctx, ds.Kind); err != nil {
-		return nil, err
-	}
-	if err := s.checkUnique(ctx, j); err != nil {
-		return nil, err
-	}
-	now := s.now().Unix()
-	j.Enabled, j.EnabledAt, j.RunNow = true, now, req.RunNow
-	j.Createtime, j.Updatetime = now, now
-	if err := job_repo.Job().Create(ctx, j); err != nil {
 		return nil, err
 	}
 	wakeScheduler()
@@ -342,6 +296,40 @@ func (s *jobSvc) Create(ctx context.Context, req *api.CreateRequest) (*api.Creat
 		return nil, err
 	}
 	return &api.CreateResponse{Item: s.toItem(ctx, j, ds, st, last)}, nil
+}
+
+// insert 检查所选数据源与存储并写入新任务。检查到写入期间持有数据源与存储的引用锁：
+// 与“没有任务引用它”的删除（或更改存储位置）检查互斥，新任务不会指向刚被删除的数据源或存储
+func (s *jobSvc) insert(ctx context.Context, j *job_entity.Job, runNow bool) (*datasource_entity.DataSource, *storage_entity.Storage, error) {
+	defer datasource_svc.LockReferences()()
+	defer storage_svc.LockReferences()()
+	ds, err := s.dataSource(ctx, j.DataSourceID, true)
+	if err != nil {
+		return nil, nil, err
+	}
+	st, err := storage_repo.Storage().Find(ctx, j.StorageID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if st == nil {
+		return nil, nil, i18n.NewError(ctx, code.JobStorageNotFound)
+	}
+	if st.Status != storage_entity.StatusOK {
+		return nil, nil, i18n.NewError(ctx, code.JobStorageNotReady)
+	}
+	if err := j.Check(ctx, ds.Kind); err != nil {
+		return nil, nil, err
+	}
+	if err := s.checkUnique(ctx, j); err != nil {
+		return nil, nil, err
+	}
+	now := s.now().Unix()
+	j.Enabled, j.EnabledAt, j.RunNow = true, now, runNow
+	j.Createtime, j.Updatetime = now, now
+	if err := job_repo.Job().Create(ctx, j); err != nil {
+		return nil, nil, err
+	}
+	return ds, st, nil
 }
 
 func (s *jobSvc) Update(ctx context.Context, req *api.UpdateRequest) (*api.UpdateResponse, error) {
@@ -443,7 +431,7 @@ func (s *jobSvc) remove(ctx context.Context, id int64) (*job_entity.Job, error) 
 	// 检查与删除期间不能有新的运行入队
 	defaultRunner.mu.Lock()
 	defer defaultRunner.mu.Unlock()
-	active, err := s.hasActiveRun(ctx, j.ID)
+	active, err := defaultRunner.HasActive(ctx, j.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -510,6 +498,9 @@ func (s *jobSvc) SchedulePreview(ctx context.Context, req *api.SchedulePreviewRe
 		return nil, err
 	}
 	runs, err := spec.Next(s.now(), previewRuns)
+	if errors.Is(err, schedule.ErrNeverFires) {
+		return nil, job_entity.ScheduleError(ctx, err)
+	}
 	if err != nil {
 		return nil, err
 	}

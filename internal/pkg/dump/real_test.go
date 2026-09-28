@@ -222,10 +222,8 @@ func TestRealMySQLExportRestore(t *testing.T) {
 		}
 	}
 	cnf := filepath.Join(t.TempDir(), "client.cnf")
-	pw, err := optionQuote(svc.Password)
-	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(cnf, []byte(fmt.Sprintf("[client]\nuser=%s\npassword=%s\nhost=%s\nport=%d\nprotocol=TCP\nloose-ssl\n",
-		svc.User, pw, svc.Host, svc.Port)), 0o600))
+		svc.User, optionQuote(svc.Password), svc.Host, svc.Port)), 0o600))
 	runClient(t, nil, dump, "mysql", "--defaults-file="+cnf)
 
 	for _, q := range []string{"SELECT * FROM `%s`.items ORDER BY id", "SELECT * FROM `%s`.cache", "SELECT * FROM `%s`.v_items ORDER BY id"} {

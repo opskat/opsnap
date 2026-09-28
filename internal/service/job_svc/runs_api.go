@@ -96,7 +96,8 @@ func (s *jobSvc) Runs(ctx context.Context, req *api.RunsRequest) (*api.RunsRespo
 	if _, err := s.find(ctx, req.ID); err != nil {
 		return nil, err
 	}
-	page := max(req.Page, 1)
+	// 每个任务最多保留 MaxRunsPerJob 条，超出的页码一律按最后一页之后处理，偏移量不会溢出
+	page := min(max(req.Page, 1), job_entity.MaxRunsPerJob/runsPageSize+1)
 	rows, total, err := job_repo.Run().Page(ctx, req.ID, (page-1)*runsPageSize, runsPageSize)
 	if err != nil {
 		return nil, err

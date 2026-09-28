@@ -493,9 +493,10 @@ describe("新建任务向导 · 第 2 步 内容与方式", () => {
     expect(screen.queryByRole("textbox", { name: "排除表" })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /高级选项/ }));
     const exclude = screen.getByRole("textbox", { name: "排除表" });
-    await userEvent.type(exclude, "orders.audit_log{enter}orders.public.t1{enter}bad");
+    await userEvent.type(exclude, "orders.audit_log{enter}orders.public.t1{enter}bad{enter}orders. t2");
     await next();
-    expect(screen.getByText(/排除表格式不正确.*orders\.public\.t1、bad/)).toBeInTheDocument();
+    // 段内的首尾空白同样不行：导出时按段校验，保存时后端也会拒绝
+    expect(screen.getByText(/排除表格式不正确.*orders\.public\.t1、bad、orders\. t2/)).toBeInTheDocument();
     expect(exclude).toHaveAttribute("aria-invalid", "true");
     expect(currentStep()).toHaveTextContent("内容与方式");
 
@@ -547,6 +548,26 @@ describe("新建任务向导 · 第 2 步 内容与方式", () => {
       expect(screen.getByRole("region", { name: /能力探测/ })).toHaveTextContent("探测中");
       await act(() => vi.advanceTimersByTimeAsync(3500));
       expect(await screen.findByText("GTID 未开启")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("新建任务向导 · 第 2 步 没有探测结果", () => {
+  it("数据源还没有探测结果时不当作探测进行中：可以重新探测，也不反复轮询", async () => {
+    const unprobed: DataSourceItem = { ...dbOrders, probe: null };
+    route("GET /api/v1/datasources", ok({ items: [unprobed, pgAnalytics] }));
+    route("GET /api/v1/datasources/1", ok({ item: unprobed }));
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      await toStep2();
+      const region = screen.getByRole("region", { name: /能力探测/ });
+      expect(within(region).getByRole("button", { name: "重新探测" })).not.toBeDisabled();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10000);
+      });
+      expect(calls("GET /api/v1/datasources/1")).toHaveLength(0);
     } finally {
       vi.useRealTimers();
     }
@@ -671,6 +692,39 @@ describe("编辑任务", () => {
     expect(currentStep()).toHaveTextContent("计划与保留");
   });
 
+  it("数据源当前状态异常时仍可编辑：编辑不重新检查数据源状态（与后端一致）", async () => {
+    route("GET /api/v1/jobs/9", ok({ item: existingJob }));
+    route(
+      "GET /api/v1/datasources",
+      ok({ items: [{ ...dbOrders, status: "unreachable", status_message: "连接超时" }, pgAnalytics] })
+    );
+    renderWizard("/jobs/9/edit");
+    await screen.findByRole("radiogroup", { name: "数据源" });
+    await next();
+    expect(await screen.findByRole("region", { name: /能力探测/ })).toBeInTheDocument();
+    expect(currentStep()).toHaveTextContent("内容与方式");
+  });
+
+  it("任务的时区不在浏览器的时区列表中时，下拉框仍显示并保留它", async () => {
+    const spy = vi.spyOn(Intl, "supportedValuesOf").mockReturnValue(["Asia/Shanghai", "Europe/Berlin"]);
+    try {
+      route(
+        "GET /api/v1/jobs/9",
+        ok({ item: { ...existingJob, schedule: { ...existingJob.schedule, timezone: "UTC" } } })
+      );
+      renderWizard("/jobs/9/edit");
+      await screen.findByRole("radiogroup", { name: "数据源" });
+      await next();
+      await screen.findByRole("region", { name: /能力探测/ });
+      await next();
+      await screen.findByRole("textbox", { name: "路径前缀" });
+      await next();
+      expect(await screen.findByRole("combobox", { name: "时区" })).toHaveValue("UTC");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("任务不存在时提示并提供返回任务列表的入口", async () => {
     route("GET /api/v1/jobs/9", fail(10700, "任务不存在", 404));
     renderWizard("/jobs/9/edit");
@@ -733,6 +787,16 @@ describe("新建任务向导 · 第 4 步 计划与保留", () => {
     expect(screen.getByText("2026-10-01 02:00")).toBeInTheDocument();
     expect(screen.getByText("按当前计划，最多保留约 42 份快照")).toBeInTheDocument();
     expect(screen.getByText("本任务最新的一份成功快照始终保留")).toBeInTheDocument();
+  });
+
+  it("保留与失败处理只接受整数：小数在字段旁提示，不能进入下一步", async () => {
+    await toStep4();
+    const days = screen.getByRole("spinbutton", { name: "保留最近 N 天内的全部快照" });
+    await userEvent.clear(days);
+    await userEvent.type(days, "1.5");
+    await next();
+    expect(screen.getByText("保留天数须为 1–365 的整数")).toBeInTheDocument();
+    expect(currentStep()).toHaveTextContent("计划与保留");
   });
 
   it("每小时：选择第几分钟；每周：至少选一个星期几才能下一步", async () => {

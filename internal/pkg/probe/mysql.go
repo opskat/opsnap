@@ -258,7 +258,7 @@ func decideMySQLDump(serverVersion string, tool toolStatus) Item {
 			En:   "mysqldump was not found in PATH or tools.dir; full backup is unavailable.",
 		}, Fix: mysqlDumpFix}
 	}
-	sMajor, sMinor, _ := parseMajorMinor(serverVersion)
+	sMajor, sMinor, _ := ParseMajorMinor(serverVersion)
 	if tool.Err != nil {
 		return Item{Key: "mysql.mysqldump", Title: itemTitles["mysql.mysqldump"], Tier: TierWarn, Detail: Text{
 			ZhCN: fmt.Sprintf("找到 mysqldump，但无法确定其版本：%s", tool.Err),

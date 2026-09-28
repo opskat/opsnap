@@ -50,12 +50,9 @@ var versionRe = regexp.MustCompile(`(\d+)\.(\d+)(?:\.(\d+))?`)
 // distribRe 旧版 MySQL 客户端的 --version 输出（如 "mysqldump  Ver 10.13 Distrib 5.7.44"）中客户端的版本号
 var distribRe = regexp.MustCompile(`Distrib\s+(\d+)\.(\d+)`)
 
-// ParseMajorMinor 解析服务端版本或工具 --version 输出中的主次版本号，规则同能力探测
-func ParseMajorMinor(text string) (major, minor int, ok bool) { return parseMajorMinor(text) }
-
-// parseMajorMinor 解析版本号文本（如服务端版本、工具 --version 输出）中的主次版本号；
+// ParseMajorMinor 解析版本号文本（如服务端版本、工具 --version 输出）中的主次版本号，能力探测与导出共用；
 // 有 Distrib 时取它之后的版本号，Ver 之后的只是工具自身的版本
-func parseMajorMinor(text string) (major, minor int, ok bool) {
+func ParseMajorMinor(text string) (major, minor int, ok bool) {
 	m := distribRe.FindStringSubmatch(text)
 	if m == nil {
 		m = versionRe.FindStringSubmatch(text)
@@ -100,7 +97,7 @@ func ToolVersion(ctx context.Context, path string) (major, minor int, raw string
 		return 0, 0, "", err
 	}
 	raw = strings.TrimSpace(string(out))
-	major, minor, ok := parseMajorMinor(raw)
+	major, minor, ok := ParseMajorMinor(raw)
 	if !ok {
 		return 0, 0, raw, fmt.Errorf("无法从 %q 中识别版本号", raw)
 	}

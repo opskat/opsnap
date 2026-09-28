@@ -396,14 +396,12 @@ function SwitchRow({
   hint,
   checked,
   onChange,
-  disabled,
   className,
 }: {
   label: string;
   hint: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
-  disabled?: boolean;
   className?: string;
 }) {
   return (
@@ -412,7 +410,7 @@ function SwitchRow({
         <span className="text-sm">{label}</span>
         <span className="text-xs text-muted-foreground">{hint}</span>
       </div>
-      <Switch checked={checked} onCheckedChange={onChange} disabled={disabled} aria-label={label} />
+      <Switch checked={checked} onCheckedChange={onChange} aria-label={label} />
     </div>
   );
 }

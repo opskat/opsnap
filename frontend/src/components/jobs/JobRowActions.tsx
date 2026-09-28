@@ -10,7 +10,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import type { JobItem } from "@/lib/jobs";
+import { isRunActive, type JobItem } from "@/lib/jobs";
 
 /** 一行正在进行的操作；用于禁用对应按钮并显示加载文案，防止重复提交 */
 export type JobRowBusy = "run" | "cancel" | "pause" | "enable" | undefined;
@@ -24,8 +24,9 @@ export interface JobRowActionHandlers {
 }
 
 /**
- * 任务的行操作：立即执行（运行中或排队中换成取消运行，立即执行此时不可用）、编辑、更多菜单
- * （暂停/启用、查看详情、删除任务）。任务列表与详情页头部共用（docs/specs/2026-09-27-backup-jobs.md「任务列表」「执行」）。
+ * 任务列表中一行的操作：立即执行（运行中或排队中换成取消运行，立即执行此时不可用）、编辑、更多菜单
+ * （暂停/启用、查看详情、删除任务）（docs/specs/2026-09-27-backup-jobs.md「任务列表」「执行」）。
+ * 该行有请求进行中时，立即执行、取消与暂停/启用都不可用。
  */
 export function JobRowActions({
   job,
@@ -37,9 +38,9 @@ export function JobRowActions({
   actions: JobRowActionHandlers;
 }) {
   const { t } = useTranslation();
-  const status = job.last_run?.status;
   // 运行中或排队中的运行都可以取消（docs/specs/2026-09-27-backup-jobs.md「执行」取消）；删除前也提示先取消
-  const isActive = status === "running" || status === "queued";
+  const isActive = isRunActive(job.last_run);
+  const pending = busy !== undefined;
 
   return (
     <div className="flex items-center justify-end gap-1">
@@ -47,7 +48,7 @@ export function JobRowActions({
         <Button
           variant="ghost"
           size="sm"
-          disabled={busy === "cancel"}
+          disabled={pending}
           aria-label={t("jobs.list.actions.cancelNamed", { name: job.name })}
           onClick={() => actions.onCancel(job)}
         >
@@ -57,7 +58,7 @@ export function JobRowActions({
         <Button
           variant="ghost"
           size="sm"
-          disabled={busy === "run"}
+          disabled={pending}
           aria-label={t("jobs.list.actions.runNamed", { name: job.name })}
           onClick={() => actions.onRun(job)}
         >
@@ -75,7 +76,7 @@ export function JobRowActions({
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuItem
-            disabled={busy === "pause" || busy === "enable"}
+            disabled={pending}
             onSelect={() => (job.enabled ? actions.onPause(job) : actions.onEnable(job))}
           >
             {job.enabled ? <Pause /> : <Play />}

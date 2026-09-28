@@ -46,4 +46,11 @@ func TestEstimateMaxSnapshots(t *testing.T) {
 		// 每小时 4 次（0/15/30/45）* 24 小时 = 96 次/天。
 		assert.Equal(t, 96+0+0+1, k)
 	})
+
+	t.Run("Cron 只在部分月份触发：估算不低于那几个月里 N 天内的实际次数", func(t *testing.T) {
+		s, err := Parse(Spec{Kind: KindCron, Cron: "0 3 * 1 *", Timezone: "UTC"})
+		require.NoError(t, err)
+		// 1 月里任意 30 天窗口都有 30 次触发，保留 30 天时 1 月底最多保留 30 份（加最新一份的余量）
+		assert.GreaterOrEqual(t, EstimateMaxSnapshots(s, 30, 0, 0), 30+1)
+	})
 }

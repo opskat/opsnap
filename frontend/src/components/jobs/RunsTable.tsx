@@ -44,13 +44,20 @@ export function RunsTable({
   const [logs, setLogs] = useState<Record<number, Loadable<RunLogLine[]>>>({});
   // 读取日志时运行的状态：运行中的记录或状态已变化的记录，在列表刷新时重新读取日志
   const logStatus = useRef<Record<number, Run["status"]>>({});
+  // 每条运行最近一次读取日志的序号：较早发出的请求后返回时不覆盖较新的结果
+  const logSeq = useRef<Record<number, number>>({});
 
   const fetchLog = useCallback(
     (run: Run) => {
       logStatus.current[run.id] = run.status;
+      const seq = (logSeq.current[run.id] ?? 0) + 1;
+      logSeq.current[run.id] = seq;
+      const settle = (state: Loadable<RunLogLine[]>) => {
+        if (logSeq.current[run.id] === seq) setLogs((l) => ({ ...l, [run.id]: state }));
+      };
       getRunLog(jobId, run.id)
-        .then((r) => setLogs((l) => ({ ...l, [run.id]: { status: "ready", data: r.lines } })))
-        .catch((err: unknown) => setLogs((l) => ({ ...l, [run.id]: { status: "error", message: errorMessage(err) } })));
+        .then((r) => settle({ status: "ready", data: r.lines }))
+        .catch((err: unknown) => settle({ status: "error", message: errorMessage(err) }));
     },
     [jobId]
   );
@@ -70,7 +77,8 @@ export function RunsTable({
       return;
     }
     setExpandedId(run.id);
-    if (logs[run.id]) return;
+    // 已读到或正在读取时不再请求；上一次读取失败时重新读取
+    if (logs[run.id] && logs[run.id].status !== "error") return;
     setLogs((l) => ({ ...l, [run.id]: { status: "loading" } }));
     fetchLog(run);
   };
@@ -91,7 +99,7 @@ export function RunsTable({
   }
 
   const { items, total } = state.data;
-  if (items.length === 0) {
+  if (items.length === 0 && total === 0) {
     return <p className="px-4 py-10 text-center text-sm text-muted-foreground">{t("jobs.detail.runs.empty")}</p>;
   }
   const totalPages = Math.max(1, Math.ceil(total / RUNS_PAGE_SIZE));
@@ -106,6 +114,10 @@ export function RunsTable({
         <span role="columnheader">{t("jobs.detail.runs.columns.bytes")}</span>
         <span role="columnheader">{t("jobs.detail.runs.columns.snapshot")}</span>
       </div>
+      {/* 这一页没有记录（例如期间被清理）：保留页码与翻页，可以回到有记录的页 */}
+      {items.length === 0 && (
+        <p className="border-t px-4 py-10 text-center text-sm text-muted-foreground">{t("jobs.detail.runs.empty")}</p>
+      )}
       {items.map((run) => {
         const expanded = expandedId === run.id;
         const started = run.started_at > 0;

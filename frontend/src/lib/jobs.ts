@@ -264,7 +264,6 @@ export function updateJob(id: number, draft: JobDraft) {
 // ============ 向导状态 ============
 
 export const WIZARD_STEPS = ["source", "content", "destination", "schedule", "confirm"] as const;
-export type WizardStep = (typeof WIZARD_STEPS)[number];
 
 /** 向导中填写的内容；返回修改时保留 */
 export interface JobDraft {
@@ -450,12 +449,12 @@ export function excludeLines(text: string): string[] {
   return out;
 }
 
-/** 格式不对的排除表：MySQL 为 库.表（2 段），PostgreSQL 为 库.模式.表（3 段），每段非空 */
+/** 格式不对的排除表：MySQL 为 库.表（2 段），PostgreSQL 为 库.模式.表（3 段），每段非空且没有首尾空白（与后端、导出时的规则一致） */
 export function invalidExcludes(kind: DataSourceKind, lines: string[]): string[] {
   const want = kind === "postgres" ? 3 : 2;
   return lines.filter((s) => {
     const parts = s.split(".");
-    return parts.length !== want || parts.some((p) => !p.trim());
+    return parts.length !== want || parts.some((p) => p === "" || p.trim() !== p);
   });
 }
 
@@ -482,13 +481,19 @@ export function formatBytes(bytes: number): string {
   return i === 0 ? `${v} B` : `${v.toFixed(1)} ${units[i]}`;
 }
 
-/** IANA 时区列表；环境不支持时只给出当前浏览器时区，避免下拉框为空 */
-export function timezoneList(): string[] {
+/**
+ * IANA 时区列表；环境不支持时只给出当前浏览器时区，避免下拉框为空。current（任务已选的时区）不在列表中时
+ * （如部分浏览器的列表不含 UTC）补进去，下拉框才能显示并保留它
+ */
+export function timezoneList(current?: string): string[] {
+  let list: string[];
   try {
-    return Intl.supportedValuesOf("timeZone").sort();
+    list = [...Intl.supportedValuesOf("timeZone")];
   } catch {
-    return [defaultTimezone()];
+    list = [defaultTimezone()];
   }
+  if (current && !list.includes(current)) list.push(current);
+  return list.sort();
 }
 
 /**

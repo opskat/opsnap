@@ -14,6 +14,7 @@ import { WizardSteps } from "@/components/jobs/WizardSteps";
 import { Button } from "@/components/ui/button";
 import { ApiError } from "@/lib/api";
 import { ErrorCode } from "@/lib/auth";
+import { joinNames } from "@/lib/format";
 import {
   createJob,
   draftOf,
@@ -99,13 +100,15 @@ function localScheduleErrors(
   if (kind === "cron" && cron.trim() === "") e.schedule = t("jobs.wizard.errors.cronRequired");
   else if (kind === "weekly" && weekdays.length === 0) e.schedule = t("jobs.wizard.errors.weekdaysRequired");
   const { days, weeks, months } = draft.retention;
-  if (days < 1 || days > 365) e.retentionDays = t("jobs.wizard.errors.retentionDaysInvalid");
-  if (weeks < 0 || weeks > 520) e.retentionWeeks = t("jobs.wizard.errors.retentionWeeksInvalid");
-  if (months < 0 || months > 120) e.retentionMonths = t("jobs.wizard.errors.retentionMonthsInvalid");
+  // 都是整数（后端按整数解析，小数会让整个请求失败而不是指出字段）
+  const outside = (v: number, min: number, max: number) => !Number.isInteger(v) || v < min || v > max;
+  if (outside(days, 1, 365)) e.retentionDays = t("jobs.wizard.errors.retentionDaysInvalid");
+  if (outside(weeks, 0, 520)) e.retentionWeeks = t("jobs.wizard.errors.retentionWeeksInvalid");
+  if (outside(months, 0, 120)) e.retentionMonths = t("jobs.wizard.errors.retentionMonthsInvalid");
   const { retries, retry_interval: retryInterval, timeout } = draft.failure;
-  if (retries < 0 || retries > 5) e.retries = t("jobs.wizard.errors.retriesInvalid");
-  if (retryInterval < 1 || retryInterval > 120) e.retryInterval = t("jobs.wizard.errors.retryIntervalInvalid");
-  if (timeout < 10 || timeout > 2880) e.timeout = t("jobs.wizard.errors.timeoutInvalid");
+  if (outside(retries, 0, 5)) e.retries = t("jobs.wizard.errors.retriesInvalid");
+  if (outside(retryInterval, 1, 120)) e.retryInterval = t("jobs.wizard.errors.retryIntervalInvalid");
+  if (outside(timeout, 10, 2880)) e.timeout = t("jobs.wizard.errors.timeoutInvalid");
   return e;
 }
 
@@ -253,7 +256,8 @@ export function JobWizardPage() {
     const e: WizardErrors = {};
     if (i === 0) {
       if (!source) e.source = t("jobs.wizard.errors.sourceRequired");
-      else if (source.status !== "ok") {
+      // 编辑时数据源不能修改，也不重新检查它的状态（与后端一致）
+      else if (!editing && source.status !== "ok") {
         e.source = t("jobs.wizard.errors.sourceNotReady", {
           reason: source.status_message || t(`sources.dataSource.status.${source.status}`),
         });
@@ -266,10 +270,9 @@ export function JobWizardPage() {
       }
       const bad = invalidExcludes(source.kind, excludeLines(draft.excludeText));
       if (bad.length > 0) {
-        const sep = i18n.language.toLowerCase().startsWith("zh") ? "、" : ", ";
         e.exclude = t(
           source.kind === "postgres" ? "jobs.wizard.errors.excludeInvalidPg" : "jobs.wizard.errors.excludeInvalidMysql",
-          { lines: bad.join(sep) }
+          { lines: joinNames(bad, i18n.language) }
         );
       }
     }

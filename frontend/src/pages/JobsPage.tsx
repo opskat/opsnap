@@ -1,5 +1,5 @@
 import { ListChecks, Plus, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 
@@ -9,14 +9,16 @@ import { JobTable } from "@/components/jobs/JobTable";
 import { errorMessage, type Loadable } from "@/components/jobs/loadable";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
-import { cancelRun, enableJob, listJobs, pauseJob, runJobNow, type JobItem } from "@/lib/jobs";
+import { ApiError } from "@/lib/api";
+import { ErrorCode } from "@/lib/auth";
+import { cancelRun, enableJob, isRunActive, listJobs, pauseJob, runJobNow, type JobItem } from "@/lib/jobs";
 
 /** 有运行中或排队中的任务时刷新列表的间隔 */
 const JOB_POLL_INTERVAL_MS = 3000;
 /** 没有运行中、排队中的任务时的刷新间隔：计划触发的运行开始后不需要手动刷新页面也能看到 */
 const JOB_IDLE_POLL_INTERVAL_MS = 30000;
 
-const isActive = (job: JobItem) => job.last_run?.status === "running" || job.last_run?.status === "queued";
+const isActive = (job: JobItem) => isRunActive(job.last_run);
 
 export function JobsPage() {
   const { t } = useTranslation();
@@ -26,6 +28,10 @@ export function JobsPage() {
   const [actionError, setActionError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [deleting, setDeleting] = useState<JobItem>();
+  // 每次操作改动列表后加一：在它之前发出的刷新请求返回时已过时，丢弃其结果，避免把刚做的修改改回去
+  const mutations = useRef(0);
+  // 请求进行中的行：同一行的操作不能在上一个请求返回前再次提交
+  const inflight = useRef(new Set<number>());
 
   useEffect(() => {
     let cancelled = false;
@@ -51,10 +57,11 @@ export function JobsPage() {
       timer = window.setTimeout(
         () => {
           if (cancelled) return;
+          const seq = mutations.current;
           listJobs()
             .then((r) => {
               if (cancelled) return;
-              setState({ status: "ready", data: r.items });
+              if (seq === mutations.current) setState({ status: "ready", data: r.items });
               poll(r.items.some(isActive));
             })
             .catch(() => {
@@ -76,20 +83,47 @@ export function JobsPage() {
     setAttempt((n) => n + 1);
   };
 
-  const replaceJob = (item: JobItem) =>
-    setState((s) => (s.status === "ready" ? { ...s, data: s.data.map((j) => (j.id === item.id ? item : j)) } : s));
-  const removeJob = (id: number) =>
+  /** 按操作结果更新一个任务（基于当前的行，而不是发起操作时的快照） */
+  const updateJob = (id: number, update: (job: JobItem) => JobItem) => {
+    mutations.current++;
+    setState((s) => (s.status === "ready" ? { ...s, data: s.data.map((j) => (j.id === id ? update(j) : j)) } : s));
+  };
+  const removeJob = (id: number) => {
+    mutations.current++;
     setState((s) => (s.status === "ready" ? { ...s, data: s.data.filter((j) => j.id !== id) } : s));
+  };
+  /** 立即重新读取列表（操作被拒绝时，界面上的状态已经过时） */
+  const reload = () => {
+    const seq = ++mutations.current;
+    listJobs()
+      .then((r) => seq === mutations.current && setState({ status: "ready", data: r.items }))
+      .catch(() => {
+        // 下一次自动刷新会再试
+      });
+  };
 
-  const withBusy = async (job: JobItem, kind: NonNullable<JobRowBusy>, fn: () => Promise<JobItem>) => {
+  const withBusy = async (
+    job: JobItem,
+    kind: NonNullable<JobRowBusy>,
+    fn: () => Promise<(job: JobItem) => JobItem>
+  ) => {
+    if (inflight.current.has(job.id)) return;
+    inflight.current.add(job.id);
     setBusy((b) => ({ ...b, [job.id]: kind }));
     setActionError(undefined);
     try {
-      const item = await fn();
-      replaceJob(item);
+      updateJob(job.id, await fn());
     } catch (err) {
       setActionError(errorMessage(err));
+      // 已在运行或排队、运行已结束：按服务端的当前状态刷新，换成正确的操作
+      if (
+        err instanceof ApiError &&
+        (err.code === ErrorCode.JobRunAlreadyActive || err.code === ErrorCode.JobRunFinished)
+      ) {
+        reload();
+      }
     } finally {
+      inflight.current.delete(job.id);
       setBusy((b) => {
         const rest = { ...b };
         delete rest[job.id];
@@ -101,20 +135,21 @@ export function JobsPage() {
   const runJob = (job: JobItem) =>
     void withBusy(job, "run", async () => {
       const { run } = await runJobNow(job.id);
-      return { ...job, last_run: run };
+      return (j) => ({ ...j, last_run: run });
     });
 
   const cancelJob = (job: JobItem) =>
     void withBusy(job, "cancel", async () => {
-      if (!job.last_run) return job;
-      const { run } = await cancelRun(job.id, job.last_run.id);
-      return { ...job, last_run: run };
+      const runId = job.last_run?.id;
+      if (runId === undefined) return (j) => j;
+      const { run } = await cancelRun(job.id, runId);
+      return (j) => (j.last_run?.id === run.id ? { ...j, last_run: run } : j);
     });
 
   const togglePause = (job: JobItem) =>
     void withBusy(job, job.enabled ? "pause" : "enable", async () => {
       const { item } = job.enabled ? await pauseJob(job.id) : await enableJob(job.id);
-      return item;
+      return () => item;
     });
 
   return (

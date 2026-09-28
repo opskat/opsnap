@@ -2,9 +2,11 @@ package dump
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/opskat/opsnap/internal/pkg/dsconn"
 )
@@ -38,13 +40,26 @@ func listen(ctx context.Context, d dsconn.Dialer, target string) (*forwarder, er
 
 func (f *forwarder) addr() string { return f.ln.Addr().String() }
 
+// serve 接受导出工具的连接直到关闭；接受失败（如文件描述符暂时用尽）时稍等后继续，
+// 不让端口留在监听状态却不再接受，使工具的连接挂起直到超时
 func (f *forwarder) serve() {
 	defer f.wg.Done()
+	var delay time.Duration
 	for {
 		c, err := f.ln.Accept()
 		if err != nil {
-			return
+			if errors.Is(err, net.ErrClosed) || f.ctx.Err() != nil {
+				return
+			}
+			delay = min(max(2*delay, 5*time.Millisecond), time.Second)
+			select {
+			case <-f.ctx.Done():
+				return
+			case <-time.After(delay):
+			}
+			continue
 		}
+		delay = 0
 		f.wg.Add(1)
 		go f.handle(c)
 	}
@@ -57,10 +72,11 @@ func (f *forwarder) handle(local net.Conn) {
 	}
 	defer f.untrack(local)
 	up, err := f.dialer.Dial(f.ctx, "tcp", f.target)
+	// 记住最近一次拨号的结果：拨通后清除更早的错误，工具失败时不附带与它无关的旧错误
+	f.mu.Lock()
+	f.dialErr = err
+	f.mu.Unlock()
 	if err != nil {
-		f.mu.Lock()
-		f.dialErr = err
-		f.mu.Unlock()
 		return
 	}
 	if !f.track(up) {
@@ -100,7 +116,7 @@ func (f *forwarder) untrack(c net.Conn) {
 	_ = c.Close()
 }
 
-// lastErr 最近一次经链路拨号数据源的错误
+// lastErr 最近一次经链路拨号数据源的错误；最近一次拨通时为 nil
 func (f *forwarder) lastErr() error {
 	if f == nil {
 		return nil

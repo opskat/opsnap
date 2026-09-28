@@ -55,14 +55,6 @@ func invalid(zh, en string, args ...any) *ValidationError {
 // NeverFiresEn ErrNeverFires 的英文原因
 const NeverFiresEn = "the schedule never fires in the foreseeable future"
 
-// Validate 校验 Spec 是否合法。ok 为 false 时，reason 是可直接展示给用户的原因（中文，英文见 Parse 返回的 *ValidationError）。
-func Validate(s Spec) (reason string, ok bool) {
-	if e := validate(s); e != nil {
-		return e.Reason, false
-	}
-	return "", true
-}
-
 func validate(s Spec) *ValidationError {
 	if s.Timezone == "" {
 		return invalid("时区不能为空", "a time zone is required")

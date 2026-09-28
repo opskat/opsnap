@@ -7,70 +7,64 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestValidate(t *testing.T) {
-	t.Run("每小时：分钟必须在 0-59 之间", func(t *testing.T) {
-		reason, ok := Validate(Spec{Kind: KindHourly, Minute: 0, Timezone: "UTC"})
-		assert.True(t, ok)
-		assert.Empty(t, reason)
+// valid 校验是否通过（原因的内容见 TestParse）
+func valid(s Spec) bool {
+	_, err := Parse(s)
+	return err == nil
+}
 
-		reason, ok = Validate(Spec{Kind: KindHourly, Minute: 60, Timezone: "UTC"})
+func TestParseValidation(t *testing.T) {
+	t.Run("每小时：分钟必须在 0-59 之间", func(t *testing.T) {
+		ok := valid(Spec{Kind: KindHourly, Minute: 0, Timezone: "UTC"})
+		assert.True(t, ok)
+
+		ok = valid(Spec{Kind: KindHourly, Minute: 60, Timezone: "UTC"})
 		assert.False(t, ok)
-		assert.NotEmpty(t, reason)
 	})
 
 	t.Run("每天：小时和分钟都要合法", func(t *testing.T) {
-		reason, ok := Validate(Spec{Kind: KindDaily, Hour: 23, Minute: 59, Timezone: "UTC"})
+		ok := valid(Spec{Kind: KindDaily, Hour: 23, Minute: 59, Timezone: "UTC"})
 		assert.True(t, ok)
-		assert.Empty(t, reason)
 
-		_, ok = Validate(Spec{Kind: KindDaily, Hour: 24, Minute: 0, Timezone: "UTC"})
+		ok = valid(Spec{Kind: KindDaily, Hour: 24, Minute: 0, Timezone: "UTC"})
 		assert.False(t, ok)
 	})
 
 	t.Run("每周：至少选一个星期几，星期几必须是 0-6", func(t *testing.T) {
-		reason, ok := Validate(Spec{Kind: KindWeekly, Hour: 1, Minute: 0, Weekdays: []time.Weekday{time.Monday}, Timezone: "UTC"})
+		ok := valid(Spec{Kind: KindWeekly, Hour: 1, Minute: 0, Weekdays: []time.Weekday{time.Monday}, Timezone: "UTC"})
 		assert.True(t, ok)
-		assert.Empty(t, reason)
 
-		reason, ok = Validate(Spec{Kind: KindWeekly, Hour: 1, Minute: 0, Weekdays: nil, Timezone: "UTC"})
+		ok = valid(Spec{Kind: KindWeekly, Hour: 1, Minute: 0, Weekdays: nil, Timezone: "UTC"})
 		assert.False(t, ok)
-		assert.NotEmpty(t, reason)
 	})
 
 	t.Run("Cron：必须是标准 5 段表达式，非法时给出原因", func(t *testing.T) {
-		reason, ok := Validate(Spec{Kind: KindCron, Cron: "*/15 * * * *", Timezone: "UTC"})
+		ok := valid(Spec{Kind: KindCron, Cron: "*/15 * * * *", Timezone: "UTC"})
 		assert.True(t, ok)
-		assert.Empty(t, reason)
 
-		reason, ok = Validate(Spec{Kind: KindCron, Cron: "* * * *", Timezone: "UTC"})
+		ok = valid(Spec{Kind: KindCron, Cron: "* * * *", Timezone: "UTC"})
 		assert.False(t, ok)
-		assert.NotEmpty(t, reason)
 
-		reason, ok = Validate(Spec{Kind: KindCron, Cron: "60 * * * *", Timezone: "UTC"})
+		ok = valid(Spec{Kind: KindCron, Cron: "60 * * * *", Timezone: "UTC"})
 		assert.False(t, ok)
-		assert.NotEmpty(t, reason)
 
-		reason, ok = Validate(Spec{Kind: KindCron, Cron: "0 0 32 * *", Timezone: "UTC"})
+		ok = valid(Spec{Kind: KindCron, Cron: "0 0 32 * *", Timezone: "UTC"})
 		assert.False(t, ok, "日字段超出 1-31 范围应当拒绝")
-		assert.NotEmpty(t, reason)
 	})
 
 	t.Run("时区必须是合法的 IANA 名称", func(t *testing.T) {
-		reason, ok := Validate(Spec{Kind: KindDaily, Hour: 1, Minute: 0, Timezone: "Asia/Shanghai"})
+		ok := valid(Spec{Kind: KindDaily, Hour: 1, Minute: 0, Timezone: "Asia/Shanghai"})
 		assert.True(t, ok)
-		assert.Empty(t, reason)
 
-		reason, ok = Validate(Spec{Kind: KindDaily, Hour: 1, Minute: 0, Timezone: "Not/AZone"})
+		ok = valid(Spec{Kind: KindDaily, Hour: 1, Minute: 0, Timezone: "Not/AZone"})
 		assert.False(t, ok)
-		assert.NotEmpty(t, reason)
 
-		reason, ok = Validate(Spec{Kind: KindDaily, Hour: 1, Minute: 0, Timezone: ""})
+		ok = valid(Spec{Kind: KindDaily, Hour: 1, Minute: 0, Timezone: ""})
 		assert.False(t, ok)
-		assert.NotEmpty(t, reason)
 	})
 
 	t.Run("未知调度类型被拒绝", func(t *testing.T) {
-		_, ok := Validate(Spec{Kind: Kind("yearly"), Timezone: "UTC"})
+		ok := valid(Spec{Kind: Kind("yearly"), Timezone: "UTC"})
 		assert.False(t, ok)
 	})
 }

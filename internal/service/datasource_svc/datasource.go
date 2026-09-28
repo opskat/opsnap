@@ -143,6 +143,16 @@ func SetDatabaseLister(l DatabaseLister) {
 	defaultDataSource.dbLister = l
 }
 
+// refMu 串行化“没有任务引用该数据源”的检查与删除，以及新建任务时对数据源的检查与写入（LockReferences）：
+// 检查之后、删除之前新建的任务会指向一个已删除的数据源
+var refMu sync.Mutex
+
+// LockReferences 新建任务时持有，直到任务写入；返回解锁函数
+func LockReferences() (unlock func()) {
+	refMu.Lock()
+	return refMu.Unlock
+}
+
 // SetJobReferrer 由任务模块注册：查询使用某个数据源的任务，用于引用计数与删除保护；nil 表示没有任务模块
 func SetJobReferrer(fn JobReferrer) {
 	defaultDataSource.mu.Lock()
@@ -1127,6 +1137,7 @@ func (s *dataSourceSvc) RetestThroughChannel(ctx context.Context, channelID int6
 }
 
 func (s *dataSourceSvc) Delete(ctx context.Context, req *api.DeleteRequest) (*api.DeleteResponse, error) {
+	defer LockReferences()()
 	ds, err := s.find(ctx, req.ID)
 	if err != nil {
 		return nil, err

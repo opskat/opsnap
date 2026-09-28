@@ -691,3 +691,13 @@ func TestSchedulerShutdownRealRun(t *testing.T) {
 	assert.Empty(t, s.retries, "中断的运行不重试")
 	s.mu.Unlock()
 }
+
+// 计划到点时任务已在运行而记“跳过”，但此时任务已被删除：不留下没有任务的运行记录
+func TestSkipAfterJobDeleted(t *testing.T) {
+	e := newSchedEnv(t, at("2026-09-28T01:00:00Z"))
+	j := e.job("gone", 1, nil)
+	require.NoError(t, job_repo.Job().Delete(e.ctx, j.ID))
+	_, err := defaultRunner.skip(e.ctx, j.ID, Trigger{Kind: job_entity.TriggerSchedule, ScheduledAt: 1}, job_entity.ReasonStillRunning)
+	assert.ErrorIs(t, err, job_repo.ErrNotFound)
+	assert.Empty(t, e.runs(j.ID))
+}

@@ -45,6 +45,10 @@ func pgTool(ctx context.Context, name, server string) (*toolInfo, error) {
 
 func (p *postgresPlan) prepare(ctx context.Context, s *Session) error {
 	cfg := p.src.Config
+	// 密码文件一行一条，没有办法表示换行
+	if strings.ContainsAny(cfg.Password, "\r\n") {
+		return fmt.Errorf("%w：密码含换行符，无法写入 pg_dump 的密码文件", ErrInvalidOptions)
+	}
 	pass, err := s.writeSecret("pgpass", []byte("*:*:*:*:"+pgpassEscape(cfg.Password)+"\n"))
 	if err != nil {
 		return err

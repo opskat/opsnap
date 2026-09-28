@@ -80,7 +80,7 @@ func compileCron(expr string) (cronSchedule, *ValidationError) {
 	return cs, nil
 }
 
-// parseCronField 解析单个 Cron 字段，支持 *、*/step、a、a-b、a-b/step，以逗号分隔的列表。
+// parseCronField 解析单个 Cron 字段，支持 *、*/step、a、a/step（a 到最大值）、a-b、a-b/step，以逗号分隔的列表。
 // 返回长度为 fieldMax+1 的布尔切片，下标即取值。
 func parseCronField(field string, fieldMin, fieldMax int) ([]bool, *ValidationError) {
 	out := make([]bool, fieldMax+1)
@@ -121,6 +121,10 @@ func parseCronField(field string, fieldMin, fieldMax int) ([]bool, *ValidationEr
 				return nil, invalid("取值 %q 不是数字", "value %q is not a number", rangePart)
 			}
 			lo, hi = v, v
+			// a/step：从 a 到最大值、步长 step（与 */step 从最小值开始相对）
+			if strings.Contains(item, "/") {
+				hi = fieldMax
+			}
 		}
 
 		if lo < fieldMin || hi > fieldMax || lo > hi {
