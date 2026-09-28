@@ -119,4 +119,5 @@ var en = map[int]string{ //nolint:gosec // 错误文案中的 “token”“pass
 	DataSourceReasonTLS:          "TLS handshake failed (%s)",
 	DataSourceReasonCertificate:  "certificate verification failed (%s)",
 	DataSourceReasonFailed:       "%s",
+	DataSourceDatabasesFailed:    "Could not read the database list: %s",
 }

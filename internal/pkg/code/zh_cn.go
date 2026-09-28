@@ -119,4 +119,5 @@ var zhCN = map[int]string{ //nolint:gosec // 错误文案中的“密码”字�
 	DataSourceReasonTLS:          "TLS 握手失败（%s）",
 	DataSourceReasonCertificate:  "证书校验失败（%s）",
 	DataSourceReasonFailed:       "%s",
+	DataSourceDatabasesFailed:    "读取数据库列表失败：%s",
 }

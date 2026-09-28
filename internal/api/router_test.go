@@ -61,6 +61,7 @@ var tokenRoutes = map[string]bool{
 	"POST /api/v1/datasources/:id/host-key": true,
 	"POST /api/v1/datasources/:id/reprobe":  true,
 	"DELETE /api/v1/datasources/:id":        true,
+	"GET /api/v1/datasources/:id/databases": true,
 }
 
 // 把两个认证中间件换成哨兵：

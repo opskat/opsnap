@@ -150,6 +150,8 @@ const (
 	DataSourceReasonTLS
 	DataSourceReasonCertificate
 	DataSourceReasonFailed
+	// DataSourceDatabasesFailed 实时读取数据库列表失败，参数为原因（原文，已去掉秘密）
+	DataSourceDatabasesFailed
 )
 
 func init() {

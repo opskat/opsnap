@@ -250,6 +250,26 @@ type ReprobeResponse struct {
 	Item *Item `json:"item"`
 }
 
+// Database 数据源里的一个数据库
+type Database struct {
+	Name string `json:"name"`
+	// Size 字节数
+	Size int64 `json:"size"`
+}
+
+// DatabasesRequest 实时读取一个已保存数据源的数据库列表与数据量（docs/specs/2026-09-27-backup-jobs.md
+// 「第 2 步：内容与方式」）：向导第 2 步进入“指定数据库”时调用，用于展示库名与数据量、供选择，
+// 以及第 5 步估算源数据量。MySQL 不含 information_schema、performance_schema、sys、mysql；
+// PostgreSQL 只列允许连接的非模板库。读取失败时返回原因（原文，已去掉秘密）
+type DatabasesRequest struct {
+	mux.Meta `path:"/datasources/:id/databases" method:"GET"`
+	ID       int64 `uri:"id" binding:"required"`
+}
+
+type DatabasesResponse struct {
+	Databases []Database `json:"databases"`
+}
+
 // DeleteRequest 删除数据源：只删除 OpsNap 中的记录与凭据，不影响数据库或服务器
 type DeleteRequest struct {
 	mux.Meta `path:"/datasources/:id" method:"DELETE"`
