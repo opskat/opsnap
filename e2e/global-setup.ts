@@ -1,24 +1,30 @@
 // 冒烟 e2e 的被测服务：在临时目录生成配置，用专用端口启动已构建的 bin/opsnap，
-// 以及假 OIDC 提供方（bin/fakeidp）与两个假 SSH 服务端（bin/fakessh：一个作跳板，一个作服务器文件目标，
-// 供 sources.spec.ts 使用）；从启动日志中读取设置码，通过环境变量 OPSNAP_SETUP_CODE 交给用例
-// （首次设置由 setup 项目在界面上完成）。返回的函数作为 teardown，停止进程并删除临时数据。
-// 不读取 .env，不连接任何真实环境。
+// 以及假 OIDC 提供方（bin/fakeidp）、两个假 SSH 服务端（bin/fakessh：一个作跳板，一个作服务器文件目标，
+// 供 sources.spec.ts 使用）与假 PostgreSQL（bin/fakepg，供 jobs.spec.ts 使用；它同时以 pg_dump / pg_dumpall
+// 的名字充当假导出工具，放在被测实例 PATH 的最前面）；从启动日志中读取设置码，通过环境变量
+// OPSNAP_SETUP_CODE 交给用例（首次设置由 setup 项目在界面上完成）。返回的函数作为 teardown，
+// 停止进程并删除临时数据。不读取 .env，不连接任何真实环境。
+// 端口都是固定的（ports.ts），所以同一台机器上同一时间只能跑一个 e2e；任一端口被占用时直接失败。
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { connect } from "node:net";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 
 import {
   FAKE_IDP_CLIENT_ID,
   FAKE_IDP_CLIENT_SECRET,
   FAKE_IDP_ISSUER,
   FAKE_IDP_PORT,
+  FAKE_PG_PASSWORD,
+  FAKE_PG_PORT,
+  FAKE_PG_USER,
   FAKE_SSH_JUMP_CONTROL_PORT,
   FAKE_SSH_JUMP_PORT,
   FAKE_SSH_PASSWORD,
   FAKE_SSH_TARGET_PORT,
   FAKE_SSH_USER,
+  FIXED_PORTS,
   SMOKE_PORT,
 } from "./ports";
 
@@ -71,6 +77,18 @@ async function waitTCP(port: number, timeoutMs: number) {
   throw new Error(`127.0.0.1:${port} 未在 ${timeoutMs}ms 内就绪`);
 }
 
+/** 在 127.0.0.1 上试着监听 port：能监听说明空闲（随即关闭），EADDRINUSE 说明已被占用 */
+async function portFree(port: number) {
+  return new Promise<boolean>((resolveFree, reject) => {
+    const server = createServer();
+    server.once("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "EADDRINUSE") resolveFree(false);
+      else reject(err);
+    });
+    server.listen({ host: "127.0.0.1", port, exclusive: true }, () => server.close(() => resolveFree(true)));
+  });
+}
+
 export default async function globalSetup() {
   const bin = join(root, "bin/opsnap");
   if (!existsSync(bin)) throw new Error("未找到 bin/opsnap，请通过 make e2e 运行（会先构建）");
@@ -79,6 +97,14 @@ export default async function globalSetup() {
     throw new Error(`端口 ${SMOKE_PORT} 已被占用，冒烟 e2e 需要独占该端口`);
   } catch (err) {
     if (err instanceof Error && err.message.includes("已被占用")) throw err;
+  }
+  // 假服务端的端口同样固定：先全部检查，任何一个被占用（多半是另一个 e2e 正在运行）都在启动任何进程前失败
+  const busy: number[] = [];
+  for (const port of FIXED_PORTS) if (!(await portFree(port))) busy.push(port);
+  if (busy.length > 0) {
+    throw new Error(
+      `端口 ${busy.join("、")} 已被占用：冒烟 e2e 独占 ${FIXED_PORTS.join("、")}，同一台机器上同一时间只能运行一个`
+    );
   }
 
   const dir = mkdtempSync(join(tmpdir(), "opsnap-e2e-"));
@@ -103,6 +129,13 @@ db:
   if (!existsSync(idpBin)) throw new Error("未找到 bin/fakeidp，请通过 make e2e 运行（会先构建）");
   const sshBin = join(root, "bin/fakessh");
   if (!existsSync(sshBin)) throw new Error("未找到 bin/fakessh，请通过 make e2e 运行（会先构建）");
+  const pgBin = join(root, "bin/fakepg");
+  if (!existsSync(pgBin)) throw new Error("未找到 bin/fakepg，请通过 make e2e 运行（会先构建）");
+  // 假导出工具：指向 bin/fakepg 的 pg_dump / pg_dumpall 链接，放在被测实例 PATH 的最前面（PATH 优先于 tools.dir），
+  // 使主控端即使装有真实的 PostgreSQL 客户端也用假工具
+  const toolsDir = join(dir, "tools");
+  mkdirSync(toolsDir);
+  for (const name of ["pg_dump", "pg_dumpall"]) symlinkSync(pgBin, join(toolsDir, name));
 
   const idp = spawn(
     idpBin,
@@ -135,7 +168,16 @@ db:
   );
   // 服务器文件数据源的目标主机，经跳板转发到达
   const sshTarget = spawn(sshBin, sshArgs(`127.0.0.1:${FAKE_SSH_TARGET_PORT}`), { stdio: "inherit" });
-  const child = spawn(bin, ["-c", join(dir, "config.yaml")], { stdio: ["ignore", "pipe", "inherit"] });
+  // 备份任务的 PostgreSQL 数据源连它（jobs.spec.ts）
+  const pg = spawn(
+    pgBin,
+    ["-addr", `127.0.0.1:${FAKE_PG_PORT}`, "-user", FAKE_PG_USER, "-password", FAKE_PG_PASSWORD],
+    { stdio: "inherit" }
+  );
+  const child = spawn(bin, ["-c", join(dir, "config.yaml")], {
+    stdio: ["ignore", "pipe", "inherit"],
+    env: { ...process.env, PATH: [toolsDir, process.env.PATH].filter(Boolean).join(delimiter) },
+  });
   const exited = new Promise((r) => child.once("exit", r));
   const setupCode = new Promise<string>((resolveCode) => {
     let buffered = "";
@@ -151,6 +193,7 @@ db:
     idp.kill("SIGTERM");
     sshJump.kill("SIGTERM");
     sshTarget.kill("SIGTERM");
+    pg.kill("SIGTERM");
     child.kill("SIGTERM");
     await Promise.race([exited, new Promise((r) => setTimeout(r, 5000))]);
     if (child.exitCode === null) child.kill("SIGKILL");
@@ -162,6 +205,7 @@ db:
     await waitURL(`${FAKE_IDP_ISSUER}/.well-known/openid-configuration`, 10_000);
     await waitTCP(FAKE_SSH_JUMP_PORT, 10_000);
     await waitTCP(FAKE_SSH_TARGET_PORT, 10_000);
+    await waitTCP(FAKE_PG_PORT, 10_000);
     process.env.OPSNAP_SETUP_CODE = await Promise.race([
       setupCode,
       new Promise<string>((_, reject) => setTimeout(() => reject(new Error("启动日志中未找到设置码")), 5000)),

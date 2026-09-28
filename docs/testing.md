@@ -77,7 +77,8 @@ make lint                                                        # static checks
 
 - Go: GoConvey + testify + go.uber.org/mock, plus cago's `muxtest` and `testutils`.
 - Frontend: Vitest (happy-dom, `globals: true`) + Testing Library + jest-dom matchers, configured in the `test` block of `frontend/vite.config.ts`.
-- e2e: Playwright; see [`../e2e/README.md`](../e2e/README.md). Process-level fakes needed only in e2e (not by any Go test) are built as standalone binaries in `tools/` and started by `e2e/global-setup.ts`: `tools/fakeidp` for OIDC, `tools/fakessh` (wraps `internal/pkg/fakessh`) for SSH network channels and server-file data sources.
+- e2e: Playwright; see [`../e2e/README.md`](../e2e/README.md). Process-level fakes needed only in e2e (not by any Go test) are built as standalone binaries in `tools/` and started by `e2e/global-setup.ts`: `tools/fakeidp` for OIDC, `tools/fakessh` (wraps `internal/pkg/fakessh`) for SSH network channels and server-file data sources, and `tools/fakepg` for a PostgreSQL data source plus fake `pg_dump` / `pg_dumpall` (symlinks to the same binary, put first on the spawned `bin/opsnap`'s `PATH`) so backup jobs run end to end in CI; see [`architecture.md`](architecture.md#backup-jobs). A fake's own behaviour is tested with Go tests next to it (`go test ./tools/fakepg/` drives the real `dsconn`, `probe` and `dump` code against it), so a change to the queries OpsNap sends fails there before it fails in Playwright.
+- The e2e harness binds fixed ports (`e2e/ports.ts`: 18291 for OpsNap, 18292, 18294 and 18296–18298 for the fakes), so only one `make e2e` can run on a host at a time; `e2e/global-setup.ts` checks every fixed port before starting anything and fails with the busy ports named. On a shared build host, check first with `ss -ltnp | grep 1829`.
 
 ## Related
 

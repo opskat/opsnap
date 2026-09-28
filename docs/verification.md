@@ -39,6 +39,27 @@ Constraints:
 - The real chain to verify for the datasources round: `SOCKS5 (192.168.8.141:11081) → ssh-jump (12222) → ssh-target` for server-file, and `SOCKS5 → mysql80` / `SOCKS5 → pg16` directly (mysql80/pg16 have no SSH in front of them). `socks5` publishes 11081 rather than 11080 because 11080 is already taken on docker.lan by the host's own `sockd`.
 - To rotate `ssh-jump`'s host key for the key-changed scenario: its `/config` is an anonymous volume, so simply recreating the container keeps the same key; instead remove both the whole `/config/ssh_host_keys` directory and the container's own `/etc/ssh/ssh_host_*` keys, then restart the container. On restart the image runs `ssh-keygen -A`, which only generates missing keys, and copies `/etc/ssh/ssh_host_*` into `/config/ssh_host_keys`; removing only `/config/ssh_host_keys` therefore brings the old key back.
 
+### Verifying backup jobs for real
+
+CI covers backup jobs only against `bin/fakepg` (`e2e/tests/jobs.spec.ts`), so a change to the export, repository or scheduling path is confirmed here against `mysql80`, `pg16` and MinIO, ending with a restore done by the official tools rather than by OpsNap:
+
+1. **Control-host tools.** OpsNap runs the official `mysqldump`, `pg_dump` and `pg_dumpall` found on its `PATH` (then `tools.dir`); `pg_dump` / `pg_dumpall` must not be older than PostgreSQL 16. On the Mac: `brew install postgresql@16 mysql-client` and put their `bin` directories on the instance's `PATH`. The MariaDB `mysqldump` on some Linux hosts (including coding.internal) has no `--set-gtid-purged` (OpsNap omits it) and cannot insist on TLS, so OpsNap refuses the MySQL TLS modes "require", "verify CA" and "verify CA and host name" with it instead of silently downgrading; use "disable" or "prefer", or install Oracle's client.
+2. **Source data.** Never back up or restore over existing databases. Create a source database `opsnap_it_<random>` on `mysql80` or `pg16` with a few tables, a view and a routine, and record per-table row counts (MySQL `CHECKSUM TABLE` as well). Restore targets are `opsnap_it_<random>` databases too; drop every one of them when done, as for the Go integration tests in [`testing.md`](testing.md).
+3. **Storage.** Create a bucket and a fresh prefix in MinIO (see above), add it as an S3 storage in OpsNap and keep the key.
+4. **Jobs.** Create data sources through `SOCKS5 → mysql80` / `SOCKS5 → pg16`, then jobs with minute-level schedules (hourly at the next minute, or Cron `*/2 * * * *`) and short retention. Observe: scheduled runs fire on time in the job's time zone; a scheduled time that arrives while the previous run is still going is recorded as skipped; stopping `bin/opsnap` across a scheduled time and starting it again queues exactly one catch-up run; retention removes older snapshots of that job only.
+5. **Restore with kopia, not OpsNap.** With the kopia CLI at the embedded version (0.23.1) and a separate config file:
+
+   ```bash
+   K="kopia --config-file e2e/scratch/<scenario>/kopia.config"
+   $K repository connect s3 --endpoint 192.168.8.141:19000 --disable-tls --bucket <bucket> --prefix <prefix>/ \
+     --access-key opsnap --secret-access-key <test password>          # enter the storage key as the password
+   $K snapshot list --all --tags job:<job id>                       # one snapshot per successful run
+   $K restore <snapshot id> e2e/scratch/<scenario>/restore
+   ```
+
+   A PostgreSQL snapshot holds `<database>.dump` (custom format, one per database) and, when global objects are included, `globals.sql`; restore with `createdb opsnap_it_<random>` then `pg_restore --no-owner --dbname=opsnap_it_<random> <database>.dump`. A MySQL snapshot holds `databases.sql` (and `accounts.sql` when accounts are included); it recreates the source database under its own name, so drop the source first (after recording its counts) and import with `mysql < databases.sql`. Compare row counts and checksums, routines, triggers, events and views, and that excluded tables are absent. Only read `accounts.sql` and `globals.sql`; importing them would change accounts and roles on the shared servers.
+6. **Secrets.** The data source password, the storage key and the S3 secret must not appear in the run log (`GET /api/v1/jobs/<id>/runs/<run id>/log`), in API responses, in OpsNap's output, in a plain-text dump of the metadata database, or on the export tools' command lines (`ps -ef` during a run); `<data dir>/runs` is empty after every run.
+
 ## Workflow
 
 1. Run `make lint` and the relevant tests; run the full `make verify` when the risk or a gate requires it.

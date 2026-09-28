@@ -14,3 +14,20 @@ export const FAKE_SSH_JUMP_CONTROL_PORT = 18297;
 export const FAKE_SSH_TARGET_PORT = 18298;
 export const FAKE_SSH_USER = "opsnap";
 export const FAKE_SSH_PASSWORD = "fake-ssh-password";
+
+/** 冒烟 e2e 中假 PostgreSQL（bin/fakepg，见 jobs.spec.ts）：服务端端口与它接受的账号 */
+export const FAKE_PG_PORT = 18294;
+export const FAKE_PG_USER = "opsnap";
+export const FAKE_PG_PASSWORD = "fake-pg-password";
+/** 假 pg_dump 导出这个库时失败（tools/fakepg 的 FailingDatabase） */
+export const FAKE_PG_FAILING_DATABASE = "broken";
+
+/** global-setup 启动前逐个检查这些固定端口都空闲 */
+export const FIXED_PORTS = [
+  SMOKE_PORT,
+  FAKE_IDP_PORT,
+  FAKE_PG_PORT,
+  FAKE_SSH_JUMP_PORT,
+  FAKE_SSH_JUMP_CONTROL_PORT,
+  FAKE_SSH_TARGET_PORT,
+];
