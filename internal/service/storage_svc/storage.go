@@ -5,6 +5,7 @@ package storage_svc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -48,7 +49,13 @@ type StorageSvc interface {
 	Reveal(ctx context.Context, req *api.RevealRequest, meta auth_svc.ClientMeta) (*api.RevealResponse, error)
 	ListDirs(ctx context.Context, req *api.ListDirsRequest) (*api.ListDirsResponse, error)
 	MakeDir(ctx context.Context, req *api.MakeDirRequest) (*api.MakeDirResponse, error)
+	// OpenWriter 用保存的位置与托管密钥打开存储的 kopia 写入会话，供备份任务写快照、删除快照与维护。
+	// 存储不存在时返回 StorageNotFound；状态不是“正常”时返回 ErrNotReady，不连接。调用方负责 Close
+	OpenWriter(ctx context.Context, id int64) (*kopiarepo.Writer, error)
 }
+
+// ErrNotReady 存储状态不是“正常”（密钥不正确或无法连接），不能打开写入会话
+var ErrNotReady = errors.New("存储状态不是正常")
 
 type storageSvc struct {
 	now func() time.Time
@@ -651,4 +658,23 @@ func (s *storageSvc) MakeDir(ctx context.Context, req *api.MakeDirRequest) (*api
 		return nil, i18n.NewError(ctx, code.StorageDirNoPermission)
 	}
 	return nil, i18n.NewError(ctx, code.StorageDirCreateFailed, err.Error())
+}
+
+func (s *storageSvc) OpenWriter(ctx context.Context, id int64) (*kopiarepo.Writer, error) {
+	st, err := s.find(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if st.Status != storage_entity.StatusOK {
+		return nil, fmt.Errorf("%w（%s）", ErrNotReady, st.Status)
+	}
+	loc, err := s.savedLocation(ctx, st)
+	if err != nil {
+		return nil, err
+	}
+	key, err := secret_svc.Secret().Decrypt(ctx, st.RepoKey)
+	if err != nil {
+		return nil, err
+	}
+	return s.manager().OpenWriter(ctx, loc, key)
 }

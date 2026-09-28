@@ -154,6 +154,39 @@ const (
 	DataSourceDatabasesFailed
 )
 
+// 备份任务
+const (
+	JobNotFound = iota + 10700
+	JobNameInvalid
+	JobNameDuplicate
+	JobTypeUnsupported
+	JobDataSourceNotFound
+	JobDataSourceUnsupported
+	JobDataSourceNotReady
+	JobStorageNotFound
+	JobStorageNotReady
+	JobScopeInvalid
+	JobDatabasesRequired
+	JobMethodUnsupported
+	JobExcludeInvalid
+	JobPrefixInvalid
+	JobPrefixConflict
+	JobCompressionInvalid
+	JobScheduleInvalid
+	JobTimezoneInvalid
+	JobRetentionDaysInvalid
+	JobRetentionWeeksInvalid
+	JobRetentionMonthsInvalid
+	JobRetriesInvalid
+	JobRetryIntervalInvalid
+	JobTimeoutInvalid
+	JobImmutableField
+	JobRunActive
+	// 以下只用于删除任务响应中的快照提示
+	JobSnapshotsNotDeleted
+	JobSnapshotsUnreachable
+)
+
 func init() {
 	i18n.DefaultLang = LangZhCN
 	i18n.Register(LangZhCN, zhCN)

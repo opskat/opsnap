@@ -71,6 +71,20 @@ func TestFrontendErrorCodesInSync(t *testing.T) {
 		"DataSourceClientCertInvalid":  DataSourceClientCertInvalid,
 		"DataSourceClientKeyInvalid":   DataSourceClientKeyInvalid,
 		"DataSourceChannelNotFound":    DataSourceChannelNotFound,
+		"JobNameInvalid":               JobNameInvalid,
+		"JobNameDuplicate":             JobNameDuplicate,
+		"JobDatabasesRequired":         JobDatabasesRequired,
+		"JobExcludeInvalid":            JobExcludeInvalid,
+		"JobPrefixInvalid":             JobPrefixInvalid,
+		"JobPrefixConflict":            JobPrefixConflict,
+		"JobScheduleInvalid":           JobScheduleInvalid,
+		"JobTimezoneInvalid":           JobTimezoneInvalid,
+		"JobRetentionDaysInvalid":      JobRetentionDaysInvalid,
+		"JobRetentionWeeksInvalid":     JobRetentionWeeksInvalid,
+		"JobRetentionMonthsInvalid":    JobRetentionMonthsInvalid,
+		"JobRetriesInvalid":            JobRetriesInvalid,
+		"JobRetryIntervalInvalid":      JobRetryIntervalInvalid,
+		"JobTimeoutInvalid":            JobTimeoutInvalid,
 	}
 	src, err := os.ReadFile("../../../frontend/src/lib/auth.ts")
 	require.NoError(t, err)

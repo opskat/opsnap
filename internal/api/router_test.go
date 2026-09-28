@@ -62,6 +62,15 @@ var tokenRoutes = map[string]bool{
 	"POST /api/v1/datasources/:id/reprobe":  true,
 	"DELETE /api/v1/datasources/:id":        true,
 	"GET /api/v1/datasources/:id/databases": true,
+	// docs/specs/2026-09-27-backup-jobs.md「权限」：浏览器会话与 API 令牌都可以管理任务
+	"GET /api/v1/jobs":                   true,
+	"GET /api/v1/jobs/:id":               true,
+	"POST /api/v1/jobs":                  true,
+	"PUT /api/v1/jobs/:id":               true,
+	"POST /api/v1/jobs/:id/pause":        true,
+	"POST /api/v1/jobs/:id/enable":       true,
+	"DELETE /api/v1/jobs/:id":            true,
+	"POST /api/v1/jobs/schedule-preview": true,
 }
 
 // 把两个认证中间件换成哨兵：

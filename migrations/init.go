@@ -17,6 +17,7 @@ func RunMigrations(db *gorm.DB) error {
 		t20260925Channels,
 		t20260925DataSources,
 		t20260925DataSourceProbes,
+		t20260928Jobs,
 	)
 }
 

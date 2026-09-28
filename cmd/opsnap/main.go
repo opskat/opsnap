@@ -26,6 +26,7 @@ import (
 	"github.com/opskat/opsnap/internal/repository/admin_repo"
 	"github.com/opskat/opsnap/internal/repository/channel_repo"
 	"github.com/opskat/opsnap/internal/repository/datasource_repo"
+	"github.com/opskat/opsnap/internal/repository/job_repo"
 	"github.com/opskat/opsnap/internal/repository/oidc_repo"
 	"github.com/opskat/opsnap/internal/repository/session_repo"
 	"github.com/opskat/opsnap/internal/repository/setting_repo"
@@ -162,6 +163,7 @@ func registerRepositories() {
 	storage_repo.RegisterStorage(storage_repo.NewStorage())
 	channel_repo.RegisterChannel(channel_repo.NewChannel())
 	datasource_repo.RegisterDataSource(datasource_repo.NewDataSource())
+	job_repo.RegisterJob(job_repo.NewJob())
 }
 
 // registerHooks 注册模块之间的钩子：通道的引用计数与删除保护计入数据源；通道的主机密钥变化时经过它的数据源同样标记，重新确认后重新测试这些数据源

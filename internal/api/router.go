@@ -9,6 +9,7 @@ import (
 	"github.com/opskat/opsnap/internal/controller/auth_ctr"
 	"github.com/opskat/opsnap/internal/controller/channel_ctr"
 	"github.com/opskat/opsnap/internal/controller/datasource_ctr"
+	"github.com/opskat/opsnap/internal/controller/job_ctr"
 	"github.com/opskat/opsnap/internal/controller/oidc_ctr"
 	"github.com/opskat/opsnap/internal/controller/storage_ctr"
 	"github.com/opskat/opsnap/internal/controller/system_ctr"
@@ -36,6 +37,7 @@ func Router(ctx context.Context, root *mux.Router) error {
 	storage := storage_ctr.NewStorage()
 	channel := channel_ctr.NewChannel()
 	datasource := datasource_ctr.NewDataSource()
+	job := job_ctr.NewJob()
 
 	public := r.Group("/")
 	public.Bind(system.Health, auth.Status, auth.Setup, auth.Login, oidc.Login, oidc.Callback)
@@ -45,7 +47,8 @@ func Router(ctx context.Context, root *mux.Router) error {
 		storage.List, storage.Probe, storage.Create, storage.Update, storage.Test, storage.Unlock, storage.Delete, storage.Key,
 		channel.List, channel.Probe, channel.Create, channel.Update, channel.Test, channel.ConfirmHostKey, channel.Delete,
 		datasource.List, datasource.Get, datasource.Probe, datasource.Create, datasource.Update, datasource.Test,
-		datasource.ConfirmHostKey, datasource.Reprobe, datasource.Delete, datasource.Databases)
+		datasource.ConfirmHostKey, datasource.Reprobe, datasource.Delete, datasource.Databases,
+		job.List, job.Get, job.Create, job.Update, job.Pause, job.Enable, job.Delete, job.SchedulePreview)
 
 	account := authed.Group("/", requireSession())
 	account.Bind(auth.ChangePassword, token.List, token.Create, token.Revoke,

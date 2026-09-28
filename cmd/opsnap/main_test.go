@@ -15,6 +15,7 @@ import (
 	"github.com/opskat/opsnap/internal/pkg/testdb"
 	"github.com/opskat/opsnap/internal/repository/channel_repo"
 	"github.com/opskat/opsnap/internal/repository/datasource_repo"
+	"github.com/opskat/opsnap/internal/repository/job_repo"
 	"github.com/opskat/opsnap/internal/service/channel_svc"
 )
 
@@ -51,6 +52,7 @@ func TestRegisterRepositoriesAndHooks(t *testing.T) {
 		channel_svc.SetHostKeyChangedHook(nil)
 	})
 	require.NotNil(t, datasource_repo.DataSource())
+	require.NotNil(t, job_repo.Job())
 
 	ch := &channel_entity.Channel{Name: "office-socks", Kind: channel_entity.KindSOCKS5, Host: "proxy", Port: 1080, AuthMethod: channel_entity.AuthNone}
 	require.NoError(t, channel_repo.Channel().Create(ctx, ch))

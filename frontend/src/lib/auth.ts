@@ -48,6 +48,20 @@ export const ErrorCode = {
   DataSourceClientCertInvalid: 10614,
   DataSourceClientKeyInvalid: 10615,
   DataSourceChannelNotFound: 10616,
+  JobNameInvalid: 10701,
+  JobNameDuplicate: 10702,
+  JobDatabasesRequired: 10710,
+  JobExcludeInvalid: 10712,
+  JobPrefixInvalid: 10713,
+  JobPrefixConflict: 10714,
+  JobScheduleInvalid: 10716,
+  JobTimezoneInvalid: 10717,
+  JobRetentionDaysInvalid: 10718,
+  JobRetentionWeeksInvalid: 10719,
+  JobRetentionMonthsInvalid: 10720,
+  JobRetriesInvalid: 10721,
+  JobRetryIntervalInvalid: 10722,
+  JobTimeoutInvalid: 10723,
 } as const;
 
 export const MIN_PASSWORD_LENGTH = 12;
