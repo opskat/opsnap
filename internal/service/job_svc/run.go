@@ -96,6 +96,15 @@ var (
 var (
 	errCanceled = errors.New("运行已取消")
 	errTimeout  = errors.New("运行超时")
+	// errShutdown OpsNap 停止时中断进行中的运行（调度组件关闭）
+	errShutdown = errors.New("OpsNap 停止")
+)
+
+const (
+	// reasonInterrupted 运行因 OpsNap 停止或重启而中断，不重试
+	reasonInterrupted = "OpsNap 重启，运行中断"
+	// reasonRestartCanceled 重启时仍在排队
+	reasonRestartCanceled = "OpsNap 重启"
 )
 
 type runner struct {
@@ -358,9 +367,9 @@ func (r *runner) Recover(ctx context.Context) error {
 		}
 		from := run.Status
 		if from == job_entity.RunRunning {
-			run.Status, run.Reason = job_entity.RunFailed, "OpsNap 重启，运行中断"
+			run.Status, run.Reason = job_entity.RunFailed, reasonInterrupted
 		} else {
-			run.Status, run.Reason = job_entity.RunCanceled, "OpsNap 重启"
+			run.Status, run.Reason = job_entity.RunCanceled, reasonRestartCanceled
 		}
 		run.FinishedAt, run.Updatetime = now.UnixMilli(), now.Unix()
 		if _, err := job_repo.Run().SaveIf(ctx, run, from); err != nil {
@@ -381,6 +390,34 @@ func (r *runner) RunPending(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// skip 记一条“跳过”的运行：计划到点时任务已在运行或排队
+func (r *runner) skip(ctx context.Context, jobID int64, t Trigger, reason string) (*job_entity.Run, error) {
+	now := r.clock()
+	run := &job_entity.Run{JobID: jobID, Status: job_entity.RunSkipped, Trigger: t.Kind, RetryAttempt: t.Attempt,
+		RetryTotal: t.Total, ScheduledAt: t.ScheduledAt, Reason: reason, FinishedAt: now.UnixMilli(), Log: "[]",
+		Createtime: now.Unix(), Updatetime: now.Unix()}
+	if err := job_repo.Run().Create(ctx, run); err != nil {
+		return nil, err
+	}
+	if err := job_repo.Run().Trim(ctx, jobID, job_entity.MaxRunsPerJob); err != nil {
+		logger.Ctx(ctx).Warn("清理更早的运行记录失败", zap.Int64("job_id", jobID), zap.Error(err))
+	}
+	return run, nil
+}
+
+// void 把仍在等待中的运行记为已取消并写明原因（如作废的重试）；运行已开始或已结束时返回 false
+func (r *runner) void(ctx context.Context, runID int64, reason string) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	run, err := job_repo.Run().Find(ctx, runID)
+	if err != nil || run == nil || run.Status != job_entity.RunQueued {
+		return false, err
+	}
+	now := r.clock()
+	run.Status, run.Reason, run.FinishedAt, run.Updatetime = job_entity.RunCanceled, reason, now.UnixMilli(), now.Unix()
+	return job_repo.Run().SaveIf(ctx, run, job_entity.RunQueued)
 }
 
 // startPending 任务带“立即执行一次”标记时清除标记并以手动方式入队、派发；标记只会被一个调用方清除
@@ -673,6 +710,10 @@ func (x *execution) finish(ctx context.Context, res *kopiarepo.SnapshotResult, e
 	case errors.Is(cause, errCanceled):
 		run.Status = job_entity.RunCanceled
 		x.log.add("运行已取消：已终止导出工具、关闭端口转发并删除临时文件，未形成快照")
+	case errors.Is(cause, errShutdown):
+		run.Status, run.FailedStep, run.Reason = job_entity.RunFailed, step, reasonInterrupted
+		x.log.setStep(step)
+		x.log.add(reasonInterrupted + "：已终止导出工具，未形成快照")
 	case errors.Is(cause, errTimeout):
 		run.Status, run.FailedStep = job_entity.RunFailed, step
 		run.Reason = fmt.Sprintf("超时（超过 %s）", job_entity.FormatTimeout(x.job.Timeout))

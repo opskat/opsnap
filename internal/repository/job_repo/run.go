@@ -30,6 +30,8 @@ type RunRepo interface {
 	RecentFinished(ctx context.Context, jobID int64, limit int) ([]*job_entity.Run, error)
 	// LastSuccess 任务最近一次成功的运行，没有时返回 nil, nil
 	LastSuccess(ctx context.Context, jobID int64) (*job_entity.Run, error)
+	// HasScheduled 任务是否已有对应该计划时间（秒）的运行记录（计划或补跑，含跳过）
+	HasScheduled(ctx context.Context, jobID int64, scheduledAt int64) (bool, error)
 	// Trim 只保留任务最近 keep 条运行记录（按 ID），删除更早的
 	Trim(ctx context.Context, jobID int64, keep int) error
 	// DeleteByJob 删除任务的全部运行记录
@@ -124,6 +126,12 @@ func (r *runRepo) RecentFinished(ctx context.Context, jobID int64, limit int) ([
 
 func (r *runRepo) LastSuccess(ctx context.Context, jobID int64) (*job_entity.Run, error) {
 	return r.first(summary(ctx).Where("job_id = ? AND status = ?", jobID, job_entity.RunSuccess).Order("id DESC"))
+}
+
+func (r *runRepo) HasScheduled(ctx context.Context, jobID int64, scheduledAt int64) (bool, error) {
+	var n int64
+	err := db.Ctx(ctx).Model(&job_entity.Run{}).Where("job_id = ? AND scheduled_at = ?", jobID, scheduledAt).Count(&n).Error
+	return n > 0, err
 }
 
 func (r *runRepo) Trim(ctx context.Context, jobID int64, keep int) error {

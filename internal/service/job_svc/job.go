@@ -323,6 +323,7 @@ func (s *jobSvc) Create(ctx context.Context, req *api.CreateRequest) (*api.Creat
 	if err := job_repo.Job().Create(ctx, j); err != nil {
 		return nil, err
 	}
+	wakeScheduler()
 	// 创建后“立即执行一次”：清除标记并以手动方式执行。任务已经创建，失败只记录日志；
 	// 标记未清除时由 Runs().RunPending 在启动时补上
 	if err := defaultRunner.startPending(ctx, j.ID); err != nil {
@@ -365,6 +366,7 @@ func (s *jobSvc) Update(ctx context.Context, req *api.UpdateRequest) (*api.Updat
 	if err := s.save(ctx, j); err != nil {
 		return nil, err
 	}
+	wakeScheduler()
 	item, err := s.item(ctx, j)
 	if err != nil {
 		return nil, err
@@ -389,6 +391,7 @@ func (s *jobSvc) setEnabled(ctx context.Context, id int64, enabled bool) (*api.I
 		if err := s.save(ctx, j); err != nil {
 			return nil, err
 		}
+		wakeScheduler()
 	}
 	return s.item(ctx, j)
 }

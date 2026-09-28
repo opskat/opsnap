@@ -99,6 +99,21 @@ func (mr *MockRunRepoMockRecorder) Find(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Find", reflect.TypeOf((*MockRunRepo)(nil).Find), ctx, id)
 }
 
+// HasScheduled mocks base method.
+func (m *MockRunRepo) HasScheduled(ctx context.Context, jobID, scheduledAt int64) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "HasScheduled", ctx, jobID, scheduledAt)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// HasScheduled indicates an expected call of HasScheduled.
+func (mr *MockRunRepoMockRecorder) HasScheduled(ctx, jobID, scheduledAt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "HasScheduled", reflect.TypeOf((*MockRunRepo)(nil).HasScheduled), ctx, jobID, scheduledAt)
+}
+
 // LastSuccess mocks base method.
 func (m *MockRunRepo) LastSuccess(ctx context.Context, jobID int64) (*job_entity.Run, error) {
 	m.ctrl.T.Helper()
