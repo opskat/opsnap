@@ -136,6 +136,9 @@ func (r SnapshotRequest) validate() error {
 type Writer struct {
 	rep repo.Repository
 	dir string
+	m   *Manager
+	// key 仓库位置的标识，同一位置的维护依次进行
+	key string
 }
 
 // OpenWriter 用密钥以可写方式连接并打开仓库（ErrInvalidPassword / ErrNotRepository / *LocationError）。
@@ -153,7 +156,9 @@ func (m *Manager) OpenWriter(ctx context.Context, loc Location, password string)
 		_ = os.RemoveAll(dir)
 		return nil, err
 	}
-	return &Writer{rep: rep, dir: dir}, nil
+	key := loc
+	_ = key.Normalize()
+	return &Writer{rep: rep, dir: dir, m: m, key: key.Key()}, nil
 }
 
 // Close 断开仓库并删除本会话的连接配置

@@ -44,6 +44,8 @@ type Manager struct {
 	mu sync.Mutex
 	// locks 每个存储一把锁：同一存储的连接配置同一时间只由一个操作改写
 	locks map[int64]*sync.Mutex
+	// maintLocks 每个位置一把锁：每个写入会话的配置目录不同，kopia 在配置旁的维护锁管不到其他会话
+	maintLocks map[string]*sync.Mutex
 }
 
 // configName 校验时 kopia 写入的连接配置文件名，其中有明文的存储凭据
@@ -65,7 +67,7 @@ func NewManager(root string) *Manager {
 		}
 		_ = os.Remove(filepath.Join(p, configName))
 	}
-	return &Manager{root: root, locks: map[int64]*sync.Mutex{}}
+	return &Manager{root: root, locks: map[int64]*sync.Mutex{}, maintLocks: map[string]*sync.Mutex{}}
 }
 
 func (m *Manager) dir(id int64) string {
@@ -74,13 +76,18 @@ func (m *Manager) dir(id int64) string {
 
 // lock 锁住该存储的本机目录，返回解锁函数
 func (m *Manager) lock(id int64) func() {
-	m.mu.Lock()
-	l, ok := m.locks[id]
+	return lockIn(&m.mu, m.locks, id)
+}
+
+// lockIn 取出（没有则建立）locks 中 key 对应的锁并锁住，返回解锁函数；mu 保护 locks
+func lockIn[K comparable](mu *sync.Mutex, locks map[K]*sync.Mutex, key K) func() {
+	mu.Lock()
+	l, ok := locks[key]
 	if !ok {
 		l = &sync.Mutex{}
-		m.locks[id] = l
+		locks[key] = l
 	}
-	m.mu.Unlock()
+	mu.Unlock()
 	l.Lock()
 	return l.Unlock
 }
