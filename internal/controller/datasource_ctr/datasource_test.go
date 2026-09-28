@@ -39,6 +39,7 @@ import (
 	"github.com/opskat/opsnap/internal/middleware"
 	"github.com/opskat/opsnap/internal/model/entity/channel_entity"
 	"github.com/opskat/opsnap/internal/model/entity/datasource_entity"
+	"github.com/opskat/opsnap/internal/model/entity/job_entity"
 	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/dsconn"
 	"github.com/opskat/opsnap/internal/pkg/fakessh"
@@ -48,12 +49,15 @@ import (
 	"github.com/opskat/opsnap/internal/repository/admin_repo"
 	"github.com/opskat/opsnap/internal/repository/channel_repo"
 	"github.com/opskat/opsnap/internal/repository/datasource_repo"
+	"github.com/opskat/opsnap/internal/repository/job_repo"
 	"github.com/opskat/opsnap/internal/repository/session_repo"
 	"github.com/opskat/opsnap/internal/repository/setting_repo"
 	"github.com/opskat/opsnap/internal/repository/token_repo"
 	"github.com/opskat/opsnap/internal/service/auth_svc"
 	"github.com/opskat/opsnap/internal/service/datasource_svc"
+	"github.com/opskat/opsnap/internal/service/job_svc"
 	"github.com/opskat/opsnap/internal/service/secret_svc"
+	"github.com/opskat/opsnap/internal/service/storage_svc"
 	"github.com/opskat/opsnap/internal/service/token_svc"
 )
 
@@ -197,9 +201,16 @@ func setupTest(t *testing.T) *env {
 	token_repo.RegisterToken(token_repo.NewToken())
 	channel_repo.RegisterChannel(channel_repo.NewChannel())
 	datasource_repo.RegisterDataSource(datasource_repo.NewDataSource())
+	job_repo.RegisterJob(job_repo.NewJob())
 	_, err := secret_svc.Secret().Init(ctx, secret_svc.InitOptions{DataDir: t.TempDir()})
 	require.NoError(t, err)
 	datasource_svc.RegisterChannelHooks()
+	// 任务对数据源、存储的引用计数与删除保护（docs/specs/2026-09-27-backup-jobs.md「对已有页面的影响」）
+	job_svc.RegisterReferenceHooks()
+	t.Cleanup(func() {
+		datasource_svc.SetJobReferrer(nil)
+		storage_svc.SetJobReferrer(nil)
+	})
 	conn := &fakeConnector{info: dsconn.Info{Version: "8.0.36", TLS: &dsconn.TLSInfo{Version: "TLSv1.3"}}}
 	datasource_svc.SetConnector(conn)
 	t.Cleanup(func() { datasource_svc.SetConnector(nil) })
@@ -979,6 +990,34 @@ func TestChannelReferences(t *testing.T) {
 
 		err = e.do(&api.DeleteRequest{ID: item.ID}, &api.DeleteResponse{})
 		assert.Equal(t, code.DataSourceNotFound, errCode(err))
+	})
+}
+
+// TestJobReferences 覆盖 docs/specs/2026-09-27-backup-jobs.md「对已有页面的影响」：
+// 被任务引用的数据源不能删除，删除响应与详情、列表都列出/计入引用它的任务
+func TestJobReferences(t *testing.T) {
+	convey.Convey("任务的引用计数与删除保护计入数据源", t, func() {
+		e := setupTest(t)
+		item := e.create(t, mysqlForm(t, "orders", newDB(t)))
+		require.NoError(t, job_repo.Job().Create(e.ctx, &job_entity.Job{
+			Name: "orders-nightly", Type: job_entity.TypeBackup, DataSourceID: item.ID, StorageID: 1,
+			Prefix: "orders", DatabaseNames: "[]", ExcludeTables: "[]",
+			ScheduleKind: "daily", ScheduleWeekdays: "[]", Timezone: "UTC",
+		}))
+
+		got := e.get(t, item.ID)
+		require.Len(t, got.UsedBy.Jobs, 1)
+		assert.Equal(t, "orders-nightly", got.UsedBy.Jobs[0].Name)
+		require.Len(t, e.findInList(t, item.ID).UsedBy.Jobs, 1, "列表同样计入引用")
+
+		err := e.do(&api.DeleteRequest{ID: item.ID}, &api.DeleteResponse{})
+		assert.Equal(t, code.DataSourceInUse, errCode(err))
+		assert.Contains(t, err.Error(), "orders-nightly")
+		assert.Len(t, e.list(t), 1, "删除被拒绝，数据源仍在")
+
+		require.NoError(t, job_repo.Job().Delete(e.ctx, 1))
+		require.NoError(t, e.do(&api.DeleteRequest{ID: item.ID}, &api.DeleteResponse{}))
+		assert.Empty(t, e.list(t))
 	})
 }
 

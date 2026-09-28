@@ -148,7 +148,9 @@
       "edit": "Edit",
       "editNamed": "Edit {{name}}",
       "more": "More actions for {{name}}",
-      "revealKey": "View key"
+      "revealKey": "View key",
+      "usedByJobs": "Used by {{count}} jobs",
+      "deleteBlocked": "Still used by {{items}}, cannot delete"
     },
     "form": {
       "createTitle": "New storage",
@@ -172,7 +174,8 @@
       "testing": "Testing…",
       "next": "Next",
       "nextSetKey": "Next: set encryption key",
-      "nextUnlock": "Next: unlock repository"
+      "nextUnlock": "Next: unlock repository",
+      "locationLocked": "Used by {{items}}, location cannot be changed"
     },
     "probe": {
       "notEmpty": "The location is not empty and is not a kopia repository. Choose an empty directory or an existing kopia repository.",
@@ -465,7 +468,8 @@
         "reconfirmNamed": "Reconfirm host key for {{name}}",
         "reconfirmChannelStale": "Couldn't get the key channel {{name}} is currently presenting; try again shortly.",
         "viewDetail": "View Details",
-        "deleteItem": "Delete data source"
+        "deleteItem": "Delete data source",
+        "deleteBlocked": "Still used by {{items}}, cannot delete"
       },
       "form": {
         "createTitle": "New Data Source",
@@ -524,6 +528,7 @@
         "backToList": "Back to list",
         "reprobe": "Reprobe",
         "reprobing": "Reprobing…",
+        "usedByJobs": "Used by {{count}} jobs",
         "connection": {
           "title": "Connection",
           "type": "Type",

@@ -368,6 +368,11 @@ export function SourceDetailPage() {
                 .filter(Boolean)
                 .join(" · ")}
             </p>
+            {(item.used_by?.jobs.length ?? 0) > 0 && (
+              <p className="text-sm text-muted-foreground">
+                {t("sources.dataSource.detail.usedByJobs", { count: item.used_by?.jobs.length ?? 0 })}
+              </p>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" disabled={testing} onClick={() => void test()}>

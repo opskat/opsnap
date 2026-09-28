@@ -161,6 +161,8 @@ const dbOrders: DataSourceItem = {
   checked_at: now() - 120,
   created_at: now() - 50000,
   probe: { state: "done", ok: 6, warn: 2, fail: 0, items: mysqlProbeItems, time: now() - 120 },
+
+  used_by: { jobs: [] },
 };
 
 const web01Probing: DataSourceItem = {
@@ -191,6 +193,8 @@ const web01Probing: DataSourceItem = {
   checked_at: now() - 30,
   created_at: now() - 30000,
   probe: { state: "probing", ok: 0, warn: 0, fail: 0, time: now() - 9000 },
+
+  used_by: { jobs: [] },
 };
 
 const pgReport: DataSourceItem = {
@@ -221,6 +225,8 @@ const pgReport: DataSourceItem = {
   checked_at: now() - 10,
   created_at: now() - 10000,
   probe: { state: "unprobeable", ok: 0, warn: 0, fail: 0, error: "认证失败：password authentication failed", time: 0 },
+
+  used_by: { jobs: [] },
 };
 
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -275,6 +281,15 @@ describe("数据源详情页", () => {
     expect(within(header).getByText(/2 分钟前测试/)).toBeInTheDocument();
     expect(call(0)).toMatchObject({ url: "/api/v1/datasources/101", method: "GET" });
     expect(call(1)).toMatchObject({ url: "/api/v1/channels", method: "GET" });
+    expect(screen.queryByText(/被 \d+ 个任务使用/)).not.toBeInTheDocument();
+  });
+
+  it("被任务引用时头部显示使用数", async () => {
+    const referenced = { ...dbOrders, used_by: { jobs: [{ id: 1, name: "orders-nightly" }] } };
+    respondDetail(referenced, [officeSocks, bastionProd]);
+    renderDetail(101);
+    await screen.findByRole("heading", { name: "db-01 · orders" });
+    expect(screen.getByText("被 1 个任务使用")).toBeInTheDocument();
   });
 
   it("连接信息与逐跳链路：从 OpsNap 开始，SSH 跳显示主机密钥指纹", async () => {

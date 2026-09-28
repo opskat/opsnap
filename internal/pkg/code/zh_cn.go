@@ -62,6 +62,8 @@ var zhCN = map[int]string{ //nolint:gosec // 错误文案中的“密码”字�
 	StorageDirNoPermission:       "没有写权限，无法在这里新建文件夹",
 	StorageDirNoAccess:           "无权访问这个目录",
 	StorageDirCreateFailed:       "新建文件夹失败：%s",
+	StorageInUse:                 "存储仍被任务引用，不能删除：%s",
+	StorageLocationLocked:        "存储仍被任务引用，不能更改位置：%s",
 
 	ChannelNotFound:             "通道不存在",
 	ChannelNameInvalid:          "名称须为 1–64 个字符",
@@ -120,6 +122,7 @@ var zhCN = map[int]string{ //nolint:gosec // 错误文案中的“密码”字�
 	DataSourceReasonCertificate:  "证书校验失败（%s）",
 	DataSourceReasonFailed:       "%s",
 	DataSourceDatabasesFailed:    "读取数据库列表失败：%s",
+	DataSourceInUse:              "数据源仍被任务引用，不能删除：%s",
 
 	JobNotFound:               "任务不存在",
 	JobNameInvalid:            "任务名称须为 1–64 个字符",

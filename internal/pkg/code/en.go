@@ -62,6 +62,8 @@ var en = map[int]string{ //nolint:gosec // 错误文案中的 “token”“pass
 	StorageDirNoPermission:       "No write permission to create a folder here",
 	StorageDirNoAccess:           "No permission to open this directory",
 	StorageDirCreateFailed:       "Could not create the folder: %s",
+	StorageInUse:                 "The storage is still referenced by jobs and cannot be deleted: %s",
+	StorageLocationLocked:        "The storage is still referenced by jobs and its location cannot be changed: %s",
 
 	ChannelNotFound:             "Channel not found",
 	ChannelNameInvalid:          "Name must be 1–64 characters",
@@ -120,6 +122,7 @@ var en = map[int]string{ //nolint:gosec // 错误文案中的 “token”“pass
 	DataSourceReasonCertificate:  "certificate verification failed (%s)",
 	DataSourceReasonFailed:       "%s",
 	DataSourceDatabasesFailed:    "Could not read the database list: %s",
+	DataSourceInUse:              "The data source is still referenced by jobs and cannot be deleted: %s",
 
 	JobNotFound:               "Job not found",
 	JobNameInvalid:            "Job name must be 1–64 characters",

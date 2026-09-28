@@ -21,6 +21,7 @@ import (
 
 	channelapi "github.com/opskat/opsnap/internal/api/channel"
 	api "github.com/opskat/opsnap/internal/api/datasource"
+	jobapi "github.com/opskat/opsnap/internal/api/job"
 	"github.com/opskat/opsnap/internal/model/entity/channel_entity"
 	"github.com/opskat/opsnap/internal/model/entity/datasource_entity"
 	"github.com/opskat/opsnap/internal/pkg/code"
@@ -83,6 +84,10 @@ type DataSourceSvc interface {
 // 使控制器测试不依赖真实的 MySQL / PostgreSQL / SSH 连接
 type ProbeRunner func(ctx context.Context, typ dsconn.Type, conn *dsconn.Conn) []probe.Item
 
+// JobReferrer 返回使用该数据源的任务，由 job_svc 注册，供列表/详情的引用计数与删除保护；
+// nil 表示任务模块尚未注册（如未涉及任务的测试）
+type JobReferrer func(ctx context.Context, dataSourceID int64) ([]*jobapi.Ref, error)
+
 type dataSourceSvc struct {
 	now func() time.Time
 
@@ -90,6 +95,7 @@ type dataSourceSvc struct {
 	connector dsconn.Connector
 	runner    ProbeRunner
 	dbLister  DatabaseLister
+	jobRefs   JobReferrer
 
 	probeMu sync.Mutex
 	probing map[int64]bool
@@ -135,6 +141,40 @@ func SetDatabaseLister(l DatabaseLister) {
 	defaultDataSource.mu.Lock()
 	defer defaultDataSource.mu.Unlock()
 	defaultDataSource.dbLister = l
+}
+
+// SetJobReferrer 由任务模块注册：查询使用某个数据源的任务，用于引用计数与删除保护；nil 表示没有任务模块
+func SetJobReferrer(fn JobReferrer) {
+	defaultDataSource.mu.Lock()
+	defer defaultDataSource.mu.Unlock()
+	defaultDataSource.jobRefs = fn
+}
+
+func (s *dataSourceSvc) jobReferrer() JobReferrer {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.jobRefs
+}
+
+// referencingJobs 使用该数据源的任务；没有注册任务模块时返回空
+func (s *dataSourceSvc) referencingJobs(ctx context.Context, id int64) ([]*jobapi.Ref, error) {
+	fn := s.jobReferrer()
+	if fn == nil {
+		return nil, nil
+	}
+	return fn(ctx, id)
+}
+
+// usedByJobs 单个数据源的引用摘要，供列表与详情展示；不返回 nil 切片，避免响应中出现 null
+func (s *dataSourceSvc) usedByJobs(ctx context.Context, id int64) (*api.UsedBy, error) {
+	jobs, err := s.referencingJobs(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if jobs == nil {
+		jobs = []*jobapi.Ref{}
+	}
+	return &api.UsedBy{Jobs: jobs}, nil
 }
 
 // SetProbeDoneHook 仅供测试：每次后台探测结束时调用一次，代替 sleep 等待完成；nil 取消
@@ -1091,6 +1131,17 @@ func (s *dataSourceSvc) Delete(ctx context.Context, req *api.DeleteRequest) (*ap
 	if err != nil {
 		return nil, err
 	}
+	jobs, err := s.referencingJobs(ctx, ds.ID)
+	if err != nil {
+		return nil, err
+	}
+	if len(jobs) > 0 {
+		names := make([]string, 0, len(jobs))
+		for _, j := range jobs {
+			names = append(names, j.Name)
+		}
+		return nil, i18n.NewError(ctx, code.DataSourceInUse, strings.Join(names, ", "))
+	}
 	if err := datasource_repo.DataSource().Delete(ctx, ds.ID); err != nil {
 		return nil, err
 	}
@@ -1122,7 +1173,11 @@ func (s *dataSourceSvc) List(ctx context.Context, _ *api.ListRequest) (*api.List
 	}
 	items := make([]*api.Item, 0, len(rows))
 	for _, ds := range rows {
-		items = append(items, s.toItem(ctx, ds, byID))
+		used, err := s.usedByJobs(ctx, ds.ID)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, s.toItem(ctx, ds, byID, used))
 	}
 	return &api.ListResponse{Items: items}, nil
 }
@@ -1145,10 +1200,14 @@ func (s *dataSourceSvc) item(ctx context.Context, ds *datasource_entity.DataSour
 	if err != nil {
 		return nil, err
 	}
-	return s.toItem(ctx, ds, byID), nil
+	used, err := s.usedByJobs(ctx, ds.ID)
+	if err != nil {
+		return nil, err
+	}
+	return s.toItem(ctx, ds, byID, used), nil
 }
 
-func (s *dataSourceSvc) toItem(ctx context.Context, ds *datasource_entity.DataSource, byID map[int64]*channel_entity.Channel) *api.Item {
+func (s *dataSourceSvc) toItem(ctx context.Context, ds *datasource_entity.DataSource, byID map[int64]*channel_entity.Channel, used *api.UsedBy) *api.Item {
 	item := &api.Item{
 		ID:               ds.ID,
 		Name:             ds.Name,
@@ -1174,6 +1233,7 @@ func (s *dataSourceSvc) toItem(ctx context.Context, ds *datasource_entity.DataSo
 		FailedHop:        failedHop(ds),
 		CheckedAt:        ds.Checktime,
 		CreatedAt:        ds.Createtime,
+		UsedBy:           used,
 	}
 	if ds.Version != "" || ds.System != "" {
 		item.Server = &api.ServerInfo{Version: ds.Version, System: ds.System}

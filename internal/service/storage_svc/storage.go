@@ -18,6 +18,7 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
+	jobapi "github.com/opskat/opsnap/internal/api/job"
 	api "github.com/opskat/opsnap/internal/api/storage"
 	"github.com/opskat/opsnap/internal/model/entity/storage_entity"
 	"github.com/opskat/opsnap/internal/pkg/authctx"
@@ -57,16 +58,56 @@ type StorageSvc interface {
 // ErrNotReady 存储状态不是“正常”（密钥不正确或无法连接），不能打开写入会话
 var ErrNotReady = errors.New("存储状态不是正常")
 
+// JobReferrer 返回使用该存储的任务，由 job_svc 注册，供列表的引用计数与删除、位置更改保护；
+// nil 表示任务模块尚未注册（如未涉及任务的测试）
+type JobReferrer func(ctx context.Context, storageID int64) ([]*jobapi.Ref, error)
+
 type storageSvc struct {
 	now func() time.Time
 
-	mu    sync.RWMutex
-	kopia *kopiarepo.Manager
+	mu      sync.RWMutex
+	kopia   *kopiarepo.Manager
+	jobRefs JobReferrer
 	// browseStart 目录浏览的默认位置：数据目录的上级目录
 	browseStart string
 }
 
 var defaultStorage = &storageSvc{now: time.Now}
+
+// SetJobReferrer 由任务模块注册：查询使用某个存储的任务，用于引用计数、删除与位置更改保护；
+// nil 表示没有任务模块
+func SetJobReferrer(fn JobReferrer) {
+	defaultStorage.mu.Lock()
+	defer defaultStorage.mu.Unlock()
+	defaultStorage.jobRefs = fn
+}
+
+func (s *storageSvc) jobReferrer() JobReferrer {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.jobRefs
+}
+
+// referencingJobs 使用该存储的任务；没有注册任务模块时返回空
+func (s *storageSvc) referencingJobs(ctx context.Context, id int64) ([]*jobapi.Ref, error) {
+	fn := s.jobReferrer()
+	if fn == nil {
+		return nil, nil
+	}
+	return fn(ctx, id)
+}
+
+// usedByJobs 单个存储的引用摘要，供列表展示；不返回 nil 切片，避免响应中出现 null
+func (s *storageSvc) usedByJobs(ctx context.Context, id int64) (*api.UsedBy, error) {
+	jobs, err := s.referencingJobs(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if jobs == nil {
+		jobs = []*jobapi.Ref{}
+	}
+	return &api.UsedBy{Jobs: jobs}, nil
+}
 
 func Storage() StorageSvc {
 	return defaultStorage
@@ -150,7 +191,11 @@ func repoError(ctx context.Context, err error) error {
 	return codeError(ctx, c, detail)
 }
 
-func (s *storageSvc) toItem(ctx context.Context, st *storage_entity.Storage) *api.Item {
+func (s *storageSvc) toItem(ctx context.Context, st *storage_entity.Storage) (*api.Item, error) {
+	used, err := s.usedByJobs(ctx, st.ID)
+	if err != nil {
+		return nil, err
+	}
 	item := &api.Item{
 		ID:            st.ID,
 		Name:          st.Name,
@@ -171,6 +216,7 @@ func (s *storageSvc) toItem(ctx context.Context, st *storage_entity.Storage) *ap
 		CheckedAt:     st.Checktime,
 		CreatedAt:     st.Createtime,
 		StatusMessage: "",
+		UsedBy:        used,
 	}
 	if st.StatusCode != 0 {
 		if detailCodes[st.StatusCode] {
@@ -179,7 +225,7 @@ func (s *storageSvc) toItem(ctx context.Context, st *storage_entity.Storage) *ap
 			item.StatusMessage = i18n.T(ctx, st.StatusCode)
 		}
 	}
-	return item
+	return item, nil
 }
 
 // location 校验名称与位置参数，返回规范化后的位置。existing 为正在编辑的存储（新建时为 nil）：
@@ -334,7 +380,11 @@ func (s *storageSvc) List(ctx context.Context, _ *api.ListRequest) (*api.ListRes
 	}
 	items := make([]*api.Item, 0, len(rows))
 	for _, st := range rows {
-		items = append(items, s.toItem(ctx, st))
+		item, err := s.toItem(ctx, st)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
 	}
 	return &api.ListResponse{Items: items}, nil
 }
@@ -403,7 +453,11 @@ func (s *storageSvc) Create(ctx context.Context, req *api.CreateRequest) (*api.C
 	if err := storage_repo.Storage().Create(ctx, st); err != nil {
 		return nil, err
 	}
-	return &api.CreateResponse{Item: s.toItem(ctx, st), Snapshots: snapshots}, nil
+	item, err := s.toItem(ctx, st)
+	if err != nil {
+		return nil, err
+	}
+	return &api.CreateResponse{Item: item, Snapshots: snapshots}, nil
 }
 
 // checkNewKey 在空位置建库前校验密钥与确认勾选
@@ -429,6 +483,19 @@ func (s *storageSvc) Update(ctx context.Context, req *api.UpdateRequest) (*api.U
 		return nil, err
 	}
 	changed := loc.Key() != st.LocationKey
+	if changed {
+		jobs, err := s.referencingJobs(ctx, st.ID)
+		if err != nil {
+			return nil, err
+		}
+		if len(jobs) > 0 {
+			names := make([]string, 0, len(jobs))
+			for _, j := range jobs {
+				names = append(names, j.Name)
+			}
+			return nil, i18n.NewError(ctx, code.StorageLocationLocked, strings.Join(names, ", "))
+		}
+	}
 	if changed && !req.ConfirmLocationChange {
 		return nil, i18n.NewError(ctx, code.StorageLocationChangeConfirm)
 	}
@@ -479,7 +546,11 @@ func (s *storageSvc) Update(ctx context.Context, req *api.UpdateRequest) (*api.U
 	if err := s.save(ctx, st); err != nil {
 		return nil, err
 	}
-	return &api.UpdateResponse{Item: s.toItem(ctx, st), Snapshots: snapshots}, nil
+	item, err := s.toItem(ctx, st)
+	if err != nil {
+		return nil, err
+	}
+	return &api.UpdateResponse{Item: item, Snapshots: snapshots}, nil
 }
 
 func (s *storageSvc) Test(ctx context.Context, req *api.TestRequest) (*api.TestResponse, error) {
@@ -528,7 +599,11 @@ func (s *storageSvc) Test(ctx context.Context, req *api.TestRequest) (*api.TestR
 	if err := s.save(ctx, st); err != nil {
 		return nil, err
 	}
-	return &api.TestResponse{Item: s.toItem(ctx, st), Snapshots: snapshots}, nil
+	item, err := s.toItem(ctx, st)
+	if err != nil {
+		return nil, err
+	}
+	return &api.TestResponse{Item: item, Snapshots: snapshots}, nil
 }
 
 func (s *storageSvc) Unlock(ctx context.Context, req *api.UnlockRequest) (*api.UnlockResponse, error) {
@@ -561,13 +636,28 @@ func (s *storageSvc) Unlock(ctx context.Context, req *api.UnlockRequest) (*api.U
 	if err := s.save(ctx, st); err != nil {
 		return nil, err
 	}
-	return &api.UnlockResponse{Item: s.toItem(ctx, st), Snapshots: snapshots}, nil
+	item, err := s.toItem(ctx, st)
+	if err != nil {
+		return nil, err
+	}
+	return &api.UnlockResponse{Item: item, Snapshots: snapshots}, nil
 }
 
 func (s *storageSvc) Delete(ctx context.Context, req *api.DeleteRequest) (*api.DeleteResponse, error) {
 	st, err := s.find(ctx, req.ID)
 	if err != nil {
 		return nil, err
+	}
+	jobs, err := s.referencingJobs(ctx, st.ID)
+	if err != nil {
+		return nil, err
+	}
+	if len(jobs) > 0 {
+		names := make([]string, 0, len(jobs))
+		for _, j := range jobs {
+			names = append(names, j.Name)
+		}
+		return nil, i18n.NewError(ctx, code.StorageInUse, strings.Join(names, ", "))
 	}
 	if err := storage_repo.Storage().Delete(ctx, st.ID); err != nil {
 		return nil, err

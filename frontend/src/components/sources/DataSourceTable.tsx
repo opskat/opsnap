@@ -134,88 +134,109 @@ export function DataSourceTable({
           {t("sources.dataSource.list.actions")}
         </span>
       </div>
-      {items.map((d) => (
-        <div key={d.id} role="row" className={cn(columns, "border-t py-3 text-sm")}>
-          <span role="cell" className="flex min-w-0 items-center gap-3">
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground [&_svg]:size-4">
-              {kindIcon(d.kind)}
+      {items.map((d) => {
+        const usedByJobs = d.used_by?.jobs ?? [];
+        const canDelete = usedByJobs.length === 0;
+        return (
+          <div key={d.id} role="row" className={cn(columns, "border-t py-3 text-sm")}>
+            <span role="cell" className="flex min-w-0 items-center gap-3">
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground [&_svg]:size-4">
+                {kindIcon(d.kind)}
+              </span>
+              <span className="flex min-w-0 flex-col">
+                <Link to={`/sources/${d.id}`} className="truncate font-medium hover:underline">
+                  {d.name}
+                </Link>
+                <span className="text-xs text-muted-foreground">{t(`sources.dataSource.kind.${d.kind}`)}</span>
+              </span>
             </span>
-            <span className="flex min-w-0 flex-col">
-              <Link to={`/sources/${d.id}`} className="truncate font-medium hover:underline">
-                {d.name}
-              </Link>
-              <span className="text-xs text-muted-foreground">{t(`sources.dataSource.kind.${d.kind}`)}</span>
+            <span role="cell" className="flex min-w-0 flex-col font-mono text-xs">
+              <span className="truncate">{d.address}</span>
+              <span className="truncate font-sans text-muted-foreground">{addressLine(t, d)}</span>
             </span>
-          </span>
-          <span role="cell" className="flex min-w-0 flex-col font-mono text-xs">
-            <span className="truncate">{d.address}</span>
-            <span className="truncate font-sans text-muted-foreground">{addressLine(t, d)}</span>
-          </span>
-          <span role="cell">
-            <ProbeCell item={d} />
-          </span>
-          <span role="cell" className="flex min-w-0 flex-col items-start gap-1">
-            <span className={cn("rounded-sm px-1.75 py-0.5 text-2xs font-medium", statusStyle[d.status])}>
-              {t(`sources.dataSource.status.${d.status}`)}
+            <span role="cell">
+              <ProbeCell item={d} />
             </span>
-            <span className="max-w-full truncate text-xs text-muted-foreground" title={d.status_message || undefined}>
-              {d.status === "ok"
-                ? t("sources.dataSource.list.checked", { time: relativeTime(t, d.checked_at) })
-                : d.status_message}
+            <span role="cell" className="flex min-w-0 flex-col items-start gap-1">
+              <span className={cn("rounded-sm px-1.75 py-0.5 text-2xs font-medium", statusStyle[d.status])}>
+                {t(`sources.dataSource.status.${d.status}`)}
+              </span>
+              <span className="max-w-full truncate text-xs text-muted-foreground" title={d.status_message || undefined}>
+                {d.status === "ok"
+                  ? t("sources.dataSource.list.checked", { time: relativeTime(t, d.checked_at) })
+                  : d.status_message}
+              </span>
             </span>
-          </span>
-          <span role="cell" className="flex items-center justify-end gap-1">
-            {d.status === "host_key_changed" && (
+            <span role="cell" className="flex items-center justify-end gap-1">
+              {d.status === "host_key_changed" && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-warning"
+                  aria-label={t("sources.dataSource.list.reconfirmNamed", { name: d.name })}
+                  onClick={() => actions.onReconfirm(d)}
+                >
+                  <ShieldAlert />
+                  {t("sources.dataSource.list.reconfirm")}
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="sm"
-                className="text-warning"
-                aria-label={t("sources.dataSource.list.reconfirmNamed", { name: d.name })}
-                onClick={() => actions.onReconfirm(d)}
+                disabled={testing?.has(d.id)}
+                aria-label={t("sources.dataSource.list.testNamed", { name: d.name })}
+                onClick={() => actions.onTest(d)}
               >
-                <ShieldAlert />
-                {t("sources.dataSource.list.reconfirm")}
+                {testing?.has(d.id) ? t("sources.dataSource.form.testing") : t("sources.dataSource.list.test")}
               </Button>
-            )}
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={testing?.has(d.id)}
-              aria-label={t("sources.dataSource.list.testNamed", { name: d.name })}
-              onClick={() => actions.onTest(d)}
-            >
-              {testing?.has(d.id) ? t("sources.dataSource.form.testing") : t("sources.dataSource.list.test")}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label={t("sources.dataSource.list.editNamed", { name: d.name })}
-              onClick={() => actions.onEdit(d)}
-            >
-              {t("sources.dataSource.list.edit")}
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon-sm" aria-label={t("sources.dataSource.list.more", { name: d.name })}>
-                  <Ellipsis />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem asChild>
-                  <Link to={`/sources/${d.id}`}>
-                    <Eye />
-                    {t("sources.dataSource.list.viewDetail")}
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem variant="destructive" onSelect={() => actions.onDelete(d)}>
-                  <Trash2 />
-                  {t("sources.dataSource.list.deleteItem")}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </span>
-        </div>
-      ))}
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label={t("sources.dataSource.list.editNamed", { name: d.name })}
+                onClick={() => actions.onEdit(d)}
+              >
+                {t("sources.dataSource.list.edit")}
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={t("sources.dataSource.list.more", { name: d.name })}
+                  >
+                    <Ellipsis />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem asChild>
+                    <Link to={`/sources/${d.id}`}>
+                      <Eye />
+                      {t("sources.dataSource.list.viewDetail")}
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    variant="destructive"
+                    disabled={!canDelete}
+                    onSelect={() => canDelete && actions.onDelete(d)}
+                  >
+                    <Trash2 />
+                    <span className="flex min-w-0 flex-col">
+                      {t("sources.dataSource.list.deleteItem")}
+                      {!canDelete && (
+                        <span className="text-xs font-normal text-muted-foreground">
+                          {t("sources.dataSource.list.deleteBlocked", {
+                            items: usedByJobs.map((j) => j.name).join("、"),
+                          })}
+                        </span>
+                      )}
+                    </span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }

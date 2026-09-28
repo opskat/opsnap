@@ -189,7 +189,9 @@ func registerRepositories() {
 	job_repo.RegisterRun(job_repo.NewRun())
 }
 
-// registerHooks 注册模块之间的钩子：通道的引用计数与删除保护计入数据源；通道的主机密钥变化时经过它的数据源同样标记，重新确认后重新测试这些数据源
+// registerHooks 注册模块之间的钩子：通道的引用计数与删除保护计入数据源；通道的主机密钥变化时经过它的数据源同样标记，重新确认后重新测试这些数据源；
+// 任务对数据源、存储的引用计数与删除、位置更改保护
 func registerHooks() {
 	datasource_svc.RegisterChannelHooks()
+	job_svc.RegisterReferenceHooks()
 }

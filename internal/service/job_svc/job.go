@@ -22,6 +22,7 @@ import (
 	"github.com/opskat/opsnap/internal/repository/datasource_repo"
 	"github.com/opskat/opsnap/internal/repository/job_repo"
 	"github.com/opskat/opsnap/internal/repository/storage_repo"
+	"github.com/opskat/opsnap/internal/service/datasource_svc"
 	"github.com/opskat/opsnap/internal/service/storage_svc"
 )
 
@@ -84,6 +85,13 @@ func SetActiveRunChecker(fn ActiveRunChecker) {
 	defaultJob.hookMu.Lock()
 	defer defaultJob.hookMu.Unlock()
 	defaultJob.activeRun = fn
+}
+
+// RegisterReferenceHooks 向数据源与存储模块注册任务对它们的引用：被引用的数据源不能删除，
+// 被引用的存储不能删除也不能更改位置（docs/specs/2026-09-27-backup-jobs.md「对已有页面的影响」）
+func RegisterReferenceHooks() {
+	datasource_svc.SetJobReferrer(defaultJob.ByDataSource)
+	storage_svc.SetJobReferrer(defaultJob.ByStorage)
 }
 
 func (s *jobSvc) hasActiveRun(ctx context.Context, jobID int64) (bool, error) {

@@ -34,6 +34,16 @@ export interface ChannelRef {
   name: string;
 }
 
+export interface JobRef {
+  id: number;
+  name: string;
+}
+
+/** 引用该数据源的任务（docs/specs/2026-09-27-backup-jobs.md「对已有页面的影响」） */
+export interface DataSourceUsedBy {
+  jobs: JobRef[];
+}
+
 export interface ChannelUsedBy {
   data_sources: ChannelRef[];
   channels: ChannelRef[];
@@ -334,6 +344,8 @@ export interface DataSourceItem {
   checked_at: number;
   created_at: number;
   probe: DataSourceProbe | null;
+  /** 引用它的任务；旧响应或未涉及任务的测试夹具可能没有这个字段 */
+  used_by?: DataSourceUsedBy;
 }
 
 /** 测试或保存的响应：host_key 非空表示暂停等待确认主机密钥，此时没有保存 */

@@ -8,18 +8,26 @@ import (
 
 	"github.com/cago-frame/cago/configs"
 	"github.com/cago-frame/cago/pkg/gogo"
+	"github.com/cago-frame/cago/pkg/utils/httputils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	dsapi "github.com/opskat/opsnap/internal/api/datasource"
+	storageapi "github.com/opskat/opsnap/internal/api/storage"
 	"github.com/opskat/opsnap/internal/model/entity/channel_entity"
 	"github.com/opskat/opsnap/internal/model/entity/datasource_entity"
 	"github.com/opskat/opsnap/internal/model/entity/job_entity"
+	"github.com/opskat/opsnap/internal/model/entity/storage_entity"
+	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/testdb"
 	"github.com/opskat/opsnap/internal/repository/channel_repo"
 	"github.com/opskat/opsnap/internal/repository/datasource_repo"
 	"github.com/opskat/opsnap/internal/repository/job_repo"
+	"github.com/opskat/opsnap/internal/repository/storage_repo"
 	"github.com/opskat/opsnap/internal/service/channel_svc"
+	"github.com/opskat/opsnap/internal/service/datasource_svc"
 	"github.com/opskat/opsnap/internal/service/job_svc"
+	"github.com/opskat/opsnap/internal/service/storage_svc"
 )
 
 // newTestConfig 用一份最小配置文件构造 *configs.Config，供只读取个别配置项的单元测试使用
@@ -53,6 +61,8 @@ func TestRegisterRepositoriesAndHooks(t *testing.T) {
 		channel_svc.SetDataSourceReferrer(nil)
 		channel_svc.SetHostKeyConfirmedHook(nil)
 		channel_svc.SetHostKeyChangedHook(nil)
+		datasource_svc.SetJobReferrer(nil)
+		storage_svc.SetJobReferrer(nil)
 	})
 	require.NotNil(t, datasource_repo.DataSource())
 	require.NotNil(t, job_repo.Job())
@@ -66,6 +76,25 @@ func TestRegisterRepositoriesAndHooks(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, used.DataSources, 1)
 	assert.Equal(t, "orders", used.DataSources[0].Name)
+
+	// 任务对数据源与存储的引用保护同样经 registerHooks 注册（docs/specs/2026-09-27-backup-jobs.md「对已有页面的影响」）
+	st := &storage_entity.Storage{Name: "backup-nas", Kind: "local", Path: "/mnt/backup"}
+	require.NoError(t, storage_repo.Storage().Create(ctx, st))
+	j := &job_entity.Job{Name: "orders-nightly", Type: job_entity.TypeBackup, DataSourceID: ds.ID, StorageID: st.ID,
+		Prefix: "orders", DatabaseNames: "[]", ExcludeTables: "[]", ScheduleKind: "daily", ScheduleWeekdays: "[]", Timezone: "UTC"}
+	require.NoError(t, job_repo.Job().Create(ctx, j))
+
+	_, dsErr := datasource_svc.DataSource().Delete(ctx, &dsapi.DeleteRequest{ID: ds.ID})
+	var dsHerr *httputils.Error
+	require.ErrorAs(t, dsErr, &dsHerr)
+	assert.Equal(t, code.DataSourceInUse, dsHerr.Code)
+	assert.Contains(t, dsHerr.Msg, "orders-nightly")
+
+	_, stErr := storage_svc.Storage().Delete(ctx, &storageapi.DeleteRequest{ID: st.ID})
+	var stHerr *httputils.Error
+	require.ErrorAs(t, stErr, &stHerr)
+	assert.Equal(t, code.StorageInUse, stHerr.Code)
+	assert.Contains(t, stHerr.Msg, "orders-nightly")
 }
 
 // 调度组件：运行临时目录为 <数据目录>/runs，启动时清扫其中的残留并处理上次退出时未结束的运行；

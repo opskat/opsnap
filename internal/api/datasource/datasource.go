@@ -9,6 +9,7 @@ import (
 	"github.com/cago-frame/cago/server/mux"
 
 	channelapi "github.com/opskat/opsnap/internal/api/channel"
+	jobapi "github.com/opskat/opsnap/internal/api/job"
 )
 
 // Form 数据源设置；测试连接、新建与编辑共用
@@ -58,6 +59,12 @@ type ServerInfo struct {
 	System string `json:"system"`
 	// TLS 连接已加密时非空
 	TLS *TLS `json:"tls"`
+}
+
+// UsedBy 引用该数据源的对象
+type UsedBy struct {
+	// Jobs 使用该数据源的任务
+	Jobs []*jobapi.Ref `json:"jobs"`
 }
 
 // FailedHop 最近一次测试失败的位置
@@ -148,6 +155,8 @@ type Item struct {
 	CreatedAt int64      `json:"created_at"`
 	// Probe 能力探测的摘要与结果，尚未探测过时为 nil
 	Probe *Probe `json:"probe"`
+	// UsedBy 引用该数据源的任务（docs/specs/2026-09-27-backup-jobs.md「对已有页面的影响」）
+	UsedBy *UsedBy `json:"used_by"`
 }
 
 // ListRequest 列出全部数据源；不会触发测试连接

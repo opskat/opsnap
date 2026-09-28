@@ -148,7 +148,9 @@
       "edit": "编辑",
       "editNamed": "编辑 {{name}}",
       "more": "{{name}} 的更多操作",
-      "revealKey": "查看密钥"
+      "revealKey": "查看密钥",
+      "usedByJobs": "被 {{count}} 个任务使用",
+      "deleteBlocked": "仍被 {{items}} 使用，不能删除"
     },
     "form": {
       "createTitle": "新建存储",
@@ -172,7 +174,8 @@
       "testing": "测试中…",
       "next": "下一步",
       "nextSetKey": "下一步：设置加密密钥",
-      "nextUnlock": "下一步：解锁仓库"
+      "nextUnlock": "下一步：解锁仓库",
+      "locationLocked": "被 {{items}} 使用，不能更改位置"
     },
     "probe": {
       "notEmpty": "目标位置不为空，且不是 kopia 仓库。请换一个空目录，或指向已有的 kopia 仓库。",
@@ -465,7 +468,8 @@
         "reconfirmNamed": "重新确认 {{name}} 的主机密钥",
         "reconfirmChannelStale": "暂时无法获取通道 {{name}} 现在出示的密钥，请稍后重试。",
         "viewDetail": "查看详情",
-        "deleteItem": "删除数据源"
+        "deleteItem": "删除数据源",
+        "deleteBlocked": "仍被 {{items}} 使用，不能删除"
       },
       "form": {
         "createTitle": "新建数据源",
@@ -524,6 +528,7 @@
         "backToList": "返回列表",
         "reprobe": "重新探测",
         "reprobing": "重新探测中…",
+        "usedByJobs": "被 {{count}} 个任务使用",
         "connection": {
           "title": "连接",
           "type": "类型",

@@ -85,6 +85,10 @@ const (
 	StorageDirNoPermission
 	StorageDirNoAccess
 	StorageDirCreateFailed
+	// StorageInUse 被任务引用时不能删除，参数为引用它的任务名（docs/specs/2026-09-27-backup-jobs.md「对已有页面的影响」）
+	StorageInUse
+	// StorageLocationLocked 被任务引用时不能更改位置，参数同 StorageInUse
+	StorageLocationLocked
 )
 
 // 网络通道
@@ -152,6 +156,8 @@ const (
 	DataSourceReasonFailed
 	// DataSourceDatabasesFailed 实时读取数据库列表失败，参数为原因（原文，已去掉秘密）
 	DataSourceDatabasesFailed
+	// DataSourceInUse 被任务引用时不能删除，参数为引用它的任务名（docs/specs/2026-09-27-backup-jobs.md「对已有页面的影响」）
+	DataSourceInUse
 )
 
 // 备份任务
