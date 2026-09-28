@@ -800,6 +800,62 @@
         "timeoutInvalid": "Timeout must be between 10 and 2880 minutes (10 minutes to 48 hours)",
         "nameInvalid": "Job name must be 1–64 characters"
       }
+    },
+    "detail": {
+      "back": "Back to {{name}}",
+      "notFoundTitle": "Job not found",
+      "notFoundHint": "It may have been deleted, or the link is incorrect.",
+      "backToList": "Back to list",
+      "loadFailed": "Couldn't load the job: {{message}}",
+      "config": {
+        "title": "Configuration",
+        "location": "Location in repository",
+        "schedule": "Schedule",
+        "encryptionUnknown": "Unknown",
+        "includedNone": "None"
+      },
+      "stats": {
+        "title": "Statistics",
+        "noSnapshot": "No snapshots yet",
+        "earliestSnapshot": "Earliest {{time}}",
+        "storageUsage": "Repository usage",
+        "exportTotal": "Export total {{size}}",
+        "savings": "Savings {{percent}}",
+        "lastSuccessTitle": "Last success",
+        "noSuccess": "Never succeeded",
+        "recentTitle": "Last 30 runs",
+        "recentSummary": "{{success}} succeeded · {{failed}} failed · {{rate}} success rate"
+      },
+      "runs": {
+        "title": "Run history",
+        "empty": "No runs yet",
+        "loadFailed": "Couldn't load the run history: {{message}}",
+        "columns": {
+          "status": "Status",
+          "trigger": "Trigger",
+          "startedAt": "Started",
+          "duration": "Duration",
+          "bytes": "Exported / uploaded",
+          "snapshot": "Snapshot ID"
+        },
+        "pageInfo": "Page {{page}} of {{total}}",
+        "prevPage": "Previous",
+        "nextPage": "Next",
+        "failedAt": "Failed at \"{{step}}\"",
+        "log": {
+          "title": "Execution log",
+          "loadFailed": "Couldn't load the log: {{message}}",
+          "empty": "No log lines",
+          "omitted": "{{count}} lines omitted"
+        },
+        "step": {
+          "prepare": "Prepare",
+          "connect": "Connect to data source",
+          "export": "Export and write to repository",
+          "verify": "Verify",
+          "retention": "Apply retention"
+        }
+      }
     }
   }
 }

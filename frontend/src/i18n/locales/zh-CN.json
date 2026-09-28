@@ -800,6 +800,62 @@
         "timeoutInvalid": "超时时长须为 10–2880 分钟（10 分钟到 48 小时）",
         "nameInvalid": "任务名称须为 1–64 个字符"
       }
+    },
+    "detail": {
+      "back": "返回「{{name}}」",
+      "notFoundTitle": "任务不存在",
+      "notFoundHint": "它可能已被删除，或链接不正确。",
+      "backToList": "返回列表",
+      "loadFailed": "无法加载任务：{{message}}",
+      "config": {
+        "title": "配置",
+        "location": "仓库内位置",
+        "schedule": "计划",
+        "encryptionUnknown": "未知",
+        "includedNone": "无"
+      },
+      "stats": {
+        "title": "统计",
+        "noSnapshot": "还没有快照",
+        "earliestSnapshot": "最早 {{time}}",
+        "storageUsage": "仓库占用",
+        "exportTotal": "导出总量 {{size}}",
+        "savings": "节省 {{percent}}",
+        "lastSuccessTitle": "最近一次成功",
+        "noSuccess": "还没有成功过",
+        "recentTitle": "最近 30 次",
+        "recentSummary": "{{success}} 成功 · {{failed}} 失败 · 成功率 {{rate}}"
+      },
+      "runs": {
+        "title": "运行记录",
+        "empty": "还没有运行记录",
+        "loadFailed": "无法加载运行记录：{{message}}",
+        "columns": {
+          "status": "状态",
+          "trigger": "触发方式",
+          "startedAt": "开始时间",
+          "duration": "耗时",
+          "bytes": "导出 / 新增",
+          "snapshot": "快照 ID"
+        },
+        "pageInfo": "第 {{page}} / {{total}} 页",
+        "prevPage": "上一页",
+        "nextPage": "下一页",
+        "failedAt": "失败在「{{step}}」",
+        "log": {
+          "title": "执行日志",
+          "loadFailed": "无法加载日志：{{message}}",
+          "empty": "没有日志",
+          "omitted": "省略了 {{count}} 行"
+        },
+        "step": {
+          "prepare": "准备",
+          "connect": "连接数据源",
+          "export": "导出并写入仓库",
+          "verify": "校验",
+          "retention": "应用保留策略"
+        }
+      }
     }
   }
 }

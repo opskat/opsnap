@@ -4,6 +4,7 @@ import { AuthGate } from "@/components/auth/AuthGate";
 import { AppShell } from "@/components/layout/AppShell";
 import { mainNav, systemNav } from "@/components/layout/nav";
 import { ComingSoonPage } from "@/pages/ComingSoonPage";
+import { JobDetailPage } from "@/pages/JobDetailPage";
 import { JobsPage } from "@/pages/JobsPage";
 import { JobWizardPage } from "@/pages/JobWizardPage";
 import { LoginPage } from "@/pages/LoginPage";
@@ -31,8 +32,7 @@ const router = createBrowserRouter([
           { path: "/jobs", element: <JobsPage /> },
           { path: "/jobs/new", element: <JobWizardPage /> },
           { path: "/jobs/:id/edit", element: <JobWizardPage /> },
-          // 任务详情页在后续任务中落地；创建 / 编辑保存后先跳转到这里，保持导航完整
-          { path: "/jobs/:id", element: <ComingSoonPage title="nav.jobs" /> },
+          { path: "/jobs/:id", element: <JobDetailPage /> },
           ...[...mainNav, ...systemNav]
             .filter((item) => !["/", "/settings", "/storage", "/sources", "/jobs"].includes(item.path))
             .map((item) => ({ path: item.path, element: <ComingSoonPage title={item.label} /> })),

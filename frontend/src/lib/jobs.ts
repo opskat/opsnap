@@ -114,10 +114,68 @@ export interface Run {
   reason: string;
 }
 
+/** 已在运行或排队中：立即执行不可用，列表与详情页需要自动刷新 */
+export function isRunActive(run?: Run | null): boolean {
+  return run?.status === "running" || run?.status === "queued";
+}
+
 export interface DeleteJobResult {
   snapshots_deleted: number;
   snapshots_failed: number;
   snapshots_message: string;
+}
+
+/** 一条执行日志（task 13 任务详情页展开的运行记录）；Omitted 大于 0 表示这一行是省略标记 */
+export interface RunLogLine {
+  /** 毫秒 */
+  time: number;
+  step: FailedStep;
+  message: string;
+  omitted?: number;
+}
+
+/** 最近 30 次已结束的运行（不含等待中、运行中）中成功与失败的次数 */
+export interface RunRecent {
+  runs: number;
+  success: number;
+  failed: number;
+  /** 成功数 /（成功数 + 失败数），0–1；两者都为 0 时为 0 */
+  success_rate: number;
+}
+
+/** 任务详情页的统计（docs/specs/2026-09-27-backup-jobs.md「任务详情」） */
+export interface JobStats {
+  snapshot_count: number;
+  /** 没有快照时为 0 */
+  earliest_snapshot_at: number;
+  /** 本任务现存快照引用的数据块去重、压缩后在仓库中的大小 */
+  packed_bytes: number;
+  /** 现存快照的导出总量 */
+  export_bytes: number;
+  /** 节省比例 1 - packed_bytes/export_bytes（0–1） */
+  savings: number;
+  /** 无法读取仓库时的提示（按请求语言），此时以上快照字段为 0 */
+  storage_error: string;
+  last_success: Run | null;
+  recent: RunRecent;
+}
+
+/** 每页条数（docs/specs/2026-09-27-backup-jobs.md「任务详情」「运行记录」） */
+export const RUNS_PAGE_SIZE = 20;
+
+/** 运行记录，按开始时间倒序 */
+export function listRuns(jobId: number, page = 1) {
+  return request<{ items: Run[]; total: number }>(`/jobs/${jobId}/runs?page=${page}`);
+}
+
+/** 一次运行的执行日志：每行带时间和步骤名，最多 1000 行，超出时保留首尾并注明省略行数 */
+export function getRunLog(jobId: number, runId: number) {
+  return request<{ lines: RunLogLine[] }>(`/jobs/${jobId}/runs/${runId}/log`);
+}
+
+/** 任务详情的统计：快照数、仓库占用、最近一次成功、最近 30 次成功率 */
+export function getJobStats(jobId: number) {
+  return request<JobStats>(`/jobs/${jobId}/stats`);
 }
 
 export function listJobs() {
