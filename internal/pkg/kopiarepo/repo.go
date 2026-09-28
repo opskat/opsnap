@@ -50,7 +50,7 @@ type Manager struct {
 const configName = "repository.config"
 
 // NewManager root 通常为 <数据目录>/kopia。
-// 启动时清理上次进程在校验途中退出留下的连接配置，不让其中的明文凭据留在磁盘上。
+// 启动时清理上次进程在校验或写入途中退出留下的连接配置，不让其中的明文凭据留在磁盘上。
 func NewManager(root string) *Manager {
 	// 逐项列目录而不用 Glob：数据目录名中的 [ ] * ? 会被 Glob 当作通配符，导致什么也清不掉
 	entries, _ := os.ReadDir(root)
@@ -59,7 +59,7 @@ func NewManager(root string) *Manager {
 			continue
 		}
 		p := filepath.Join(root, e.Name())
-		if strings.HasPrefix(e.Name(), tmpVerifyPrefix) {
+		if strings.HasPrefix(e.Name(), tmpVerifyPrefix) || strings.HasPrefix(e.Name(), tmpWritePrefix) {
 			_ = os.RemoveAll(p)
 			continue
 		}
@@ -151,24 +151,9 @@ func (m *Manager) Verify(ctx context.Context, id int64, loc Location, password s
 	// 连接配置里有明文的存储凭据（如 S3 Secret Key），用完即删，不留在磁盘上
 	defer func() { _ = os.Remove(cfg) }()
 
-	st, err := openStorage(ctx, loc, false)
+	r, err := connectAndOpen(ctx, cfg, loc, password, true)
 	if err != nil {
 		return 0, err
-	}
-	defer func() { _ = st.Close(ctx) }()
-	err = repo.Connect(ctx, cfg, st, password, &repo.ConnectOptions{
-		ClientOptions: repo.ClientOptions{ReadOnly: true},
-	})
-	if err != nil {
-		return 0, connectError(err)
-	}
-
-	r, err := repo.Open(ctx, cfg, password, &repo.Options{
-		DisableRepositoryLog: true,
-		OnFatalError:         func(error) {},
-	})
-	if err != nil {
-		return 0, connectError(err)
 	}
 	defer func() { _ = r.Close(ctx) }()
 	ids, err := snapshot.ListSnapshotManifests(ctx, r, nil, nil)
@@ -176,6 +161,31 @@ func (m *Manager) Verify(ctx context.Context, id int64, loc Location, password s
 		return 0, fmt.Errorf("读取快照列表: %w", err)
 	}
 	return len(ids), nil
+}
+
+// connectAndOpen 把连接配置写到 cfg 并打开仓库。cfg 中有明文的存储凭据，由调用方在用完后删除。
+// 仓库日志关闭，打开本身不向仓库写入任何内容；客户端身份固定为 opsnap@opsnap，不随本机主机名变化。
+func connectAndOpen(ctx context.Context, cfg string, loc Location, password string, readOnly bool) (repo.Repository, error) {
+	st, err := openStorage(ctx, loc, false)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = st.Close(ctx) }()
+	err = repo.Connect(ctx, cfg, st, password, &repo.ConnectOptions{
+		ClientOptions: repo.ClientOptions{ReadOnly: readOnly, Hostname: sourceHost, Username: sourceUser},
+	})
+	if err != nil {
+		return nil, connectError(err)
+	}
+	r, err := repo.Open(ctx, cfg, password, &repo.Options{
+		DisableRepositoryLog: true,
+		// 默认会 os.Exit
+		OnFatalError: func(error) {},
+	})
+	if err != nil {
+		return nil, connectError(err)
+	}
+	return r, nil
 }
 
 // Remove 清理该存储在本机的 kopia 配置；不触碰存储中的数据
