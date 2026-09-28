@@ -551,6 +551,69 @@
     }
   },
   "jobs": {
+    "list": {
+      "subtitle": "Back up data sources to storage on a schedule. Every run leaves a record, and a successful run produces a restorable snapshot.",
+      "create": "New job",
+      "loadFailed": "Could not load jobs: {{message}}",
+      "empty": "No jobs yet",
+      "emptyHint": "Create a job to back up a data source to storage on a schedule.",
+      "dismissNotice": "Dismiss",
+      "columns": {
+        "name": "Job",
+        "route": "Data source → storage",
+        "schedule": "Schedule",
+        "lastRun": "Last run",
+        "actions": "Actions"
+      },
+      "scope": {
+        "instance": "Whole instance",
+        "databases": "{{count}} databases"
+      },
+      "enabled": "Enabled",
+      "paused": "Paused",
+      "nextRun": "Next {{time}}",
+      "noRun": "Never run",
+      "snapshotCount": "{{count}} snapshots",
+      "exported": "Exported {{size}}",
+      "runningFor": "Running for {{duration}}",
+      "tookTime": "Took {{duration}}",
+      "uploaded": "Uploaded {{size}}",
+      "queuedHint": "Queued",
+      "status": {
+        "queued": "Queued",
+        "running": "Running",
+        "success": "Success",
+        "failed": "Failed",
+        "canceled": "Canceled",
+        "skipped": "Skipped"
+      },
+      "trigger": {
+        "schedule": "Schedule",
+        "manual": "Manual",
+        "catchup": "Catch-up",
+        "retry": "Retry {{attempt}}/{{total}}"
+      },
+      "actions": {
+        "run": "Run now",
+        "runNamed": "Run {{name}} now",
+        "cancel": "Cancel run",
+        "cancelNamed": "Cancel run of {{name}}",
+        "edit": "Edit",
+        "editNamed": "Edit {{name}}",
+        "more": "More actions for {{name}}",
+        "viewDetail": "View details",
+        "pause": "Pause",
+        "enable": "Enable",
+        "delete": "Delete job",
+        "deleteBlocked": "The job is running or queued. Cancel it before deleting"
+      },
+      "delete": {
+        "title": "Delete job \"{{name}}\"?",
+        "hint": "The job and its run history are deleted together and cannot be recovered.",
+        "deleteSnapshots": "Also delete this job's {{count}} snapshots",
+        "confirm": "Delete"
+      }
+    },
     "wizard": {
       "title": "New job",
       "editTitle": "Edit job",

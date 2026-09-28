@@ -70,6 +70,10 @@ export interface JobItem {
   next_run_at: number;
   created_at: number;
   updated_at: number;
+  /** 最近一次运行（按触发顺序），没有时为 null；后端总是返回，设为可选避免影响既有测试夹具 */
+  last_run?: Run | null;
+  /** 最近一次读取仓库得到的本任务快照数；后端总是返回，设为可选避免影响既有测试夹具 */
+  snapshot_count?: number;
 }
 
 /** 数据源实时读取的一个数据库；size 为字节 */
@@ -78,12 +82,76 @@ export interface DatabaseInfo {
   size: number;
 }
 
+export type RunStatus = "queued" | "running" | "success" | "failed" | "canceled" | "skipped";
+export type RunTrigger = "schedule" | "manual" | "catchup" | "retry";
+export type FailedStep = "" | "prepare" | "connect" | "export" | "verify" | "retention";
+
+/** 一次运行（docs/specs/2026-09-27-backup-jobs.md「运行记录」） */
+export interface Run {
+  id: number;
+  job_id: number;
+  status: RunStatus;
+  trigger: RunTrigger;
+  retry_attempt: number;
+  retry_total: number;
+  /** 计划与补跑对应的计划时间（秒），其余为 0 */
+  scheduled_at: number;
+  created_at: number;
+  /** 尚未开始或结束时为 0 */
+  started_at: number;
+  finished_at: number;
+  /** 耗时（毫秒）；运行中为已运行的时间 */
+  duration_ms: number;
+  /** 导出工具输出的字节数；运行中为实时的已导出量 */
+  exported_bytes: number;
+  /** 去重、压缩后新增写入仓库的字节数（仅成功） */
+  uploaded_bytes: number;
+  /** 仅成功 */
+  snapshot_id: string;
+  /** 仅失败 */
+  failed_step: FailedStep;
+  /** 失败原因（仅失败）；跳过与被 OpsNap 重启取消时为原因 */
+  reason: string;
+}
+
+export interface DeleteJobResult {
+  snapshots_deleted: number;
+  snapshots_failed: number;
+  snapshots_message: string;
+}
+
 export function listJobs() {
   return request<{ items: JobItem[] }>("/jobs");
 }
 
 export function getJob(id: number) {
   return request<{ item: JobItem }>(`/jobs/${id}`);
+}
+
+/** 暂停：计划不再触发，已在运行或排队的运行不受影响 */
+export function pauseJob(id: number) {
+  return request<{ item: JobItem }>(`/jobs/${id}/pause`, { method: "POST" });
+}
+
+/** 启用：从下一次计划时间开始，暂停期间的计划不算错过 */
+export function enableJob(id: number) {
+  return request<{ item: JobItem }>(`/jobs/${id}/enable`, { method: "POST" });
+}
+
+/** 删除任务；正在运行或排队时后端拒绝。deleteSnapshots 为 true 时同时删除仓库中本任务的快照 */
+export function deleteJob(id: number, deleteSnapshots: boolean) {
+  const qs = deleteSnapshots ? "?delete_snapshots=true" : "";
+  return request<DeleteJobResult>(`/jobs/${id}${qs}`, { method: "DELETE" });
+}
+
+/** 立即执行一次；任务已在运行或排队时后端拒绝。暂停的任务也可以立即执行 */
+export function runJobNow(id: number) {
+  return request<{ run: Run }>(`/jobs/${id}/run`, { method: "POST" });
+}
+
+/** 取消运行中或排队中的运行 */
+export function cancelRun(jobId: number, runId: number) {
+  return request<{ run: Run }>(`/jobs/${jobId}/runs/${runId}/cancel`, { method: "POST" });
 }
 
 /** 从数据源实时读取数据库列表（MySQL 不含系统库；PostgreSQL 为允许连接的非模板库） */

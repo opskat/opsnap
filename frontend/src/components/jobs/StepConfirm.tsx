@@ -16,9 +16,8 @@ import type { Storage } from "@/lib/storage";
 
 import { Choice, SectionTitle } from "./Choice";
 import { errorMessage, type Loadable } from "./loadable";
+import { scheduleDescription } from "./schedule";
 import type { SchedulePreview } from "./StepSchedule";
-
-const pad = (n: number) => String(n).padStart(2, "0");
 
 /** 第 5 步：确认（名称、四组摘要、创建后的选择、源数据量估算） */
 export function StepConfirm({
@@ -69,21 +68,7 @@ export function StepConfirm({
 
   const excludeCount = excludeLines(draft.excludeText).length;
 
-  const scheduleSummary = () => {
-    const schedule = draft.schedule;
-    const time = `${pad(schedule.hour)}:${pad(schedule.minute)}`;
-    if (schedule.kind === "hourly") return t("jobs.wizard.confirm.scheduleHourly", { minute: pad(schedule.minute) });
-    if (schedule.kind === "daily") return t("jobs.wizard.confirm.scheduleDaily", { time });
-    if (schedule.kind === "weekly") {
-      const sep = i18n.language.toLowerCase().startsWith("zh") ? "、" : ", ";
-      const weekdays = [...schedule.weekdays]
-        .sort((a, b) => a - b)
-        .map((d) => t(`jobs.wizard.schedule.weekday.${d}`))
-        .join(sep);
-      return t("jobs.wizard.confirm.scheduleWeekly", { weekdays, time });
-    }
-    return t("jobs.wizard.confirm.scheduleCron", { cron: schedule.cron });
-  };
+  const scheduleSummary = () => scheduleDescription(t, i18n.language, draft.schedule);
 
   return (
     <div className="flex flex-col gap-6">
