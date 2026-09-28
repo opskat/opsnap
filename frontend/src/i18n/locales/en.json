@@ -544,5 +544,128 @@
         }
       }
     }
+  },
+  "jobs": {
+    "wizard": {
+      "title": "New job",
+      "editTitle": "Edit job",
+      "progress": "Step {{step}} of {{total}}",
+      "subtitles": {
+        "source": "Choose the job type and data source",
+        "content": "What to back up and how",
+        "destination": "Where the backup goes",
+        "schedule": "When to run and how long to keep",
+        "confirm": "Review and create"
+      },
+      "steps": {
+        "source": "Type & source",
+        "content": "Content & method",
+        "destination": "Destination",
+        "schedule": "Schedule & retention",
+        "confirm": "Confirm"
+      },
+      "stepsLabel": "Steps",
+      "close": "Close wizard",
+      "back": "Back",
+      "next": "Next",
+      "soon": "Coming in a later release",
+      "notFound": "Job not found",
+      "loadFailed": "Could not load the job: {{message}}",
+      "backToList": "Back to jobs",
+      "cancel": {
+        "title": "Discard this new job?",
+        "titleEdit": "Discard your changes?",
+        "hint": "Nothing you entered will be saved.",
+        "keep": "Keep editing",
+        "discard": "Discard"
+      },
+      "type": {
+        "title": "Job type",
+        "backup": "Backup",
+        "backupHint": "Take point-in-time snapshots into storage and restore any time",
+        "sync": "Sync",
+        "syncHint": "Continuously copy data to another instance of the same kind, without history"
+      },
+      "source": {
+        "title": "Data source",
+        "hint": "Which instance to back up",
+        "loadFailed": "Could not load data sources: {{message}}",
+        "empty": "No usable data sources",
+        "emptyHint": "Create a MySQL or PostgreSQL data source on the Sources page first.",
+        "create": "New data source"
+      },
+      "content": {
+        "probeTitle": "{{name}} capability probe",
+        "scope": "Scope",
+        "instance": "Whole instance",
+        "databases": "Selected databases",
+        "instanceHint": "Databases are listed again on every run, so new ones are included automatically (system databases excluded).",
+        "databasesHint": "Only the checked databases are backed up; a run fails if one of them no longer exists.",
+        "instanceSummary": "{{count}} databases · about {{size}}",
+        "selectedSummary": "{{count}} selected · about {{size}}",
+        "databasesFailed": "Could not read the database list: {{message}}",
+        "noDatabases": "The data source has no databases to back up",
+        "databaseMissing": "No longer exists",
+        "method": "Method",
+        "full": "Full only",
+        "fullHintMysql": "A complete export each time; chunk deduplication keeps the size down",
+        "fullHintPg": "pg_dump exports each database in full; chunk deduplication keeps the size down",
+        "incrementalMysql": "Full + incremental (binlog)",
+        "incrementalMysqlHint": "Periodic full backups with continuous binlog archiving, restorable to any point in time",
+        "incrementalPg": "Physical full + WAL incremental",
+        "incrementalPgHint": "Covers the whole cluster with continuous WAL, restorable to any point in time",
+        "fullUnavailable": "Full backup is unavailable: {{reason}}",
+        "mysqlOptions": "MySQL options",
+        "pgOptions": "PostgreSQL options",
+        "tool": "Full backup tool",
+        "mysqlTool": "mysqldump (official) · consistent snapshot export without locking InnoDB tables",
+        "pgTool": "pg_dump (official) · one custom-format archive per database",
+        "alsoBackup": "Also back up",
+        "options": {
+          "routines": "Stored procedures and functions",
+          "triggers": "Triggers",
+          "events": "Events",
+          "users": "Accounts and privileges",
+          "globals": "Roles, tablespaces and other global objects"
+        },
+        "advanced": "Advanced",
+        "exclude": "Excluded tables",
+        "excludeHintMysql": "One per line as database.table; tables that do not exist are not an error.",
+        "excludeHintPg": "One per line as database.schema.table; tables that do not exist are not an error."
+      },
+      "destination": {
+        "storage": "Storage",
+        "storageHint": "Which storage the snapshots go to",
+        "loadFailed": "Could not load storage: {{message}}",
+        "emptyHint": "Create a local directory or S3-compatible storage on the Storage page first.",
+        "path": "Path",
+        "prefix": "Path prefix",
+        "prefixHint": "Letters, digits and ._-/ only, 1–128 characters",
+        "lockedHint": "The data source, storage and path prefix cannot change after the job is created",
+        "location": "Location in repository:",
+        "locationPending": "shown after you choose a storage",
+        "encryptionCompression": "Encryption and compression",
+        "encryption": "Encryption",
+        "encryptionHint": "Encryption belongs to the storage and uses its repository key; it cannot be changed here.",
+        "encrypted": "Encrypted",
+        "fingerprint": "Repository key fingerprint {{fingerprint}}",
+        "encryptionPending": "Shown after you choose a storage",
+        "compression": "Compression",
+        "compressionHint": "zstd balances speed and size well",
+        "compressionNone": "None"
+      },
+      "errors": {
+        "sourceRequired": "Choose a data source",
+        "sourceNotReady": "The data source is not healthy ({{reason}}); fix it on the Sources page first",
+        "toolUnavailable": "The export tool on the controller is unavailable; apply the fix and probe again",
+        "databasesRequired": "Select at least one database",
+        "excludeInvalidMysql": "Invalid excluded tables: {{lines}} (MySQL uses database.table)",
+        "excludeInvalidPg": "Invalid excluded tables: {{lines}} (PostgreSQL uses database.schema.table)",
+        "storageRequired": "Choose a storage",
+        "storageNotReady": "The storage is not healthy; fix it on the Storage page first",
+        "prefixInvalid": "Path prefix must be 1–128 letters, digits or ._-/, must not start or end with /, and must not contain .. or //",
+        "prefixConflict": "Path prefix duplicates or nests with job \"{{name}}\" in the same storage"
+      }
+    }
   }
 }

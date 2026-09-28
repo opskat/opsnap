@@ -544,5 +544,128 @@
         }
       }
     }
+  },
+  "jobs": {
+    "wizard": {
+      "title": "新建任务",
+      "editTitle": "编辑任务",
+      "progress": "第 {{step}} 步，共 {{total}} 步",
+      "subtitles": {
+        "source": "选择任务类型与数据源",
+        "content": "备份哪些内容、用什么方式",
+        "destination": "数据备份到哪里",
+        "schedule": "什么时候执行、保留多久",
+        "confirm": "检查设置并创建"
+      },
+      "steps": {
+        "source": "类型与数据源",
+        "content": "内容与方式",
+        "destination": "目的地",
+        "schedule": "计划与保留",
+        "confirm": "确认"
+      },
+      "stepsLabel": "步骤",
+      "close": "关闭向导",
+      "back": "上一步",
+      "next": "下一步",
+      "soon": "后续版本支持",
+      "notFound": "任务不存在",
+      "loadFailed": "无法加载任务：{{message}}",
+      "backToList": "返回任务列表",
+      "cancel": {
+        "title": "放弃新建任务？",
+        "titleEdit": "放弃修改？",
+        "hint": "已填写的内容不会保存。",
+        "keep": "继续编辑",
+        "discard": "放弃"
+      },
+      "type": {
+        "title": "任务类型",
+        "backup": "备份",
+        "backupHint": "生成带时间点的快照，存到存储，可随时恢复",
+        "sync": "同步",
+        "syncHint": "把数据持续复制到另一个同类实例，不保留历史版本"
+      },
+      "source": {
+        "title": "数据源",
+        "hint": "要备份哪个实例的数据",
+        "loadFailed": "无法加载数据源列表：{{message}}",
+        "empty": "没有可用的数据源",
+        "emptyHint": "先在「数据源」页新建一个 MySQL 或 PostgreSQL 数据源。",
+        "create": "新建数据源"
+      },
+      "content": {
+        "probeTitle": "{{name}} 能力探测",
+        "scope": "备份范围",
+        "instance": "整个实例",
+        "databases": "指定数据库",
+        "instanceHint": "每次运行时重新列出数据库，新建的库会被自动包含（不含系统库）。",
+        "databasesHint": "只备份勾选的库；运行时所选的库不存在，本次运行失败。",
+        "instanceSummary": "共 {{count}} 个库 · 约 {{size}}",
+        "selectedSummary": "已选 {{count}} 个库 · 约 {{size}}",
+        "databasesFailed": "读取数据库列表失败：{{message}}",
+        "noDatabases": "数据源中没有可备份的数据库",
+        "databaseMissing": "当前不存在",
+        "method": "备份方式",
+        "full": "仅全量",
+        "fullHintMysql": "每次完整导出，依赖分块去重控制体积",
+        "fullHintPg": "每个库用 pg_dump 完整导出一次，依赖分块去重控制体积",
+        "incrementalMysql": "全量 + 增量（binlog）",
+        "incrementalMysqlHint": "定期全量，其余时间持续归档 binlog，可恢复到任意时间点",
+        "incrementalPg": "物理全量 + WAL 增量",
+        "incrementalPgHint": "覆盖整个集群，持续接收 WAL，可恢复到任意时间点",
+        "fullUnavailable": "全量备份不可用：{{reason}}",
+        "mysqlOptions": "MySQL 选项",
+        "pgOptions": "PostgreSQL 选项",
+        "tool": "全量工具",
+        "mysqlTool": "mysqldump（官方）· 一致性快照导出，不锁 InnoDB 表",
+        "pgTool": "pg_dump（官方）· 每个库一份 custom 格式归档",
+        "alsoBackup": "一并备份",
+        "options": {
+          "routines": "存储过程与函数",
+          "triggers": "触发器",
+          "events": "事件",
+          "users": "账号与权限",
+          "globals": "角色、表空间等全局对象"
+        },
+        "advanced": "高级选项",
+        "exclude": "排除表",
+        "excludeHintMysql": "每行一个，写作 库.表；所指的表不存在时不报错。",
+        "excludeHintPg": "每行一个，写作 库.模式.表；所指的表不存在时不报错。"
+      },
+      "destination": {
+        "storage": "存储",
+        "storageHint": "快照保存到哪个存储",
+        "loadFailed": "无法加载存储列表：{{message}}",
+        "emptyHint": "先在「存储」页新建一个本地目录或 S3 兼容存储。",
+        "path": "存放路径",
+        "prefix": "路径前缀",
+        "prefixHint": "只允许字母、数字和 ._-/，1–128 个字符",
+        "lockedHint": "数据源、存储和路径前缀创建后不能修改",
+        "location": "仓库内位置：",
+        "locationPending": "选择存储后显示",
+        "encryptionCompression": "加密与压缩",
+        "encryption": "加密",
+        "encryptionHint": "加密是存储的属性，使用该存储仓库的密钥，不能在这里修改。",
+        "encrypted": "已加密",
+        "fingerprint": "仓库密钥指纹 {{fingerprint}}",
+        "encryptionPending": "选择存储后显示",
+        "compression": "压缩",
+        "compressionHint": "zstd 在速度和体积之间比较平衡",
+        "compressionNone": "不压缩"
+      },
+      "errors": {
+        "sourceRequired": "请选择一个数据源",
+        "sourceNotReady": "数据源状态不是“正常”（{{reason}}），请先在「数据源」页处理",
+        "toolUnavailable": "主控端导出工具不可用，请按修复方法处理后重新探测",
+        "databasesRequired": "至少选择一个数据库",
+        "excludeInvalidMysql": "排除表格式不正确：{{lines}}（MySQL 写作 库.表）",
+        "excludeInvalidPg": "排除表格式不正确：{{lines}}（PostgreSQL 写作 库.模式.表）",
+        "storageRequired": "请选择一个存储",
+        "storageNotReady": "存储状态不是“正常”，请先在「存储」页处理",
+        "prefixInvalid": "路径前缀须为 1–128 个字符，只含字母、数字和 ._-/，不以 / 开头或结尾，不含 .. 或连续的 /",
+        "prefixConflict": "路径前缀与任务“{{name}}”在同一存储中重复或互为上下级"
+      }
+    }
   }
 }
