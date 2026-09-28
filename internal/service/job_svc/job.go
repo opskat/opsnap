@@ -47,6 +47,17 @@ type JobSvc interface {
 	ByDataSource(ctx context.Context, dataSourceID int64) ([]*api.Ref, error)
 	// ByStorage 使用该存储的任务（按 ID 正序），供存储的引用保护
 	ByStorage(ctx context.Context, storageID int64) ([]*api.Ref, error)
+
+	// RunNow 立即执行一次（手动触发）；任务已在运行或排队时拒绝
+	RunNow(ctx context.Context, req *api.RunNowRequest) (*api.RunNowResponse, error)
+	// CancelRun 取消等待中或运行中的运行
+	CancelRun(ctx context.Context, req *api.CancelRunRequest) (*api.CancelRunResponse, error)
+	// Runs 运行记录，按触发顺序倒序，每页 20 条
+	Runs(ctx context.Context, req *api.RunsRequest) (*api.RunsResponse, error)
+	// RunLog 一次运行的执行日志
+	RunLog(ctx context.Context, req *api.RunLogRequest) (*api.RunLogResponse, error)
+	// Stats 任务统计：快照数与最早时间、去重占用、导出总量与节省比例、最近一次成功、最近 30 次运行
+	Stats(ctx context.Context, req *api.StatsRequest) (*api.StatsResponse, error)
 }
 
 // ActiveRunChecker 查询任务是否有正在运行或排队的运行
@@ -67,7 +78,8 @@ func Job() JobSvc {
 	return defaultJob
 }
 
-// SetActiveRunChecker 由运行模块注册：删除任务前查询它是否有正在运行或排队的运行；nil 表示没有（尚无运行模块时的默认）
+// SetActiveRunChecker 替换删除任务前“是否有正在运行或排队的运行”的查询；nil 恢复为默认：
+// 查询运行记录中等待中或运行中的运行（Runs().HasActive）
 func SetActiveRunChecker(fn ActiveRunChecker) {
 	defaultJob.hookMu.Lock()
 	defer defaultJob.hookMu.Unlock()
@@ -79,7 +91,7 @@ func (s *jobSvc) hasActiveRun(ctx context.Context, jobID int64) (bool, error) {
 	fn := s.activeRun
 	s.hookMu.RUnlock()
 	if fn == nil {
-		return false, nil
+		return defaultRunner.HasActive(ctx, jobID)
 	}
 	return fn(ctx, jobID)
 }
@@ -111,7 +123,7 @@ func (st settings) apply(j *job_entity.Job) {
 	j.Retries, j.RetryInterval, j.Timeout = st.failure.Retries, st.failure.RetryInterval, st.failure.Timeout
 }
 
-func (s *jobSvc) toItem(j *job_entity.Job, ds *datasource_entity.DataSource, st *storage_entity.Storage) *api.Item {
+func (s *jobSvc) toItem(j *job_entity.Job, ds *datasource_entity.DataSource, st *storage_entity.Storage, last *job_entity.Run) *api.Item {
 	item := &api.Item{
 		ID: j.ID, Name: j.Name, Type: j.Type,
 		DataSourceID: j.DataSourceID, StorageID: j.StorageID, Prefix: j.Prefix,
@@ -122,11 +134,13 @@ func (s *jobSvc) toItem(j *job_entity.Job, ds *datasource_entity.DataSource, st 
 		Compression:   j.Compression,
 		Schedule: api.Schedule{Kind: j.ScheduleKind, Minute: j.ScheduleMinute, Hour: j.ScheduleHour,
 			Weekdays: j.Weekdays(), Cron: j.ScheduleCron, Timezone: j.Timezone},
-		Retention: api.Retention{Days: j.RetainDays, Weeks: j.RetainWeeks, Months: j.RetainMonths},
-		Failure:   api.Failure{Retries: j.Retries, RetryInterval: j.RetryInterval, Timeout: j.Timeout},
-		Enabled:   j.Enabled,
-		CreatedAt: j.Createtime,
-		UpdatedAt: j.Updatetime,
+		Retention:     api.Retention{Days: j.RetainDays, Weeks: j.RetainWeeks, Months: j.RetainMonths},
+		Failure:       api.Failure{Retries: j.Retries, RetryInterval: j.RetryInterval, Timeout: j.Timeout},
+		Enabled:       j.Enabled,
+		CreatedAt:     j.Createtime,
+		UpdatedAt:     j.Updatetime,
+		LastRun:       defaultRunner.toRun(last),
+		SnapshotCount: j.SnapshotCount,
 	}
 	if ds != nil {
 		item.DataSourceName, item.DataSourceKind = ds.Name, ds.Kind
@@ -141,7 +155,7 @@ func (s *jobSvc) toItem(j *job_entity.Job, ds *datasource_entity.DataSource, st 
 	return item
 }
 
-// item 读取任务引用的数据源与存储并转为响应
+// item 读取任务引用的数据源、存储与最近一次运行并转为响应
 func (s *jobSvc) item(ctx context.Context, j *job_entity.Job) (*api.Item, error) {
 	ds, err := datasource_repo.DataSource().Find(ctx, j.DataSourceID)
 	if err != nil {
@@ -151,7 +165,20 @@ func (s *jobSvc) item(ctx context.Context, j *job_entity.Job) (*api.Item, error)
 	if err != nil {
 		return nil, err
 	}
-	return s.toItem(j, ds, st), nil
+	last, err := lastRun(ctx, j.ID)
+	if err != nil {
+		return nil, err
+	}
+	return s.toItem(j, ds, st, last), nil
+}
+
+// lastRun 任务最近一次运行，没有时为 nil
+func lastRun(ctx context.Context, jobID int64) (*job_entity.Run, error) {
+	rows, _, err := job_repo.Run().Page(ctx, jobID, 0, 1)
+	if err != nil || len(rows) == 0 {
+		return nil, err
+	}
+	return rows[0], nil
 }
 
 func (s *jobSvc) find(ctx context.Context, id int64) (*job_entity.Job, error) {
@@ -239,9 +266,13 @@ func (s *jobSvc) List(ctx context.Context, _ *api.ListRequest) (*api.ListRespons
 	for _, st := range stList {
 		sts[st.ID] = st
 	}
+	last, err := job_repo.Run().Latest(ctx)
+	if err != nil {
+		return nil, err
+	}
 	items := make([]*api.Item, 0, len(jobs))
 	for _, j := range jobs {
-		items = append(items, s.toItem(j, dss[j.DataSourceID], sts[j.StorageID]))
+		items = append(items, s.toItem(j, dss[j.DataSourceID], sts[j.StorageID], last[j.ID]))
 	}
 	return &api.ListResponse{Items: items}, nil
 }
@@ -292,7 +323,16 @@ func (s *jobSvc) Create(ctx context.Context, req *api.CreateRequest) (*api.Creat
 	if err := job_repo.Job().Create(ctx, j); err != nil {
 		return nil, err
 	}
-	return &api.CreateResponse{Item: s.toItem(j, ds, st)}, nil
+	// 创建后“立即执行一次”：清除标记并以手动方式执行。任务已经创建，失败只记录日志；
+	// 标记未清除时由 Runs().RunPending 在启动时补上
+	if err := defaultRunner.startPending(ctx, j.ID); err != nil {
+		logger.Ctx(ctx).Error("创建后立即执行一次失败", zap.Int64("job_id", j.ID), zap.Error(err))
+	}
+	last, err := lastRun(ctx, j.ID)
+	if err != nil {
+		return nil, err
+	}
+	return &api.CreateResponse{Item: s.toItem(j, ds, st, last)}, nil
 }
 
 func (s *jobSvc) Update(ctx context.Context, req *api.UpdateRequest) (*api.UpdateResponse, error) {
@@ -381,7 +421,7 @@ func (s *jobSvc) Delete(ctx context.Context, req *api.DeleteRequest) (*api.Delet
 	return resp, nil
 }
 
-// remove 没有进行中的运行时删除任务记录，返回被删除的任务
+// remove 没有进行中的运行时删除任务及其运行记录，返回被删除的任务
 func (s *jobSvc) remove(ctx context.Context, id int64) (*job_entity.Job, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -389,6 +429,9 @@ func (s *jobSvc) remove(ctx context.Context, id int64) (*job_entity.Job, error) 
 	if err != nil {
 		return nil, err
 	}
+	// 检查与删除期间不能有新的运行入队
+	defaultRunner.mu.Lock()
+	defer defaultRunner.mu.Unlock()
 	active, err := s.hasActiveRun(ctx, j.ID)
 	if err != nil {
 		return nil, err
@@ -397,6 +440,10 @@ func (s *jobSvc) remove(ctx context.Context, id int64) (*job_entity.Job, error) 
 		return nil, i18n.NewError(ctx, code.JobRunActive)
 	}
 	if err := job_repo.Job().Delete(ctx, j.ID); err != nil {
+		return nil, err
+	}
+	// 任务的运行记录一并删除
+	if err := job_repo.Run().DeleteByJob(ctx, j.ID); err != nil {
 		return nil, err
 	}
 	return j, nil

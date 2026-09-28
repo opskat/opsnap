@@ -185,6 +185,13 @@ const (
 	// 以下只用于删除任务响应中的快照提示
 	JobSnapshotsNotDeleted
 	JobSnapshotsUnreachable
+	// JobRunAlreadyActive 立即执行时任务已在运行或排队
+	JobRunAlreadyActive
+	JobRunNotFound
+	// JobRunFinished 取消已结束的运行
+	JobRunFinished
+	// JobStatsStorageUnreadable 只用于统计响应中的提示：无法读取存储中的快照
+	JobStatsStorageUnreadable
 )
 
 func init() {

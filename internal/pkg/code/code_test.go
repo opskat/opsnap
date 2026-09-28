@@ -85,6 +85,8 @@ func TestFrontendErrorCodesInSync(t *testing.T) {
 		"JobRetriesInvalid":            JobRetriesInvalid,
 		"JobRetryIntervalInvalid":      JobRetryIntervalInvalid,
 		"JobTimeoutInvalid":            JobTimeoutInvalid,
+		"JobRunAlreadyActive":          JobRunAlreadyActive,
+		"JobRunFinished":               JobRunFinished,
 	}
 	src, err := os.ReadFile("../../../frontend/src/lib/auth.ts")
 	require.NoError(t, err)

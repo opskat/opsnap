@@ -53,3 +53,28 @@ func (c *Job) Delete(ctx context.Context, req *api.DeleteRequest) (*api.DeleteRe
 func (c *Job) SchedulePreview(ctx context.Context, req *api.SchedulePreviewRequest) (*api.SchedulePreviewResponse, error) {
 	return job_svc.Job().SchedulePreview(ctx, req)
 }
+
+// RunNow 立即执行一次
+func (c *Job) RunNow(ctx context.Context, req *api.RunNowRequest) (*api.RunNowResponse, error) {
+	return job_svc.Job().RunNow(ctx, req)
+}
+
+// CancelRun 取消运行
+func (c *Job) CancelRun(ctx context.Context, req *api.CancelRunRequest) (*api.CancelRunResponse, error) {
+	return job_svc.Job().CancelRun(ctx, req)
+}
+
+// Runs 运行记录
+func (c *Job) Runs(ctx context.Context, req *api.RunsRequest) (*api.RunsResponse, error) {
+	return job_svc.Job().Runs(ctx, req)
+}
+
+// RunLog 运行日志
+func (c *Job) RunLog(ctx context.Context, req *api.RunLogRequest) (*api.RunLogResponse, error) {
+	return job_svc.Job().RunLog(ctx, req)
+}
+
+// Stats 任务统计
+func (c *Job) Stats(ctx context.Context, req *api.StatsRequest) (*api.StatsResponse, error) {
+	return job_svc.Job().Stats(ctx, req)
+}

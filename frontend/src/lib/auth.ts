@@ -62,6 +62,8 @@ export const ErrorCode = {
   JobRetriesInvalid: 10721,
   JobRetryIntervalInvalid: 10722,
   JobTimeoutInvalid: 10723,
+  JobRunAlreadyActive: 10728,
+  JobRunFinished: 10730,
 } as const;
 
 export const MIN_PASSWORD_LENGTH = 12;

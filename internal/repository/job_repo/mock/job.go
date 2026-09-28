@@ -41,6 +41,21 @@ func (m *MockJobRepo) EXPECT() *MockJobRepoMockRecorder {
 	return m.recorder
 }
 
+// ClearRunNow mocks base method.
+func (m *MockJobRepo) ClearRunNow(ctx context.Context, id int64) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClearRunNow", ctx, id)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClearRunNow indicates an expected call of ClearRunNow.
+func (mr *MockJobRepoMockRecorder) ClearRunNow(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearRunNow", reflect.TypeOf((*MockJobRepo)(nil).ClearRunNow), ctx, id)
+}
+
 // Create mocks base method.
 func (m *MockJobRepo) Create(ctx context.Context, j *job_entity.Job) error {
 	m.ctrl.T.Helper()
@@ -144,6 +159,21 @@ func (mr *MockJobRepoMockRecorder) ListByStorage(ctx, storageID any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByStorage", reflect.TypeOf((*MockJobRepo)(nil).ListByStorage), ctx, storageID)
 }
 
+// ListRunNow mocks base method.
+func (m *MockJobRepo) ListRunNow(ctx context.Context) ([]*job_entity.Job, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListRunNow", ctx)
+	ret0, _ := ret[0].([]*job_entity.Job)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListRunNow indicates an expected call of ListRunNow.
+func (mr *MockJobRepoMockRecorder) ListRunNow(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRunNow", reflect.TypeOf((*MockJobRepo)(nil).ListRunNow), ctx)
+}
+
 // Save mocks base method.
 func (m *MockJobRepo) Save(ctx context.Context, j *job_entity.Job) error {
 	m.ctrl.T.Helper()
@@ -156,4 +186,18 @@ func (m *MockJobRepo) Save(ctx context.Context, j *job_entity.Job) error {
 func (mr *MockJobRepoMockRecorder) Save(ctx, j any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Save", reflect.TypeOf((*MockJobRepo)(nil).Save), ctx, j)
+}
+
+// SetSnapshotCount mocks base method.
+func (m *MockJobRepo) SetSnapshotCount(ctx context.Context, id int64, n int) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetSnapshotCount", ctx, id, n)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetSnapshotCount indicates an expected call of SetSnapshotCount.
+func (mr *MockJobRepoMockRecorder) SetSnapshotCount(ctx, id, n any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetSnapshotCount", reflect.TypeOf((*MockJobRepo)(nil).SetSnapshotCount), ctx, id, n)
 }

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cago-frame/cago/pkg/gogo"
 	"github.com/cago-frame/cago/pkg/i18n"
 	"github.com/cago-frame/cago/pkg/utils/httputils"
 	"github.com/cago-frame/cago/server/mux/muxclient"
@@ -26,6 +27,7 @@ import (
 	"github.com/opskat/opsnap/internal/model/entity/storage_entity"
 	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/kopiarepo"
+	"github.com/opskat/opsnap/internal/pkg/probe"
 	"github.com/opskat/opsnap/internal/pkg/testdb"
 	"github.com/opskat/opsnap/internal/repository/admin_repo"
 	"github.com/opskat/opsnap/internal/repository/datasource_repo"
@@ -35,6 +37,7 @@ import (
 	"github.com/opskat/opsnap/internal/repository/storage_repo"
 	"github.com/opskat/opsnap/internal/repository/token_repo"
 	"github.com/opskat/opsnap/internal/service/auth_svc"
+	"github.com/opskat/opsnap/internal/service/datasource_svc"
 	"github.com/opskat/opsnap/internal/service/job_svc"
 	"github.com/opskat/opsnap/internal/service/secret_svc"
 	"github.com/opskat/opsnap/internal/service/storage_svc"
@@ -50,6 +53,7 @@ type env struct {
 	ctx   context.Context
 	mux   *muxtest.TestMux
 	token string // API 令牌
+	bin   string // 假导出工具所在的 PATH
 	// 数据源
 	mysql, pg, files, broken *datasource_entity.DataSource
 	// 存储：primary、secondary 为真实本地 kopia 仓库，down 的状态为“无法连接”
@@ -69,6 +73,15 @@ func setupTest(t *testing.T) *env {
 	require.NoError(t, err)
 	storage_svc.SetDataDir(t.TempDir())
 	t.Cleanup(func() { job_svc.SetActiveRunChecker(nil) })
+	// 运行在后台执行：先等它们结束，再恢复连接器并释放数据库
+	t.Cleanup(func() { datasource_svc.SetConnector(nil) })
+	t.Cleanup(gogo.Wait)
+	e := &env{ctx: ctx, bin: t.TempDir()}
+	t.Setenv("PATH", e.bin)
+	probe.SetToolsDir("")
+	job_svc.SetWorkDir(filepath.Join(t.TempDir(), "runs"))
+	datasource_svc.SetConnector(fakeConnector{})
+	e.tool(pgDumpOK)
 
 	setupCode, _ := auth_svc.Auth().PrepareSetupCode(ctx)
 	_, _, err = auth_svc.Auth().Setup(ctx, &authapi.SetupRequest{SetupCode: setupCode, Username: "admin", Password: adminPassword},
@@ -77,9 +90,12 @@ func setupTest(t *testing.T) *env {
 	tok, err := token_svc.Token().Create(ctx, &tokenapi.CreateRequest{Name: "ci"})
 	require.NoError(t, err)
 
-	e := &env{ctx: ctx, token: tok.Token}
+	e.token = tok.Token
+	encPG, err := secret_svc.Secret().Encrypt(ctx, pgPassword)
+	require.NoError(t, err)
 	newDS := func(name, kind, status string) *datasource_entity.DataSource {
-		ds := &datasource_entity.DataSource{Name: name, Kind: kind, Host: "db.internal", Port: 3306, Status: status}
+		ds := &datasource_entity.DataSource{Name: name, Kind: kind, Host: "db.internal", Port: 3306, Status: status,
+			Username: "backup", Password: encPG, TLSMode: "disable"}
 		require.NoError(t, datasource_repo.DataSource().Create(ctx, ds))
 		return ds
 	}
@@ -104,7 +120,8 @@ func setupTest(t *testing.T) *env {
 	testMux := muxtest.NewTestMux(muxtest.WithBaseUrl("http://opsnap.test/api/v1"))
 	ctr := NewJob()
 	authed := testMux.Group("/api/v1", middleware.SameOrigin()).Group("/", middleware.Auth())
-	authed.Bind(ctr.List, ctr.Get, ctr.Create, ctr.Update, ctr.Pause, ctr.Enable, ctr.Delete, ctr.SchedulePreview)
+	authed.Bind(ctr.List, ctr.Get, ctr.Create, ctr.Update, ctr.Pause, ctr.Enable, ctr.Delete, ctr.SchedulePreview,
+		ctr.RunNow, ctr.CancelRun, ctr.Runs, ctr.RunLog, ctr.Stats)
 	e.mux = testMux
 	return e
 }
@@ -130,7 +147,7 @@ func errMsg(err error) string {
 	return ""
 }
 
-// validCreate 一份合法的 MySQL 任务：每天 02:30（上海），保留 7/4/6，失败重试 2 次、间隔 5 分钟、超时 2 小时
+// validCreate 一份合法的 MySQL 任务：每天 02:30（上海），保留 7/4/6，失败重试 2 次、间隔 5 分钟、超时 2 小时；等下一次计划
 func (e *env) validCreate(name, prefix string) *api.CreateRequest {
 	return &api.CreateRequest{
 		Type: "backup", DataSourceID: e.mysql.ID, StorageID: e.primary, Prefix: prefix,
@@ -140,7 +157,6 @@ func (e *env) validCreate(name, prefix string) *api.CreateRequest {
 		Schedule:    api.Schedule{Kind: "daily", Hour: 2, Minute: 30, Timezone: "Asia/Shanghai"},
 		Retention:   api.Retention{Days: 7, Weeks: 4, Months: 6},
 		Failure:     api.Failure{Retries: 2, RetryInterval: 5, Timeout: 120},
-		RunNow:      true,
 	}
 }
 
@@ -188,8 +204,8 @@ func TestJobCreate(t *testing.T) {
 
 			saved, err := job_repo.Job().Find(e.ctx, item.ID)
 			require.NoError(t, err)
-			assert.True(t, saved.RunNow, "“立即执行一次”保存在任务上，由运行模块处理")
 			assert.NotZero(t, saved.EnabledAt)
+			assert.Nil(t, item.LastRun, "等下一次计划：没有运行")
 
 			got := &api.GetResponse{}
 			require.NoError(t, e.do(&api.GetRequest{ID: item.ID}, got))

@@ -14,7 +14,8 @@ import (
 
 type JobRepo interface {
 	Create(ctx context.Context, j *job_entity.Job) error
-	// Save 按 ID 更新全部字段；记录已被删除时返回 ErrNotFound，不会重新插入
+	// Save 按 ID 更新全部字段（run_now 与 snapshot_count 除外，它们由运行模块单独维护）；
+	// 记录已被删除时返回 ErrNotFound，不会重新插入
 	Save(ctx context.Context, j *job_entity.Job) error
 	// List 按 ID 正序
 	List(ctx context.Context) ([]*job_entity.Job, error)
@@ -27,6 +28,12 @@ type JobRepo interface {
 	// ListByDataSource 使用该数据源的任务，按 ID 正序
 	ListByDataSource(ctx context.Context, dataSourceID int64) ([]*job_entity.Job, error)
 	Delete(ctx context.Context, id int64) error
+	// ClearRunNow 清除“立即执行一次”标记；返回是否由本次清除（标记原本为 true），并发调用只有一个得到 true
+	ClearRunNow(ctx context.Context, id int64) (bool, error)
+	// ListRunNow 带“立即执行一次”标记的任务，按 ID 正序
+	ListRunNow(ctx context.Context) ([]*job_entity.Job, error)
+	// SetSnapshotCount 记录本任务当前的快照数
+	SetSnapshotCount(ctx context.Context, id int64, n int) error
 }
 
 // ErrNotFound 保存时记录已不存在（已被删除）
@@ -54,7 +61,7 @@ func (r *jobRepo) Create(ctx context.Context, j *job_entity.Job) error {
 
 func (r *jobRepo) Save(ctx context.Context, j *job_entity.Job) error {
 	// 不用 gorm 的 Save：它在没有匹配行时会改为插入，把刚删除的任务重新写回
-	res := db.Ctx(ctx).Model(j).Select("*").Updates(j)
+	res := db.Ctx(ctx).Model(j).Select("*").Omit("run_now", "snapshot_count").Updates(j)
 	if res.Error != nil {
 		return res.Error
 	}
@@ -104,4 +111,17 @@ func (r *jobRepo) ListByDataSource(ctx context.Context, dataSourceID int64) ([]*
 
 func (r *jobRepo) Delete(ctx context.Context, id int64) error {
 	return db.Ctx(ctx).Delete(&job_entity.Job{}, id).Error
+}
+
+func (r *jobRepo) ClearRunNow(ctx context.Context, id int64) (bool, error) {
+	res := db.Ctx(ctx).Model(&job_entity.Job{}).Where("id = ? AND run_now = ?", id, true).Update("run_now", false)
+	return res.RowsAffected > 0, res.Error
+}
+
+func (r *jobRepo) ListRunNow(ctx context.Context) ([]*job_entity.Job, error) {
+	return r.list(ctx, "run_now = ?", true)
+}
+
+func (r *jobRepo) SetSnapshotCount(ctx context.Context, id int64, n int) error {
+	return db.Ctx(ctx).Model(&job_entity.Job{}).Where("id = ?", id).Update("snapshot_count", n).Error
 }

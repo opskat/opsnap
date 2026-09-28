@@ -71,6 +71,12 @@ var tokenRoutes = map[string]bool{
 	"POST /api/v1/jobs/:id/enable":       true,
 	"DELETE /api/v1/jobs/:id":            true,
 	"POST /api/v1/jobs/schedule-preview": true,
+	// 同一 spec「权限」：立即执行、取消、查看运行记录与日志
+	"POST /api/v1/jobs/:id/run":                 true,
+	"POST /api/v1/jobs/:id/runs/:run_id/cancel": true,
+	"GET /api/v1/jobs/:id/runs":                 true,
+	"GET /api/v1/jobs/:id/runs/:run_id/log":     true,
+	"GET /api/v1/jobs/:id/stats":                true,
 }
 
 // 把两个认证中间件换成哨兵：

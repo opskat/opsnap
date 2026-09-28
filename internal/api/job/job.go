@@ -83,6 +83,10 @@ type Item struct {
 	NextRunAt int64 `json:"next_run_at"`
 	CreatedAt int64 `json:"created_at"`
 	UpdatedAt int64 `json:"updated_at"`
+	// LastRun 最近一次运行（按触发顺序），没有时为 null；运行中时 ExportedBytes 为实时的已导出量
+	LastRun *Run `json:"last_run"`
+	// SnapshotCount 最近一次读取仓库（成功运行应用保留策略后，或查看统计时）得到的本任务快照数
+	SnapshotCount int `json:"snapshot_count"`
 }
 
 // Ref 引用某个数据源或存储的任务
@@ -210,4 +214,123 @@ type SchedulePreviewResponse struct {
 	NextRuns []string `json:"next_runs"`
 	// MaxSnapshots 按当前计划最多保留约 K 份快照
 	MaxSnapshots int `json:"max_snapshots"`
+}
+
+// Run 一次运行（docs/specs/2026-09-27-backup-jobs.md「运行记录」）
+type Run struct {
+	ID    int64 `json:"id"`
+	JobID int64 `json:"job_id"`
+	// Status queued（等待中）/ running / success / failed / canceled / skipped
+	Status string `json:"status"`
+	// Trigger schedule（计划）/ manual（手动）/ catchup（补跑）/ retry（重试 RetryAttempt/RetryTotal）
+	Trigger      string `json:"trigger"`
+	RetryAttempt int    `json:"retry_attempt"`
+	RetryTotal   int    `json:"retry_total"`
+	// ScheduledAt 计划与补跑对应的计划时间（秒），其余为 0
+	ScheduledAt int64 `json:"scheduled_at"`
+	// CreatedAt 触发时间（秒）
+	CreatedAt int64 `json:"created_at"`
+	// StartedAt、FinishedAt 开始与结束时间（秒），尚未开始或结束时为 0
+	StartedAt  int64 `json:"started_at"`
+	FinishedAt int64 `json:"finished_at"`
+	// DurationMs 耗时（毫秒）；运行中为已运行的时间
+	DurationMs int64 `json:"duration_ms"`
+	// ExportedBytes 导出工具输出的字节数；运行中为实时的已导出量
+	ExportedBytes int64 `json:"exported_bytes"`
+	// UploadedBytes 去重、压缩后新增写入仓库的字节数（仅成功）
+	UploadedBytes int64 `json:"uploaded_bytes"`
+	// SnapshotID kopia 快照 ID（仅成功）
+	SnapshotID string `json:"snapshot_id"`
+	// FailedStep 失败在哪一步（仅失败）：prepare / connect / export / verify / retention
+	FailedStep string `json:"failed_step"`
+	// Reason 失败原因（仅失败，已去掉秘密）；跳过与被 OpsNap 重启取消时为原因
+	Reason string `json:"reason"`
+}
+
+// LogLine 执行日志的一行
+type LogLine struct {
+	// Time 时间（毫秒）
+	Time int64 `json:"time"`
+	// Step 步骤：prepare / connect / export / verify / retention；省略标记为空
+	Step    string `json:"step"`
+	Message string `json:"message"`
+	// Omitted 大于 0 表示这一行是省略标记：此处省略了 Omitted 行（每次运行最多保留 1000 行，保留开头与结尾）
+	Omitted int `json:"omitted,omitempty"`
+}
+
+// RunNowRequest 立即执行一次；任务已在运行或排队时拒绝。暂停的任务也可以立即执行
+type RunNowRequest struct {
+	mux.Meta `path:"/jobs/:id/run" method:"POST"`
+	ID       int64 `uri:"id" binding:"required"`
+}
+
+type RunNowResponse struct {
+	Run *Run `json:"run"`
+}
+
+// CancelRunRequest 取消运行中或排队中的运行：终止导出工具，不形成快照，状态为已取消
+type CancelRunRequest struct {
+	mux.Meta `path:"/jobs/:id/runs/:run_id/cancel" method:"POST"`
+	ID       int64 `uri:"id" binding:"required"`
+	RunID    int64 `uri:"run_id" binding:"required"`
+}
+
+type CancelRunResponse struct {
+	Run *Run `json:"run"`
+}
+
+// RunsRequest 运行记录，按触发顺序倒序，每页 20 条
+type RunsRequest struct {
+	mux.Meta `path:"/jobs/:id/runs" method:"GET"`
+	ID       int64 `uri:"id" binding:"required"`
+	// Page 从 1 开始，缺省为 1
+	Page int `form:"page"`
+}
+
+type RunsResponse struct {
+	Items []*Run `json:"items"`
+	Total int64  `json:"total"`
+}
+
+// RunLogRequest 一次运行的执行日志
+type RunLogRequest struct {
+	mux.Meta `path:"/jobs/:id/runs/:run_id/log" method:"GET"`
+	ID       int64 `uri:"id" binding:"required"`
+	RunID    int64 `uri:"run_id" binding:"required"`
+}
+
+type RunLogResponse struct {
+	Lines []*LogLine `json:"lines"`
+}
+
+// StatsRequest 任务详情的统计
+type StatsRequest struct {
+	mux.Meta `path:"/jobs/:id/stats" method:"GET"`
+	ID       int64 `uri:"id" binding:"required"`
+}
+
+// RecentStats 最近 30 次已结束的运行（不含等待中、运行中）中成功与失败的次数
+type RecentStats struct {
+	Runs    int `json:"runs"`
+	Success int `json:"success"`
+	Failed  int `json:"failed"`
+	// SuccessRate 成功数 /（成功数 + 失败数），0–1；两者都为 0 时为 0
+	SuccessRate float64 `json:"success_rate"`
+}
+
+type StatsResponse struct {
+	SnapshotCount int `json:"snapshot_count"`
+	// EarliestSnapshotAt 最早快照的时间（秒），没有快照时为 0
+	EarliestSnapshotAt int64 `json:"earliest_snapshot_at"`
+	// PackedBytes 本任务现存快照引用的数据块去重、压缩后在仓库中的大小
+	PackedBytes int64 `json:"packed_bytes"`
+	// ExportBytes 现存快照的导出总量
+	ExportBytes int64 `json:"export_bytes"`
+	// Savings 节省比例 1 - PackedBytes/ExportBytes（0–1），导出总量为 0 时为 0
+	Savings float64 `json:"savings"`
+	// StorageError 无法读取仓库时的提示（按请求语言），此时以上快照字段为 0
+	StorageError string `json:"storage_error"`
+	// LastSuccess 最近一次成功的运行，没有时为 null
+	LastSuccess *Run        `json:"last_success"`
+	Recent      RecentStats `json:"recent"`
 }

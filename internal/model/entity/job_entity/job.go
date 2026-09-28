@@ -86,9 +86,11 @@ type Job struct {
 	// EnabledAt 最近一次启用（或创建）的时间；此前（含暂停期间）的计划不算错过
 	EnabledAt int64 `gorm:"column:enabled_at"`
 	// RunNow 创建时选择了“立即执行一次”，由运行模块处理
-	RunNow     bool  `gorm:"column:run_now"`
-	Createtime int64 `gorm:"column:createtime"`
-	Updatetime int64 `gorm:"column:updatetime"`
+	RunNow bool `gorm:"column:run_now"`
+	// SnapshotCount 最近一次读取仓库时本任务的快照数，由运行模块维护（见 job_repo.SetSnapshotCount）
+	SnapshotCount int   `gorm:"column:snapshot_count"`
+	Createtime    int64 `gorm:"column:createtime"`
+	Updatetime    int64 `gorm:"column:updatetime"`
 }
 
 func (Job) TableName() string { return "jobs" }

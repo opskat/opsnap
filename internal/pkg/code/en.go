@@ -149,4 +149,8 @@ var en = map[int]string{ //nolint:gosec // 错误文案中的 “token”“pass
 	JobRunActive:              "The job is running or queued. Cancel it before deleting",
 	JobSnapshotsNotDeleted:    "Job deleted, but %d snapshots could not be deleted. Remove them with the kopia CLI",
 	JobSnapshotsUnreachable:   "Job deleted, but its storage could not be opened, so its snapshots were not deleted. Remove them with the kopia CLI",
+	JobRunAlreadyActive:       "The job is already running or queued",
+	JobRunNotFound:            "Run not found",
+	JobRunFinished:            "The run has already finished and cannot be canceled",
+	JobStatsStorageUnreadable: "Could not read snapshots from the storage. Check the storage status",
 }

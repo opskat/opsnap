@@ -149,4 +149,8 @@ var zhCN = map[int]string{ //nolint:gosec // 错误文案中的“密码”字�
 	JobRunActive:              "任务正在运行或排队，请先取消再删除",
 	JobSnapshotsNotDeleted:    "任务已删除，但有 %d 份快照未能删除，可以用 kopia 命令行手动处理",
 	JobSnapshotsUnreachable:   "任务已删除，但无法打开存储，它的快照未能删除，可以用 kopia 命令行手动处理",
+	JobRunAlreadyActive:       "任务已在运行或排队",
+	JobRunNotFound:            "运行记录不存在",
+	JobRunFinished:            "运行已结束，不能取消",
+	JobStatsStorageUnreadable: "无法读取存储中的快照，请检查存储状态",
 }

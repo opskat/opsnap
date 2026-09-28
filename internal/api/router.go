@@ -48,7 +48,8 @@ func Router(ctx context.Context, root *mux.Router) error {
 		channel.List, channel.Probe, channel.Create, channel.Update, channel.Test, channel.ConfirmHostKey, channel.Delete,
 		datasource.List, datasource.Get, datasource.Probe, datasource.Create, datasource.Update, datasource.Test,
 		datasource.ConfirmHostKey, datasource.Reprobe, datasource.Delete, datasource.Databases,
-		job.List, job.Get, job.Create, job.Update, job.Pause, job.Enable, job.Delete, job.SchedulePreview)
+		job.List, job.Get, job.Create, job.Update, job.Pause, job.Enable, job.Delete, job.SchedulePreview,
+		job.RunNow, job.CancelRun, job.Runs, job.RunLog, job.Stats)
 
 	account := authed.Group("/", requireSession())
 	account.Bind(auth.ChangePassword, token.List, token.Create, token.Revoke,
