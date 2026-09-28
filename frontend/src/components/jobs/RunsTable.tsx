@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { formatDateTime } from "@/lib/format";
-import { formatBytes, getRunLog, RUNS_PAGE_SIZE, type Run, type RunLogLine } from "@/lib/jobs";
+import { formatBytes, getRunLog, isRunActive, RUNS_PAGE_SIZE, type Run, type RunLogLine } from "@/lib/jobs";
 import { cn } from "@/lib/utils";
 
 import { errorMessage, type Loadable } from "./loadable";
@@ -41,6 +42,27 @@ export function RunsTable({
   const { t } = useTranslation();
   const [expandedId, setExpandedId] = useState<number>();
   const [logs, setLogs] = useState<Record<number, Loadable<RunLogLine[]>>>({});
+  // 读取日志时运行的状态：运行中的记录或状态已变化的记录，在列表刷新时重新读取日志
+  const logStatus = useRef<Record<number, Run["status"]>>({});
+
+  const fetchLog = useCallback(
+    (run: Run) => {
+      logStatus.current[run.id] = run.status;
+      getRunLog(jobId, run.id)
+        .then((r) => setLogs((l) => ({ ...l, [run.id]: { status: "ready", data: r.lines } })))
+        .catch((err: unknown) => setLogs((l) => ({ ...l, [run.id]: { status: "error", message: errorMessage(err) } })));
+    },
+    [jobId]
+  );
+
+  // 运行中的记录自动刷新：展开的运行仍在进行或刚刚结束时，随列表刷新重新读取它的日志
+  useEffect(() => {
+    if (state.status !== "ready" || expandedId === undefined) return;
+    const run = state.data.items.find((r) => r.id === expandedId);
+    if (!run || logStatus.current[run.id] === undefined) return;
+    if (isRunActive(run) || logStatus.current[run.id] !== run.status) fetchLog(run);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在列表数据刷新时检查，展开/收起由 toggle 处理
+  }, [state]);
 
   const toggle = (run: Run) => {
     if (expandedId === run.id) {
@@ -50,9 +72,7 @@ export function RunsTable({
     setExpandedId(run.id);
     if (logs[run.id]) return;
     setLogs((l) => ({ ...l, [run.id]: { status: "loading" } }));
-    getRunLog(jobId, run.id)
-      .then((r) => setLogs((l) => ({ ...l, [run.id]: { status: "ready", data: r.lines } })))
-      .catch((err: unknown) => setLogs((l) => ({ ...l, [run.id]: { status: "error", message: errorMessage(err) } })));
+    fetchLog(run);
   };
 
   if (state.status === "loading") {
@@ -126,12 +146,7 @@ export function RunsTable({
             {expanded && (
               <div role="row" className="border-t bg-accent/20 px-4 py-3.5">
                 <div role="cell" className="flex flex-col gap-3">
-                  {run.status === "failed" && (
-                    <p className="text-sm text-destructive">
-                      {t("jobs.detail.runs.failedAt", { step: t(`jobs.detail.runs.step.${run.failed_step}`) })}
-                      {run.reason ? `：${run.reason}` : ""}
-                    </p>
-                  )}
+                  {run.status === "failed" && <p className="text-sm text-destructive">{failureText(t, run)}</p>}
                   <div>
                     <h4 className="mb-1.5 text-xs font-medium text-muted-foreground">
                       {t("jobs.detail.runs.log.title")}
@@ -157,6 +172,15 @@ export function RunsTable({
       </div>
     </div>
   );
+}
+
+/** 失败在哪一步及原因；没有记录步骤的失败（如 OpsNap 重启时中断）只显示原因 */
+function failureText(t: TFunction, run: Run): string {
+  if (!run.failed_step) return t("jobs.detail.runs.failedReason", { reason: run.reason });
+  const step = t(`jobs.detail.runs.step.${run.failed_step}`);
+  return run.reason
+    ? t("jobs.detail.runs.failedAtWithReason", { step, reason: run.reason })
+    : t("jobs.detail.runs.failedAt", { step });
 }
 
 function LogView({ state }: { state?: Loadable<RunLogLine[]> }) {

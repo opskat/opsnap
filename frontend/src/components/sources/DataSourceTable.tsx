@@ -21,7 +21,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { relativeTime } from "@/lib/format";
+import { joinNames, relativeTime } from "@/lib/format";
 import {
   dataSourceChainNames,
   dataSourceVersionLabel,
@@ -122,7 +122,7 @@ export function DataSourceTable({
   testing?: ReadonlySet<number>;
   actions: DataSourceRowActions;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   return (
     <div role="table" aria-label={t("sources.tabs.dataSources")} className="overflow-hidden rounded-lg border bg-card">
       <div role="row" className={cn(columns, "bg-accent py-2.25 text-xs text-muted-foreground")}>
@@ -225,7 +225,10 @@ export function DataSourceTable({
                       {!canDelete && (
                         <span className="text-xs font-normal text-muted-foreground">
                           {t("sources.dataSource.list.deleteBlocked", {
-                            items: usedByJobs.map((j) => j.name).join("、"),
+                            items: joinNames(
+                              usedByJobs.map((j) => j.name),
+                              i18n.language
+                            ),
                           })}
                         </span>
                       )}

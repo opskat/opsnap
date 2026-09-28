@@ -9,7 +9,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { relativeTime } from "@/lib/format";
+import { joinNames, relativeTime } from "@/lib/format";
 import type { Storage, StorageStatus } from "@/lib/storage";
 import { cn } from "@/lib/utils";
 
@@ -41,7 +41,7 @@ export function StorageTable({
   testing?: ReadonlySet<number>;
   actions: RowActions;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   return (
     <div role="table" aria-label={t("nav.storage")} className="overflow-hidden rounded-lg border bg-card">
       <div role="row" className={cn(columns, "bg-accent py-2.25 text-xs text-muted-foreground")}>
@@ -145,7 +145,12 @@ export function StorageTable({
                       {t("storage.delete.confirm")}
                       {!canDelete && (
                         <span className="text-xs font-normal text-muted-foreground">
-                          {t("storage.list.deleteBlocked", { items: usedByJobs.map((j) => j.name).join("、") })}
+                          {t("storage.list.deleteBlocked", {
+                            items: joinNames(
+                              usedByJobs.map((j) => j.name),
+                              i18n.language
+                            ),
+                          })}
                         </span>
                       )}
                     </span>

@@ -38,65 +38,77 @@ type Spec struct {
 	Timezone string
 }
 
-// ValidationError 表示 Spec 未通过校验，Error() 给出可直接作为字段错误提示的原因。
+// ValidationError 表示 Spec 未通过校验：Reason 为中文原因（即 Error()），En 为同一原因的英文，
+// 都可直接作为字段错误提示，由调用方按界面语言选用。
 type ValidationError struct {
 	Reason string
+	En     string
 }
 
 func (e *ValidationError) Error() string { return e.Reason }
 
-// Validate 校验 Spec 是否合法。ok 为 false 时，reason 是可直接展示给用户的原因。
+// invalid 中英文的同一条原因
+func invalid(zh, en string, args ...any) *ValidationError {
+	return &ValidationError{Reason: fmt.Sprintf(zh, args...), En: fmt.Sprintf(en, args...)}
+}
+
+// NeverFiresEn ErrNeverFires 的英文原因
+const NeverFiresEn = "the schedule never fires in the foreseeable future"
+
+// Validate 校验 Spec 是否合法。ok 为 false 时，reason 是可直接展示给用户的原因（中文，英文见 Parse 返回的 *ValidationError）。
 func Validate(s Spec) (reason string, ok bool) {
+	if e := validate(s); e != nil {
+		return e.Reason, false
+	}
+	return "", true
+}
+
+func validate(s Spec) *ValidationError {
 	if s.Timezone == "" {
-		return "时区不能为空", false
+		return invalid("时区不能为空", "a time zone is required")
 	}
 	if _, err := time.LoadLocation(s.Timezone); err != nil {
-		return "时区不是合法的 IANA 时区名称", false
+		return invalid("时区不是合法的 IANA 时区名称", "not a valid IANA time zone")
 	}
 
 	switch s.Kind {
 	case KindHourly:
 		if s.Minute < 0 || s.Minute > 59 {
-			return "分钟必须在 0-59 之间", false
+			return invalid("分钟必须在 0-59 之间", "minute must be between 0 and 59")
 		}
-	case KindDaily:
+	case KindDaily, KindWeekly:
 		if s.Hour < 0 || s.Hour > 23 {
-			return "小时必须在 0-23 之间", false
+			return invalid("小时必须在 0-23 之间", "hour must be between 0 and 23")
 		}
 		if s.Minute < 0 || s.Minute > 59 {
-			return "分钟必须在 0-59 之间", false
+			return invalid("分钟必须在 0-59 之间", "minute must be between 0 and 59")
 		}
-	case KindWeekly:
-		if s.Hour < 0 || s.Hour > 23 {
-			return "小时必须在 0-23 之间", false
-		}
-		if s.Minute < 0 || s.Minute > 59 {
-			return "分钟必须在 0-59 之间", false
+		if s.Kind == KindDaily {
+			return nil
 		}
 		if len(s.Weekdays) == 0 {
-			return "至少选择一个星期几", false
+			return invalid("至少选择一个星期几", "select at least one day of the week")
 		}
 		for _, wd := range s.Weekdays {
 			if wd < time.Sunday || wd > time.Saturday {
-				return "星期几必须在 0-6 之间", false
+				return invalid("星期几必须在 0-6 之间", "day of the week must be between 0 and 6")
 			}
 		}
 	case KindCron:
 		if _, err := compileCron(s.Cron); err != nil {
-			return err.Error(), false
+			return err
 		}
 	default:
-		return fmt.Sprintf("未知的调度类型：%s", s.Kind), false
+		return invalid("未知的调度类型：%s", "unknown schedule type: %s", s.Kind)
 	}
-	return "", true
+	return nil
 }
 
 // Parse 校验并规范化 Spec：Weekdays 去重排序。非法输入返回 *ValidationError，
-// 其 Error() 可直接作为字段错误提示。
+// 其 Error() 与 En 可直接作为字段错误提示。
 func Parse(s Spec) (Spec, error) {
-	reason, ok := Validate(s)
-	if !ok {
-		return Spec{}, &ValidationError{Reason: reason}
+	if e := validate(s); e != nil {
+		return Spec{}, e
 	}
 
 	out := s

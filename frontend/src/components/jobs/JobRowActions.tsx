@@ -24,7 +24,7 @@ export interface JobRowActionHandlers {
 }
 
 /**
- * 任务的行操作：立即执行（运行中变为取消运行，运行中或排队中不可用）、编辑、更多菜单
+ * 任务的行操作：立即执行（运行中或排队中换成取消运行，立即执行此时不可用）、编辑、更多菜单
  * （暂停/启用、查看详情、删除任务）。任务列表与详情页头部共用（docs/specs/2026-09-27-backup-jobs.md「任务列表」「执行」）。
  */
 export function JobRowActions({
@@ -38,13 +38,12 @@ export function JobRowActions({
 }) {
   const { t } = useTranslation();
   const status = job.last_run?.status;
-  const isRunning = status === "running";
-  const isQueued = status === "queued";
-  const isActive = isRunning || isQueued;
+  // 运行中或排队中的运行都可以取消（docs/specs/2026-09-27-backup-jobs.md「执行」取消）；删除前也提示先取消
+  const isActive = status === "running" || status === "queued";
 
   return (
     <div className="flex items-center justify-end gap-1">
-      {isRunning ? (
+      {isActive ? (
         <Button
           variant="ghost"
           size="sm"
@@ -58,7 +57,7 @@ export function JobRowActions({
         <Button
           variant="ghost"
           size="sm"
-          disabled={isQueued || busy === "run"}
+          disabled={busy === "run"}
           aria-label={t("jobs.list.actions.runNamed", { name: job.name })}
           onClick={() => actions.onRun(job)}
         >

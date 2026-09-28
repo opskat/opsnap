@@ -711,6 +711,22 @@ describe("存储页 · 被任务引用", () => {
     expect(within(menuItem).getByText("仍被 orders-nightly、billing-weekly 使用，不能删除")).toBeInTheDocument();
   });
 
+  it("S3 存储被引用时只锁定位置（Endpoint、Bucket、前缀），凭据与 TLS 设置仍可修改", async () => {
+    const s3Referenced: Storage = { ...minio, status: "ok", status_message: "", used_by: referenced.used_by };
+    respond(ok({ items: [s3Referenced] }));
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "编辑 MinIO 测试" }));
+    const dialog = await screen.findByRole("dialog", { name: "编辑存储" });
+    expect(within(dialog).getByRole("radio", { name: "S3 兼容存储" })).toBeDisabled();
+    expect(within(dialog).getByLabelText("Endpoint")).toBeDisabled();
+    expect(within(dialog).getByLabelText("Bucket")).toBeDisabled();
+    expect(within(dialog).getByLabelText(/路径前缀/)).toBeDisabled();
+    expect(within(dialog).getByLabelText("Access Key")).not.toBeDisabled();
+    expect(within(dialog).getByLabelText("Secret Key")).not.toBeDisabled();
+    expect(within(dialog).getByLabelText(/Region/)).not.toBeDisabled();
+    for (const sw of within(dialog).getAllByRole("switch")) expect(sw).not.toBeDisabled();
+  });
+
   it("编辑时锁定位置字段并提示引用它的任务，名称仍可修改", async () => {
     respond(ok({ items: [referenced] }));
     renderPage();

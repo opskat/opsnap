@@ -25,9 +25,9 @@ func (s Spec) Next(after time.Time, n int) ([]time.Time, error) {
 	}
 	var cs cronSchedule
 	if s.Kind == KindCron {
-		cs, err = compileCron(s.Cron)
-		if err != nil {
-			return nil, err
+		var cerr *ValidationError
+		if cs, cerr = compileCron(s.Cron); cerr != nil {
+			return nil, cerr
 		}
 	}
 
@@ -62,9 +62,9 @@ func (s Spec) Prev(at time.Time) (time.Time, error) {
 	}
 	var cs cronSchedule
 	if s.Kind == KindCron {
-		cs, err = compileCron(s.Cron)
-		if err != nil {
-			return time.Time{}, err
+		var cerr *ValidationError
+		if cs, cerr = compileCron(s.Cron); cerr != nil {
+			return time.Time{}, cerr
 		}
 	}
 

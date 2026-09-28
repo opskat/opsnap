@@ -210,8 +210,9 @@ export function JobWizardPage() {
         })
         .catch((err: unknown) => {
           if (cancelled) return;
-          setPreview({ status: "error", message: errorMessage(err) });
+          // 能归到字段的原因显示在字段旁；其余原因显示在“接下来三次”处
           const field = err instanceof ApiError ? FIELD_OF_CODE[err.code] : undefined;
+          setPreview({ status: "error", message: field ? "" : errorMessage(err) });
           if (field) setFieldErrors((f) => ({ ...f, [field]: errorMessage(err) }));
         });
     }, 300);
@@ -221,6 +222,10 @@ export function JobWizardPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- t 每次渲染都变，只按实际用到的字段防抖
   }, [reachedSchedule, draft.schedule, draft.retention]);
+
+  // 计划在本地就不合法时不显示上一次计划的预览（字段旁已有原因）
+  const shownPreview: Loadable<SchedulePreview> =
+    Object.keys(localScheduleErrors(draft, t)).length > 0 ? { status: "error", message: "" } : preview;
 
   const sourceList = sources.status === "ready" ? sources.data : [];
   const source = sourceList.find((d) => d.id === draft.datasourceId);
@@ -321,16 +326,15 @@ export function JobWizardPage() {
         navigate(`/jobs/${res.item.id}`);
       }
     } catch (err) {
+      // 创建失败时停留在第 5 步并显示原因；能归到字段的，回到对应步骤时字段旁也有提示
       const field = err instanceof ApiError ? FIELD_OF_CODE[err.code] : undefined;
       const message = errorMessage(err);
       if (field) {
         setFieldErrors((f) => ({ ...f, [field]: message }));
-        const target = STEP_OF_FIELD[field];
-        setStep(target);
-        setAttempted((s) => new Set(s).add(target));
-      } else {
-        setSubmitError(message);
+        setAttempted((s) => new Set(s).add(STEP_OF_FIELD[field]));
       }
+      // 第 5 步自己的字段（名称）已在字段旁显示，不在顶部重复
+      if (!field || STEP_OF_FIELD[field] !== WIZARD_STEPS.length - 1) setSubmitError(message);
     } finally {
       setSubmitting(false);
     }
@@ -415,14 +419,14 @@ export function JobWizardPage() {
             }}
           />
         )}
-        {step === 3 && <StepSchedule draft={draft} errors={errors} preview={preview} onChange={update} />}
+        {step === 3 && <StepSchedule draft={draft} errors={errors} preview={shownPreview} onChange={update} />}
         {step === 4 && (
           <StepConfirm
             draft={draft}
             editing={editing}
             source={source}
             storage={storageList.find((s) => s.id === draft.storageId)}
-            preview={preview}
+            preview={shownPreview}
             errors={errors}
             submitError={submitError}
             onChangeName={(name) => update({ name, nameEdited: true })}

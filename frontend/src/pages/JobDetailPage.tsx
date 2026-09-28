@@ -32,6 +32,8 @@ import { cn } from "@/lib/utils";
 
 /** 运行中或排队中时轮询的间隔（与任务列表页、数据源详情页一致） */
 const POLL_INTERVAL_MS = 3000;
+/** 没有运行中、排队中的运行时的轮询间隔：计划触发的运行开始后不需要手动刷新页面也能看到 */
+const IDLE_POLL_INTERVAL_MS = 30000;
 
 type LoadState =
   | { status: "loading" }
@@ -124,28 +126,34 @@ export function JobDetailPage() {
     };
   }, [jobId, page, runsAttempt]);
 
-  // 运行中或排队中时自动刷新任务与运行记录，直到状态落定
+  // 自动刷新任务与运行记录：运行中或排队中时每 3 秒，其余时候低频刷新（计划触发的运行开始后也能看到）；
+  // 运行结束时同时刷新统计（快照数、占用、最近成功与成功率）
   const active = job.status === "ready" && isRunActive(job.item.last_run);
   useEffect(() => {
-    if (!jobId || !active) return;
+    if (!jobId) return;
     let cancelled = false;
     let timer: number | undefined;
-    const poll = () => {
-      timer = window.setTimeout(() => {
-        if (cancelled) return;
-        Promise.all([getJob(jobId), listRuns(jobId, page)])
-          .then(([j, r]) => {
-            if (cancelled) return;
-            setJob({ status: "ready", item: j.item });
-            setRuns({ status: "ready", data: r });
-            if (isRunActive(j.item.last_run)) poll();
-          })
-          .catch(() => {
-            if (!cancelled) poll();
-          });
-      }, POLL_INTERVAL_MS);
+    const poll = (wasActive: boolean) => {
+      timer = window.setTimeout(
+        () => {
+          if (cancelled) return;
+          Promise.all([getJob(jobId), listRuns(jobId, page)])
+            .then(([j, r]) => {
+              if (cancelled) return;
+              const nowActive = isRunActive(j.item.last_run);
+              setJob({ status: "ready", item: j.item });
+              setRuns({ status: "ready", data: r });
+              if (wasActive && !nowActive) setStatsAttempt((n) => n + 1);
+              poll(nowActive);
+            })
+            .catch(() => {
+              if (!cancelled) poll(wasActive);
+            });
+        },
+        wasActive ? POLL_INTERVAL_MS : IDLE_POLL_INTERVAL_MS
+      );
     };
-    poll();
+    poll(active);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
@@ -257,18 +265,15 @@ export function JobDetailPage() {
 
   const item = job.item;
   const lang = i18n.language;
-  const running = item.last_run?.status === "running";
-  const queued = item.last_run?.status === "queued";
 
-  const scheduleAndNext = item.enabled
-    ? item.next_run_at > 0
+  const nextRun =
+    item.enabled && item.next_run_at > 0
       ? t("jobs.list.nextRun", { time: formatDateTime(item.next_run_at) })
-      : undefined
-    : t("jobs.list.paused");
+      : undefined;
   const subtitle = [
     `${item.datasource_name} → ${item.storage_name}`,
     scheduleDescription(t, lang, item.schedule),
-    scheduleAndNext,
+    item.enabled ? undefined : t("jobs.list.paused"),
   ]
     .filter(Boolean)
     .join(" · ");
@@ -312,7 +317,15 @@ export function JobDetailPage() {
                 {item.enabled ? t("jobs.list.enabled") : t("jobs.list.paused")}
               </span>
             </div>
-            <p className="text-sm text-muted-foreground">{subtitle}</p>
+            <p className="text-sm text-muted-foreground">
+              {subtitle}
+              {nextRun && (
+                <>
+                  {" · "}
+                  <span className="font-mono">{nextRun}</span>
+                </>
+              )}
+            </p>
           </div>
           <div className="flex items-center gap-2">
             <Button
@@ -326,12 +339,13 @@ export function JobDetailPage() {
             <Button asChild variant="outline">
               <Link to={`/jobs/${item.id}/edit`}>{t("jobs.list.actions.edit")}</Link>
             </Button>
-            {running ? (
+            {/* 运行中或排队中：立即执行换成取消运行 */}
+            {active ? (
               <Button variant="outline" disabled={busy === "cancel"} onClick={() => void cancel()}>
                 {busy === "cancel" ? t("common.submitting") : t("jobs.list.actions.cancel")}
               </Button>
             ) : (
-              <Button disabled={queued || busy === "run"} onClick={() => void runJob()}>
+              <Button disabled={busy === "run"} onClick={() => void runJob()}>
                 {busy === "run" ? t("common.submitting") : t("jobs.list.actions.run")}
               </Button>
             )}
@@ -349,7 +363,10 @@ export function JobDetailPage() {
           <h2 className="border-b px-4 py-3 text-sm font-medium">{t("jobs.detail.config.title")}</h2>
           <dl className="flex flex-col gap-3 px-4 py-3.5 text-sm">
             <DetailRow label={t("jobs.wizard.source.title")}>
-              {`${item.datasource_name}（${t(`sources.dataSource.kind.${item.datasource_kind}`)}）`}
+              {t("jobs.detail.config.sourceWithKind", {
+                name: item.datasource_name,
+                kind: t(`sources.dataSource.kind.${item.datasource_kind}`),
+              })}
             </DetailRow>
             <DetailRow label={t("jobs.wizard.content.scope")}>
               <span>{scopeText}</span>
@@ -428,7 +445,7 @@ export function JobDetailPage() {
                     {stats.data.storage_error}
                   </p>
                 )}
-                <p>
+                <p className="font-mono">
                   {stats.data.snapshot_count > 0
                     ? `${t("jobs.list.snapshotCount", { count: stats.data.snapshot_count })} · ${t("jobs.detail.stats.earliestSnapshot", { time: formatDateTime(stats.data.earliest_snapshot_at) })}`
                     : t("jobs.detail.stats.noSnapshot")}
@@ -443,17 +460,21 @@ export function JobDetailPage() {
                 </p>
                 <p>
                   <span className="text-muted-foreground">{t("jobs.detail.stats.lastSuccessTitle")}</span>{" "}
-                  {stats.data.last_success
-                    ? lastRunDetail(t, stats.data.last_success)
-                    : t("jobs.detail.stats.noSuccess")}
+                  {stats.data.last_success ? (
+                    <span className="font-mono">{lastRunDetail(t, stats.data.last_success)}</span>
+                  ) : (
+                    t("jobs.detail.stats.noSuccess")
+                  )}
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {t("jobs.detail.stats.recentTitle")} ·{" "}
-                  {t("jobs.detail.stats.recentSummary", {
-                    success: stats.data.recent.success,
-                    failed: stats.data.recent.failed,
-                    rate: `${Math.round(stats.data.recent.success_rate * 100)}%`,
-                  })}
+                  <span className="font-mono">
+                    {t("jobs.detail.stats.recentSummary", {
+                      success: stats.data.recent.success,
+                      failed: stats.data.recent.failed,
+                      rate: `${Math.round(stats.data.recent.success_rate * 100)}%`,
+                    })}
+                  </span>
                 </p>
               </>
             )}

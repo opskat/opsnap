@@ -223,7 +223,7 @@ func CheckSchedule(ctx context.Context, s schedule.Spec) (schedule.Spec, error) 
 	}
 	parsed, err := schedule.Parse(s)
 	if err != nil {
-		return s, i18n.NewError(ctx, code.JobScheduleInvalid, err.Error())
+		return s, scheduleError(ctx, err)
 	}
 	// 只保留该频率用到的字段
 	switch parsed.Kind {
@@ -239,11 +239,24 @@ func CheckSchedule(ctx context.Context, s schedule.Spec) (schedule.Spec, error) 
 	}
 	if _, err := parsed.Next(time.Now(), 1); err != nil {
 		if errors.Is(err, schedule.ErrNeverFires) {
-			return s, i18n.NewError(ctx, code.JobScheduleInvalid, err.Error())
+			return s, scheduleError(ctx, err)
 		}
 		return s, err
 	}
 	return parsed, nil
+}
+
+// scheduleError 计划不合法：同时给出中英文原因，JobScheduleInvalid 的文案按界面语言取用其中之一
+func scheduleError(ctx context.Context, err error) error {
+	zh, en := err.Error(), err.Error()
+	var ve *schedule.ValidationError
+	switch {
+	case errors.As(err, &ve):
+		zh, en = ve.Reason, ve.En
+	case errors.Is(err, schedule.ErrNeverFires):
+		en = schedule.NeverFiresEn
+	}
+	return i18n.NewError(ctx, code.JobScheduleInvalid, zh, en)
 }
 
 // CheckRetention 校验保留策略的取值范围

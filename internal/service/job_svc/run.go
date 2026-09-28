@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -15,6 +16,7 @@ import (
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
+	dsapi "github.com/opskat/opsnap/internal/api/datasource"
 	"github.com/opskat/opsnap/internal/model/entity/datasource_entity"
 	"github.com/opskat/opsnap/internal/model/entity/job_entity"
 	"github.com/opskat/opsnap/internal/model/entity/storage_entity"
@@ -89,8 +91,8 @@ const (
 var (
 	// timeoutUnit 任务超时时长的单位，测试可缩短
 	timeoutUnit = time.Minute
-	// listDatabases “整个实例”时每次运行重新列出库，测试可替换
-	listDatabases = datasource_svc.ListDatabases
+	// listDatabases 每次运行时列出数据源中的库（“整个实例”的范围、“指定数据库”是否仍存在），测试可替换
+	listDatabases = datasource_svc.ListOpenDatabases
 )
 
 var (
@@ -98,13 +100,6 @@ var (
 	errTimeout  = errors.New("运行超时")
 	// errShutdown OpsNap 停止时中断进行中的运行（调度组件关闭）
 	errShutdown = errors.New("OpsNap 停止")
-)
-
-const (
-	// reasonInterrupted 运行因 OpsNap 停止或重启而中断，不重试
-	reasonInterrupted = "OpsNap 重启，运行中断"
-	// reasonRestartCanceled 重启时仍在排队
-	reasonRestartCanceled = "OpsNap 重启"
 )
 
 type runner struct {
@@ -181,8 +176,9 @@ func (r *runner) dispatchRun(runID int64) {
 	fn(runID)
 }
 
-// activeRun 本进程中正在执行的一次运行
+// activeRun 本进程中正在执行的一次运行；ctx 与 cancel 在登记之前建好，登记后随时可以取消
 type activeRun struct {
+	ctx    context.Context //nolint:containedctx // 运行的生命周期，Cancel 经 cancel 结束它
 	cancel context.CancelCauseFunc
 	log    *runLog
 	sess   atomic.Pointer[dump.Session]
@@ -275,7 +271,8 @@ func (r *runner) begin(ctx context.Context, runID int64) (*job_entity.Run, *job_
 		cur, err := job_repo.Run().Find(ctx, runID)
 		return cur, nil, nil, err
 	}
-	ar := &activeRun{log: newRunLog(r.clock), done: make(chan struct{})}
+	runCtx, cancel := context.WithCancelCause(ctx)
+	ar := &activeRun{ctx: runCtx, cancel: cancel, log: newRunLog(r.clock), done: make(chan struct{})}
 	r.active[runID] = ar
 	return run, j, ar, nil
 }
@@ -285,11 +282,9 @@ func (r *runner) Execute(ctx context.Context, runID int64) (*job_entity.Run, err
 	if err != nil || ar == nil {
 		return run, err
 	}
-	runCtx, cancel := context.WithCancelCause(ctx)
-	ar.cancel = cancel
-	tctx, tcancel := context.WithTimeoutCause(runCtx, time.Duration(j.Timeout)*timeoutUnit, errTimeout)
+	tctx, tcancel := context.WithTimeoutCause(ar.ctx, time.Duration(j.Timeout)*timeoutUnit, errTimeout)
 	defer tcancel()
-	defer cancel(nil)
+	defer ar.cancel(nil)
 
 	x := &execution{r: r, run: run, job: j, log: ar.log, ar: ar, started: time.UnixMilli(run.StartedAt)}
 	res, stepErr := x.do(tctx)
@@ -367,9 +362,11 @@ func (r *runner) Recover(ctx context.Context) error {
 		}
 		from := run.Status
 		if from == job_entity.RunRunning {
-			run.Status, run.Reason = job_entity.RunFailed, reasonInterrupted
+			run.Status = job_entity.RunFailed
+			run.SetFixedReason(job_entity.ReasonInterrupted)
 		} else {
-			run.Status, run.Reason = job_entity.RunCanceled, reasonRestartCanceled
+			run.Status = job_entity.RunCanceled
+			run.SetFixedReason(job_entity.ReasonRestart)
 		}
 		run.FinishedAt, run.Updatetime = now.UnixMilli(), now.Unix()
 		if _, err := job_repo.Run().SaveIf(ctx, run, from); err != nil {
@@ -392,12 +389,13 @@ func (r *runner) RunPending(ctx context.Context) error {
 	return nil
 }
 
-// skip 记一条“跳过”的运行：计划到点时任务已在运行或排队
-func (r *runner) skip(ctx context.Context, jobID int64, t Trigger, reason string) (*job_entity.Run, error) {
+// skip 记一条“跳过”的运行：计划到点时任务已在运行或排队；reasonCode 为固定原因（job_entity.Reason*）
+func (r *runner) skip(ctx context.Context, jobID int64, t Trigger, reasonCode string) (*job_entity.Run, error) {
 	now := r.clock()
 	run := &job_entity.Run{JobID: jobID, Status: job_entity.RunSkipped, Trigger: t.Kind, RetryAttempt: t.Attempt,
-		RetryTotal: t.Total, ScheduledAt: t.ScheduledAt, Reason: reason, FinishedAt: now.UnixMilli(), Log: "[]",
+		RetryTotal: t.Total, ScheduledAt: t.ScheduledAt, FinishedAt: now.UnixMilli(), Log: "[]",
 		Createtime: now.Unix(), Updatetime: now.Unix()}
+	run.SetFixedReason(reasonCode)
 	if err := job_repo.Run().Create(ctx, run); err != nil {
 		return nil, err
 	}
@@ -407,8 +405,8 @@ func (r *runner) skip(ctx context.Context, jobID int64, t Trigger, reason string
 	return run, nil
 }
 
-// void 把仍在等待中的运行记为已取消并写明原因（如作废的重试）；运行已开始或已结束时返回 false
-func (r *runner) void(ctx context.Context, runID int64, reason string) (bool, error) {
+// void 把仍在等待中的运行记为已取消并写明固定原因（如作废的重试）；运行已开始或已结束时返回 false
+func (r *runner) void(ctx context.Context, runID int64, reasonCode string) (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	run, err := job_repo.Run().Find(ctx, runID)
@@ -416,7 +414,8 @@ func (r *runner) void(ctx context.Context, runID int64, reason string) (bool, er
 		return false, err
 	}
 	now := r.clock()
-	run.Status, run.Reason, run.FinishedAt, run.Updatetime = job_entity.RunCanceled, reason, now.UnixMilli(), now.Unix()
+	run.Status, run.FinishedAt, run.Updatetime = job_entity.RunCanceled, now.UnixMilli(), now.Unix()
+	run.SetFixedReason(reasonCode)
 	return job_repo.Run().SaveIf(ctx, run, job_entity.RunQueued)
 }
 
@@ -537,12 +536,16 @@ func (x *execution) prepare(ctx context.Context) error {
 	if x.ds.Status == datasource_entity.StatusHostKeyChanged {
 		return failAt(step, "数据源“%s”链路上的主机密钥已变化，请先在数据源页面确认新的主机密钥", x.ds.Name)
 	}
+	// 导出工具可用：找得到、读得出版本；PostgreSQL 工具的大版本不低于数据源最近一次测试时的版本；
+	// MariaDB 的 mysqldump 能满足数据源的 TLS 模式。都在连接之前检查（连接后导出包按实际版本再查一次）
+	if err := dump.CheckTools(ctx, dsconn.Type(x.ds.Kind), dsconn.TLSMode(x.ds.TLSMode), x.ds.Version,
+		dump.Options{Globals: x.job.OptGlobals && x.ds.Kind == datasource_entity.KindPostgreSQL}); err != nil {
+		return &stepError{step: step, err: err}
+	}
 	for _, name := range requiredTools(x.job, x.ds.Kind) {
-		path, ok := probe.ToolPath(name)
-		if !ok {
-			return failAt(step, "找不到导出工具 %s（先在 PATH 中查找，再在配置项 tools.dir 指定的目录中查找）。修复：在主控端安装它，或把它放进 tools.dir", name)
+		if path, ok := probe.ToolPath(name); ok {
+			x.log.add(fmt.Sprintf("导出工具 %s：%s", name, path))
 		}
-		x.log.add(fmt.Sprintf("导出工具 %s：%s", name, path))
 	}
 	if x.writer, err = storage_svc.Storage().OpenWriter(ctx, x.st.ID); err != nil {
 		return failAt(step, "打开存储“%s”失败: %w", x.st.Name, err)
@@ -565,12 +568,13 @@ func (x *execution) connect(ctx context.Context) error {
 	defer func() { _ = conn.Close() }()
 	x.log.add("已连接，服务端版本 " + conn.Info.Version)
 
+	// “整个实例”每次运行重新列出库；“指定数据库”确认每个库仍然存在，不存在时指出是哪个库
+	list, err := listDatabases(ctx, cfg.Type, conn)
+	if err != nil {
+		return failAt(step, "列出实例中的库失败: %w", err)
+	}
 	dbs := x.job.Databases()
 	if x.job.Scope == job_entity.ScopeInstance {
-		list, err := listDatabases(ctx, cfg.Type, conn)
-		if err != nil {
-			return failAt(step, "列出实例中的库失败: %w", err)
-		}
 		dbs = dbs[:0]
 		for _, d := range list {
 			dbs = append(dbs, d.Name)
@@ -578,6 +582,8 @@ func (x *execution) connect(ctx context.Context) error {
 		if len(dbs) == 0 {
 			return failAt(step, "实例中没有可导出的库")
 		}
+	} else if missing := missingDatabases(cfg.Type, dbs, list); len(missing) > 0 {
+		return failAt(step, "指定的库在数据源中不存在（或不允许连接）：%s", strings.Join(missing, ", "))
 	}
 	x.log.add("导出的库：" + strings.Join(dbs, ", "))
 
@@ -595,6 +601,25 @@ func (x *execution) connect(ctx context.Context) error {
 	x.ar.sess.Store(sess)
 	x.log.add("已在本机 127.0.0.1 开临时端口，导出工具的连接经链路转发到数据源")
 	return nil
+}
+
+// mysqlSystemSchemas MySQL 的系统库：不在库列表中（“整个实例”不包含它们），但可以被指定
+var mysqlSystemSchemas = []string{"information_schema", "performance_schema", "sys", "mysql"}
+
+// missingDatabases 指定的库中不在数据源库列表里的，按指定顺序
+func missingDatabases(typ dsconn.Type, want []string, list []dsapi.Database) []string {
+	have := make(map[string]bool, len(list))
+	for _, d := range list {
+		have[d.Name] = true
+	}
+	var missing []string
+	for _, name := range want {
+		if have[name] || typ == dsconn.TypeMySQL && slices.Contains(mysqlSystemSchemas, name) {
+			continue
+		}
+		missing = append(missing, name)
+	}
+	return missing
 }
 
 // export 把导出工具的输出流式写入一份新快照；写入后 kopiarepo 已读回校验每个文件的大小与内容
@@ -711,12 +736,13 @@ func (x *execution) finish(ctx context.Context, res *kopiarepo.SnapshotResult, e
 		run.Status = job_entity.RunCanceled
 		x.log.add("运行已取消：已终止导出工具、关闭端口转发并删除临时文件，未形成快照")
 	case errors.Is(cause, errShutdown):
-		run.Status, run.FailedStep, run.Reason = job_entity.RunFailed, step, reasonInterrupted
+		run.Status, run.FailedStep = job_entity.RunFailed, step
+		run.SetFixedReason(job_entity.ReasonInterrupted)
 		x.log.setStep(step)
-		x.log.add(reasonInterrupted + "：已终止导出工具，未形成快照")
+		x.log.add(run.Reason + "：已终止导出工具，未形成快照")
 	case errors.Is(cause, errTimeout):
 		run.Status, run.FailedStep = job_entity.RunFailed, step
-		run.Reason = fmt.Sprintf("超时（超过 %s）", job_entity.FormatTimeout(x.job.Timeout))
+		run.SetFixedReason(job_entity.TimeoutReason(x.job.Timeout))
 		x.log.setStep(step)
 		x.log.add(run.Reason + "：已终止导出工具，未形成快照")
 	default:

@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { ApiError } from "@/lib/api";
 import { ErrorCode } from "@/lib/auth";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, joinNames } from "@/lib/format";
 import {
   emptyLocation,
   locationOf,
@@ -66,9 +66,9 @@ export function StorageFormDialog({
   /** 本地目录旁的“浏览…”按钮；不传时不显示 */
   browse?: (current: string, pick: (path: string) => void) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   // locked 被任务引用的存储不能更改位置（docs/specs/2026-09-27-backup-jobs.md「对已有页面的影响」）：
-  // 锁定位置字段，名称仍可修改
+  // 只锁定决定位置的字段（类型、目录路径，或 Endpoint、Bucket、路径前缀），名称、凭据与 TLS 设置仍可修改
   const usedByJobs = editing?.used_by?.jobs ?? [];
   const locked = usedByJobs.length > 0;
   const initial = (): StorageDraft => ({
@@ -194,7 +194,10 @@ export function StorageFormDialog({
             {locked && (
               <p className="rounded-md bg-warning-soft px-3 py-2.5 text-sm text-warning">
                 {t("storage.form.locationLocked", {
-                  items: usedByJobs.map((j) => j.name).join("、"),
+                  items: joinNames(
+                    usedByJobs.map((j) => j.name),
+                    i18n.language
+                  ),
                 })}
               </p>
             )}
@@ -253,13 +256,7 @@ export function StorageFormDialog({
                     setFieldErrors((f) => ({ ...f, endpoint: undefined }));
                   }}
                 />
-                <FormField
-                  label={<Optional label="Region" />}
-                  value={loc.region}
-                  mono
-                  disabled={locked}
-                  onChange={bind("region")}
-                />
+                <FormField label={<Optional label="Region" />} value={loc.region} mono onChange={bind("region")} />
                 <FormField label="Bucket" value={loc.bucket} mono disabled={locked} onChange={bind("bucket")} />
                 <FormField
                   label={<Optional label={t("storage.form.prefix")} />}
@@ -274,7 +271,6 @@ export function StorageFormDialog({
                   value={loc.access_key}
                   autoComplete="off"
                   mono
-                  disabled={locked}
                   onChange={bind("access_key")}
                 />
                 <FormField
@@ -284,7 +280,6 @@ export function StorageFormDialog({
                   placeholder={editing?.has_secret_key ? t("storage.form.secretKeep") : undefined}
                   autoComplete="new-password"
                   mono
-                  disabled={locked}
                   onChange={bind("secret_key")}
                 />
                 <div className="col-span-2 flex flex-col rounded-md border">
@@ -292,14 +287,12 @@ export function StorageFormDialog({
                     label={t("storage.form.useTLS")}
                     hint={t("storage.form.useTLSHint")}
                     checked={loc.use_tls}
-                    disabled={locked}
                     onChange={(use_tls) => update({ use_tls })}
                   />
                   <SwitchRow
                     label={t("storage.form.skipVerify")}
                     hint={t("storage.form.skipVerifyHint")}
                     checked={loc.skip_verify}
-                    disabled={locked}
                     onChange={(skip_verify) => update({ skip_verify })}
                     className="border-t"
                   />

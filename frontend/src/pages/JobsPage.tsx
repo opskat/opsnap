@@ -11,8 +11,10 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/button";
 import { cancelRun, enableJob, listJobs, pauseJob, runJobNow, type JobItem } from "@/lib/jobs";
 
-/** 运行中或排队中时自动刷新列表，直到状态落定 */
+/** 有运行中或排队中的任务时刷新列表的间隔 */
 const JOB_POLL_INTERVAL_MS = 3000;
+/** 没有运行中、排队中的任务时的刷新间隔：计划触发的运行开始后不需要手动刷新页面也能看到 */
+const JOB_IDLE_POLL_INTERVAL_MS = 30000;
 
 const isActive = (job: JobItem) => job.last_run?.status === "running" || job.last_run?.status === "queued";
 
@@ -36,33 +38,38 @@ export function JobsPage() {
   }, [attempt]);
 
   const jobs = state.status === "ready" ? state.data : [];
-  const anyActive = state.status === "ready" && jobs.some(isActive);
+  const ready = state.status === "ready";
+  const anyActive = ready && jobs.some(isActive);
 
-  // 运行中、排队中的行需要自动刷新，直到状态落定，不需要用户手动刷新页面
+  // 自动刷新，不需要用户手动刷新页面：有运行中、排队中的任务时每 3 秒，其余时候低频刷新，
+  // 以便看到计划触发后开始的运行
   useEffect(() => {
-    if (!anyActive) return;
+    if (!ready) return;
     let cancelled = false;
     let timer: number | undefined;
-    const poll = () => {
-      timer = window.setTimeout(() => {
-        if (cancelled) return;
-        listJobs()
-          .then((r) => {
-            if (cancelled) return;
-            setState({ status: "ready", data: r.items });
-            if (r.items.some(isActive)) poll();
-          })
-          .catch(() => {
-            if (!cancelled) poll();
-          });
-      }, JOB_POLL_INTERVAL_MS);
+    const poll = (active: boolean) => {
+      timer = window.setTimeout(
+        () => {
+          if (cancelled) return;
+          listJobs()
+            .then((r) => {
+              if (cancelled) return;
+              setState({ status: "ready", data: r.items });
+              poll(r.items.some(isActive));
+            })
+            .catch(() => {
+              if (!cancelled) poll(active);
+            });
+        },
+        active ? JOB_POLL_INTERVAL_MS : JOB_IDLE_POLL_INTERVAL_MS
+      );
     };
-    poll();
+    poll(anyActive);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [anyActive]);
+  }, [ready, anyActive]);
 
   const retry = () => {
     setState({ status: "loading" });
@@ -190,7 +197,8 @@ export function JobsPage() {
         onDeleted={(id, result) => {
           removeJob(id);
           setDeleting(undefined);
-          if (result.snapshots_failed > 0) setNotice(result.snapshots_message);
+          // 快照未能全部删除（部分失败或无法打开存储）时，任务仍已删除，提示原因
+          if (result.snapshots_message) setNotice(result.snapshots_message);
         }}
       />
     </>

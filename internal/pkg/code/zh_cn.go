@@ -140,7 +140,7 @@ var zhCN = map[int]string{ //nolint:gosec // 错误文案中的“密码”字�
 	JobPrefixInvalid:          "路径前缀须为 1–128 个字符，只含字母、数字和 ._-/，不以 / 开头或结尾，不含 .. 或连续的 /",
 	JobPrefixConflict:         "路径前缀与任务“%s”在同一存储中重复或互为上下级",
 	JobCompressionInvalid:     "压缩方式只能是不压缩、gzip 或 zstd",
-	JobScheduleInvalid:        "执行计划不正确：%s",
+	JobScheduleInvalid:        "执行计划不正确：%[1]s", // 参数依次为中文、英文原因
 	JobTimezoneInvalid:        "时区不是合法的 IANA 时区名称",
 	JobRetentionDaysInvalid:   "保留天数须在 1–365 之间",
 	JobRetentionWeeksInvalid:  "保留周数须在 0–520 之间",
@@ -156,4 +156,12 @@ var zhCN = map[int]string{ //nolint:gosec // 错误文案中的“密码”字�
 	JobRunNotFound:            "运行记录不存在",
 	JobRunFinished:            "运行已结束，不能取消",
 	JobStatsStorageUnreadable: "无法读取存储中的快照，请检查存储状态",
+	JobReasonStillRunning:     "上一次仍在运行",
+	JobReasonRetryVoided:      "下一次计划时间已到，重试作废",
+	JobReasonInterrupted:      "OpsNap 重启，运行中断",
+	JobReasonRestart:          "OpsNap 重启",
+	JobReasonTimeout:          "超时（超过 %s）",
+	JobDurationMinutes:        "%d 分钟",
+	JobDurationHours:          "%d 小时",
+	JobDurationHoursMinutes:   "%d 小时 %d 分钟",
 }

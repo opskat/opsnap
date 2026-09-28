@@ -1,6 +1,14 @@
 package job_entity
 
-import "fmt"
+import (
+	"context"
+	"strconv"
+	"strings"
+
+	"github.com/cago-frame/cago/pkg/i18n"
+
+	"github.com/opskat/opsnap/internal/pkg/code"
+)
 
 // 运行状态（docs/specs/2026-09-27-backup-jobs.md「运行记录」）
 const (
@@ -56,6 +64,8 @@ type Run struct {
 	// FailedStep、Reason 仅失败（Reason 已去掉秘密）；跳过与被重启取消时 Reason 为原因
 	FailedStep string `gorm:"column:failed_step"`
 	Reason     string `gorm:"column:reason"`
+	// ReasonCode OpsNap 给出的固定原因（见 SetFixedReason），接口按界面语言显示；其余原因为空，Reason 原样显示
+	ReasonCode string `gorm:"column:reason_code"`
 	// Log 执行日志（LogLine 的 JSON 数组）
 	Log        string `gorm:"column:log"`
 	Createtime int64  `gorm:"column:createtime"`
@@ -82,15 +92,61 @@ func (r *Run) LogLines() []LogLine { return decodeList[LogLine](r.Log) }
 // SetLog 保存执行日志
 func (r *Run) SetLog(lines []LogLine) { r.Log = encodeList(lines) }
 
-// FormatTimeout 超时时长（分钟）的中文描述，用于失败原因“超时（超过 X）”
-func FormatTimeout(minutes int) string {
+// 固定原因（Run.ReasonCode）：跳过、重试作废、OpsNap 重启与超时，界面按语言显示
+const (
+	ReasonStillRunning = "still_running" // 上一次仍在运行（跳过）
+	ReasonRetryVoided  = "retry_voided"  // 下一次计划时间已到，重试作废
+	ReasonInterrupted  = "interrupted"   // OpsNap 重启，运行中断
+	ReasonRestart      = "restart"       // OpsNap 重启时仍在排队
+	reasonTimeout      = "timeout:"      // 超时（超过 X），后跟超时时长（分钟）
+)
+
+// TimeoutReason 超时的固定原因，带任务的超时时长（分钟）
+func TimeoutReason(minutes int) string { return reasonTimeout + strconv.Itoa(minutes) }
+
+// ReasonText 固定原因按 ctx 的语言给出的文案；不是固定原因时 ok 为 false
+func ReasonText(ctx context.Context, reasonCode string) (text string, ok bool) {
+	switch reasonCode {
+	case ReasonStillRunning:
+		return i18n.T(ctx, code.JobReasonStillRunning), true
+	case ReasonRetryVoided:
+		return i18n.T(ctx, code.JobReasonRetryVoided), true
+	case ReasonInterrupted:
+		return i18n.T(ctx, code.JobReasonInterrupted), true
+	case ReasonRestart:
+		return i18n.T(ctx, code.JobReasonRestart), true
+	}
+	if m, found := strings.CutPrefix(reasonCode, reasonTimeout); found {
+		if minutes, err := strconv.Atoi(m); err == nil {
+			return i18n.T(ctx, code.JobReasonTimeout, formatDuration(ctx, minutes)), true
+		}
+	}
+	return "", false
+}
+
+// SetFixedReason 记录固定原因：ReasonCode 供接口按界面语言显示，Reason 同时保存中文原文（写进运行日志）
+func (r *Run) SetFixedReason(reasonCode string) {
+	r.ReasonCode = reasonCode
+	r.Reason, _ = ReasonText(i18n.WithLanguage(context.Background(), code.LangZhCN), reasonCode)
+}
+
+// DisplayReason 按 ctx 的语言给出的原因：固定原因取对应语言的文案，其余为原文
+func (r *Run) DisplayReason(ctx context.Context) string {
+	if text, ok := ReasonText(ctx, r.ReasonCode); ok {
+		return text
+	}
+	return r.Reason
+}
+
+// formatDuration 时长（分钟）的描述，如“2 小时 30 分钟”“2 h 30 min”
+func formatDuration(ctx context.Context, minutes int) string {
 	h, m := minutes/60, minutes%60
 	switch {
 	case h == 0:
-		return fmt.Sprintf("%d 分钟", m)
+		return i18n.T(ctx, code.JobDurationMinutes, m)
 	case m == 0:
-		return fmt.Sprintf("%d 小时", h)
+		return i18n.T(ctx, code.JobDurationHours, h)
 	default:
-		return fmt.Sprintf("%d 小时 %d 分钟", h, m)
+		return i18n.T(ctx, code.JobDurationHoursMinutes, h, m)
 	}
 }

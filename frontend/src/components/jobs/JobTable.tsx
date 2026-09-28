@@ -11,7 +11,9 @@ import { lastRunDetail } from "./runFormat";
 import { RunStatusTag } from "./RunStatusTag";
 import { scheduleDescription } from "./schedule";
 
-const columns = "grid grid-cols-[minmax(0,1.3fr)_330px_170px_250px_auto] items-center gap-4 px-4.5";
+// 各列按比例伸缩并给出下限：窄窗口（如 1280×720）下名称列不会被固定宽度的列挤没
+const columns =
+  "grid grid-cols-[minmax(140px,1.3fr)_minmax(0,1.2fr)_minmax(0,0.8fr)_minmax(0,1fr)_auto] items-center gap-4 px-4.5";
 
 function scopeText(t: (key: string, opts?: Record<string, unknown>) => string, job: JobItem) {
   return job.scope === "instance"
@@ -70,11 +72,15 @@ export function JobTable({
             </span>
             <span role="cell" className="flex min-w-0 flex-col gap-0.5">
               <span className="truncate text-sm">{scheduleDescription(t, i18n.language, job.schedule)}</span>
-              <span className="truncate text-xs text-muted-foreground">
-                {job.enabled
-                  ? job.next_run_at > 0 && t("jobs.list.nextRun", { time: formatDateTime(job.next_run_at) })
-                  : t("jobs.list.paused")}
-              </span>
+              {job.enabled ? (
+                job.next_run_at > 0 && (
+                  <span className="truncate font-mono text-xs text-muted-foreground">
+                    {t("jobs.list.nextRun", { time: formatDateTime(job.next_run_at) })}
+                  </span>
+                )
+              ) : (
+                <span className="truncate text-xs text-muted-foreground">{t("jobs.list.paused")}</span>
+              )}
             </span>
             <span role="cell" className="flex min-w-0 flex-col gap-1">
               <span className="flex min-w-0 items-center gap-2">
@@ -83,11 +89,21 @@ export function JobTable({
                 ) : (
                   <span className="text-xs text-muted-foreground">{t("jobs.list.noRun")}</span>
                 )}
-                <span className="truncate text-2xs text-muted-foreground">
+                <span className="truncate font-mono text-2xs text-muted-foreground">
                   {t("jobs.list.snapshotCount", { count: snapshotCount })}
                 </span>
               </span>
-              {lastRun && <span className="truncate text-xs text-muted-foreground">{lastRunDetail(t, lastRun)}</span>}
+              {lastRun && (
+                <span
+                  className={cn(
+                    "truncate text-xs text-muted-foreground",
+                    // 成功与运行中这一行全是时间、耗时与字节数；其余状态带有文字原因
+                    (lastRun.status === "success" || lastRun.status === "running") && "font-mono"
+                  )}
+                >
+                  {lastRunDetail(t, lastRun)}
+                </span>
+              )}
             </span>
             <span role="cell">
               <JobRowActions job={job} busy={busy[job.id]} actions={actions} />

@@ -645,6 +645,7 @@ describe("编辑任务", () => {
     const list = await screen.findByRole("radiogroup", { name: "数据源" });
     expect(within(list).getByRole("radio", { name: /db-01 · orders/ })).toHaveAttribute("aria-checked", "true");
     expect(within(list).getByRole("radio", { name: /pg-analytics-02/ })).toBeDisabled();
+    expect(screen.getByText("数据源、存储和路径前缀创建后不能修改")).toBeInTheDocument();
 
     await next();
     await screen.findByRole("region", { name: /能力探测/ });
@@ -658,6 +659,8 @@ describe("编辑任务", () => {
     const prefix = await screen.findByRole("textbox", { name: "路径前缀" });
     expect(prefix).toHaveValue("mysql/db-01-orders");
     expect(prefix).toHaveAttribute("readonly");
+    // 存储与前缀两处都说明创建后不能修改
+    expect(screen.getAllByText("数据源、存储和路径前缀创建后不能修改")).toHaveLength(2);
     const storages = screen.getByRole("radiogroup", { name: "存储" });
     expect(within(storages).getByRole("radio", { name: /backup-local/ })).toHaveAttribute("aria-checked", "true");
     expect(
@@ -768,6 +771,19 @@ describe("新建任务向导 · 第 4 步 计划与保留", () => {
     expect(currentStep()).toHaveTextContent("确认");
   });
 
+  it("计划在本地就不合法时不显示上一次计划的预览；预览请求失败时显示原因", async () => {
+    await toStep4();
+    expect(await screen.findByText("2026-09-29 02:00")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("radio", { name: "每周" }));
+    expect(screen.queryByText("2026-09-29 02:00")).not.toBeInTheDocument();
+    expect(screen.queryByText("按当前计划，最多保留约 42 份快照")).not.toBeInTheDocument();
+
+    route("POST /api/v1/jobs/schedule-preview", fail(-1, "服务繁忙", 500));
+    await userEvent.click(screen.getByRole("radio", { name: "每小时" }));
+    expect(await screen.findByText("无法计算执行时间：服务繁忙")).toBeInTheDocument();
+    expect(screen.queryByText("计算中…")).not.toBeInTheDocument();
+  });
+
   it.each([
     ["保留最近 N 天内的全部快照", "0", "保留天数须为 1–365 的整数"],
     ["更早的，每周保留最后一份", "521", "保留周数须为 0–520 的整数"],
@@ -821,6 +837,17 @@ describe("新建任务向导 · 第 5 步 确认", () => {
     expect(await screen.findByText("无法估算")).toBeInTheDocument();
   });
 
+  it("源数据量读取中显示“估算中…”，读取完成前不显示“无法估算”", async () => {
+    let calls = 0;
+    route("GET /api/v1/datasources/1/databases", () => {
+      calls += 1;
+      return calls === 1 ? ok({ databases }) : new Promise<Response>(() => {});
+    });
+    await toStep5();
+    expect(await screen.findByText("估算中…")).toBeInTheDocument();
+    expect(screen.queryByText("无法估算")).not.toBeInTheDocument();
+  });
+
   it("创建任务：提交完整字段、加载状态防止重复提交、成功后进入任务详情页", async () => {
     await toStep5();
     let resolveCreate: (r: Response) => void = () => {};
@@ -870,12 +897,17 @@ describe("新建任务向导 · 第 5 步 确认", () => {
     expect(currentStep()).toHaveTextContent("确认");
   });
 
-  it("创建失败：路径前缀冲突映射回第 3 步的前缀字段", async () => {
+  it("创建失败：路径前缀冲突时停在第 5 步显示原因，回到第 3 步时前缀字段旁也有提示", async () => {
     await toStep5();
-    route("POST /api/v1/jobs", fail(10714, "路径前缀与任务“orders-nightly”在同一存储中重复或互为上下级"));
+    const message = "路径前缀与任务“orders-nightly”在同一存储中重复或互为上下级";
+    route("POST /api/v1/jobs", fail(10714, message));
     await userEvent.click(screen.getByRole("button", { name: "创建任务" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
+    expect(currentStep()).toHaveTextContent("确认");
+
+    await userEvent.click(screen.getByRole("button", { name: "修改目的地" }));
     expect(currentStep()).toHaveTextContent("目的地");
-    expect(await screen.findByText("路径前缀与任务“orders-nightly”在同一存储中重复或互为上下级")).toBeInTheDocument();
+    expect(screen.getByText(message)).toBeInTheDocument();
   });
 
   it("创建失败：无法归到具体字段的原因显示在表单顶部，停在第 5 步", async () => {

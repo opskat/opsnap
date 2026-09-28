@@ -142,7 +142,10 @@ export function StepSource({
         </div>
       </section>
       <section className="flex flex-col gap-2.5">
-        <SectionTitle title={t("jobs.wizard.source.title")} hint={t("jobs.wizard.source.hint")} />
+        <SectionTitle
+          title={t("jobs.wizard.source.title")}
+          hint={locked ? t("jobs.wizard.destination.lockedHint") : t("jobs.wizard.source.hint")}
+        />
         {list()}
         <FieldError>{error}</FieldError>
       </section>

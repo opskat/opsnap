@@ -232,7 +232,7 @@ describe("任务列表页", () => {
     expect(await screen.findByRole("link", { name: "orders-prod 全量备份" })).toBeInTheDocument();
   });
 
-  it("立即执行：请求 POST /jobs/:id/run，请求中禁用按钮，完成后状态更新为等待中", async () => {
+  it("立即执行：请求 POST /jobs/:id/run，请求中禁用按钮，完成后状态更新为等待中并可取消", async () => {
     respond(ok({ items: [brandNew] }));
     renderPage();
     const row = (await screen.findAllByRole("row"))[1];
@@ -246,7 +246,9 @@ describe("任务列表页", () => {
 
     resolve(ok({ run: queuedRun }));
     expect(await within(row).findByText("等待中")).toBeInTheDocument();
-    expect(within(row).getByRole("button", { name: "立即执行 new-job 首次运行前" })).toBeDisabled();
+    // 排队中：立即执行换成取消运行
+    expect(within(row).queryByRole("button", { name: "立即执行 new-job 首次运行前" })).not.toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: "取消运行 new-job 首次运行前" })).toBeInTheDocument();
   });
 
   it("暂停期间也可以立即执行", async () => {
@@ -256,11 +258,16 @@ describe("任务列表页", () => {
     expect(within(row).getByRole("button", { name: /立即执行/ })).not.toBeDisabled();
   });
 
-  it("排队中时立即执行按钮不可用", async () => {
+  it("排队中：立即执行不可用，可以取消排队中的运行", async () => {
     respond(ok({ items: [ordersDev] }));
     renderPage();
     const row = (await screen.findAllByRole("row"))[1];
-    expect(within(row).getByRole("button", { name: /立即执行/ })).toBeDisabled();
+    expect(within(row).queryByRole("button", { name: /立即执行/ })).not.toBeInTheDocument();
+
+    respond(ok({ run: { ...queuedRun, status: "canceled" } }));
+    await userEvent.click(within(row).getByRole("button", { name: "取消运行 orders-dev 备份" }));
+    expect(call(1)).toMatchObject({ url: "/api/v1/jobs/3/runs/303/cancel", method: "POST" });
+    expect(await within(row).findByText("已取消")).toBeInTheDocument();
   });
 
   it("运行中：立即执行换成取消运行，点击后请求取消接口并更新状态", async () => {
@@ -344,7 +351,61 @@ describe("任务列表页", () => {
     expect(await screen.findByText("有 2 份快照未能删除，可以用 kopia 命令行手动处理")).toBeInTheDocument();
   });
 
-  it("运行中或排队中时自动刷新列表，状态落定后停止轮询", async () => {
+  it("存储无法打开、快照未能删除时，任务照常删除并提示原因", async () => {
+    respond(ok({ items: [ordersProd] }));
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "orders-prod 全量备份 的更多操作" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "删除任务" }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("checkbox", { name: "同时删除该任务的 12 份快照" }));
+
+    const message = "任务已删除，但无法打开存储，它的快照未能删除，可以用 kopia 命令行手动处理";
+    respond(ok({ snapshots_deleted: 0, snapshots_failed: 0, snapshots_message: message }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "删除" }));
+    expect(await screen.findByText(message)).toBeInTheDocument();
+  });
+
+  it("数字、时间与快照数用等宽字体", async () => {
+    respond(ok({ items: [ordersProd] }));
+    renderPage();
+    const row = (await screen.findAllByRole("row"))[1];
+    expect(within(row).getByText("12 份快照")).toHaveClass("font-mono");
+    expect(within(row).getByText(/^下次 /)).toHaveClass("font-mono");
+    expect(within(row).getByText(/耗时 4m12s/)).toHaveClass("font-mono");
+  });
+
+  it("英文界面按单复数显示数量", async () => {
+    await i18n.changeLanguage("en");
+    try {
+      respond(ok({ items: [{ ...ordersDev, databases: ["orders"], snapshot_count: 1, last_run: successRun }] }));
+      renderPage();
+      const row = (await screen.findAllByRole("row"))[1];
+      expect(within(row).getByText("1 snapshot")).toBeInTheDocument();
+      expect(within(row).getByText("MySQL · 1 database · Enabled")).toBeInTheDocument();
+    } finally {
+      await i18n.changeLanguage("zh-CN");
+    }
+  });
+
+  it("没有运行中的任务时也低频刷新：计划触发的运行开始后无需手动刷新", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      respond(ok({ items: [ordersProd] }));
+      renderPage();
+      await screen.findAllByRole("row");
+
+      respond(ok({ items: [{ ...ordersProd, last_run: { ...runningRun, job_id: 1 } }] }));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30000);
+      });
+      expect(call(1)).toMatchObject({ url: "/api/v1/jobs", method: "GET" });
+      expect(await screen.findByText("运行中")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("运行中或排队中时自动刷新列表，状态落定后降为低频刷新", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       respond(ok({ items: [pgAnalytics] }));

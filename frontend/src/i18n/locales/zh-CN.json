@@ -150,6 +150,8 @@
       "more": "{{name}} 的更多操作",
       "revealKey": "查看密钥",
       "usedByJobs": "被 {{count}} 个任务使用",
+      "usedByJobs_one": "被 {{count}} 个任务使用",
+      "usedByJobs_other": "被 {{count}} 个任务使用",
       "deleteBlocked": "仍被 {{items}} 使用，不能删除"
     },
     "form": {
@@ -529,6 +531,8 @@
         "reprobe": "重新探测",
         "reprobing": "重新探测中…",
         "usedByJobs": "被 {{count}} 个任务使用",
+        "usedByJobs_one": "被 {{count}} 个任务使用",
+        "usedByJobs_other": "被 {{count}} 个任务使用",
         "connection": {
           "title": "连接",
           "type": "类型",
@@ -567,13 +571,17 @@
       },
       "scope": {
         "instance": "整个实例",
-        "databases": "{{count}} 个库"
+        "databases": "{{count}} 个库",
+        "databases_one": "{{count}} 个库",
+        "databases_other": "{{count}} 个库"
       },
       "enabled": "已启用",
       "paused": "已暂停",
       "nextRun": "下次 {{time}}",
       "noRun": "还没有运行过",
       "snapshotCount": "{{count}} 份快照",
+      "snapshotCount_one": "{{count}} 份快照",
+      "snapshotCount_other": "{{count}} 份快照",
       "exported": "已导出 {{size}}",
       "runningFor": "已运行 {{duration}}",
       "tookTime": "耗时 {{duration}}",
@@ -611,6 +619,8 @@
         "title": "删除任务“{{name}}”？",
         "hint": "删除后，任务和它的运行记录一并删除，不能恢复。",
         "deleteSnapshots": "同时删除该任务的 {{count}} 份快照",
+        "deleteSnapshots_one": "同时删除该任务的 {{count}} 份快照",
+        "deleteSnapshots_other": "同时删除该任务的 {{count}} 份快照",
         "confirm": "删除"
       }
     },
@@ -670,6 +680,8 @@
         "instanceHint": "每次运行时重新列出数据库，新建的库会被自动包含（不含系统库）。",
         "databasesHint": "只备份勾选的库；运行时所选的库不存在，本次运行失败。",
         "instanceSummary": "共 {{count}} 个库 · 约 {{size}}",
+        "instanceSummary_one": "共 {{count}} 个库 · 约 {{size}}",
+        "instanceSummary_other": "共 {{count}} 个库 · 约 {{size}}",
         "selectedSummary": "已选 {{count}} 个库 · 约 {{size}}",
         "databasesFailed": "读取数据库列表失败：{{message}}",
         "noDatabases": "数据源中没有可备份的数据库",
@@ -745,11 +757,14 @@
         "timezone": "时区",
         "nextRuns": "接下来三次",
         "nextRunsLoading": "计算中…",
+        "previewFailed": "无法计算执行时间：{{message}}",
         "retentionTitle": "保留策略",
         "retentionDays": "保留最近 N 天内的全部快照",
         "retentionWeeks": "更早的，每周保留最后一份",
         "retentionMonths": "每月保留最后一份",
         "maxSnapshots": "按当前计划，最多保留约 {{count}} 份快照",
+        "maxSnapshots_one": "按当前计划，最多保留约 {{count}} 份快照",
+        "maxSnapshots_other": "按当前计划，最多保留约 {{count}} 份快照",
         "alwaysKeepLatest": "本任务最新的一份成功快照始终保留",
         "failureTitle": "失败处理",
         "retries": "失败重试次数",
@@ -764,6 +779,8 @@
         "scopeInstance": "整个实例",
         "scopeDatabases": "指定数据库（{{count}} 个）",
         "excludeCount": "排除 {{count}} 个表",
+        "excludeCount_one": "排除 {{count}} 个表",
+        "excludeCount_other": "排除 {{count}} 个表",
         "scheduleHourly": "每小时第 {{minute}} 分钟",
         "scheduleDaily": "每天 {{time}}",
         "scheduleWeekly": "每周{{weekdays}} {{time}}",
@@ -777,6 +794,7 @@
         "sizeEstimate": "首次为全量备份，所选库的源数据量约 {{size}}",
         "sizeNote": "导出和压缩后通常更小。",
         "sizeUnavailable": "无法估算",
+        "sizeLoading": "估算中…",
         "create": "创建任务"
       },
       "errors": {
@@ -810,6 +828,7 @@
       "config": {
         "title": "配置",
         "location": "仓库内位置",
+        "sourceWithKind": "{{name}}（{{kind}}）",
         "schedule": "计划",
         "encryptionUnknown": "未知",
         "includedNone": "无"
@@ -842,11 +861,15 @@
         "prevPage": "上一页",
         "nextPage": "下一页",
         "failedAt": "失败在「{{step}}」",
+        "failedAtWithReason": "失败在「{{step}}」：{{reason}}",
+        "failedReason": "失败原因：{{reason}}",
         "log": {
           "title": "执行日志",
           "loadFailed": "无法加载日志：{{message}}",
           "empty": "没有日志",
-          "omitted": "省略了 {{count}} 行"
+          "omitted": "省略了 {{count}} 行",
+          "omitted_one": "省略了 {{count}} 行",
+          "omitted_other": "省略了 {{count}} 行"
         },
         "step": {
           "prepare": "准备",

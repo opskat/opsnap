@@ -158,6 +158,11 @@ export function StepSchedule({
             {preview.status === "loading" && (
               <span className="text-xs text-muted-foreground">{t("jobs.wizard.schedule.nextRunsLoading")}</span>
             )}
+            {preview.status === "error" && preview.message && (
+              <span className="text-xs text-destructive">
+                {t("jobs.wizard.schedule.previewFailed", { message: preview.message })}
+              </span>
+            )}
             {preview.status === "ready" && (
               <ul className="flex flex-col gap-0.5 font-mono text-xs text-muted-foreground">
                 {preview.data.nextRuns.map((iso) => (
@@ -204,11 +209,13 @@ export function StepSchedule({
               onChange={(e) => setRetention({ months: num(e.target.value) })}
             />
           </div>
-          <p className="text-xs text-muted-foreground">
-            {preview.status === "ready"
-              ? t("jobs.wizard.schedule.maxSnapshots", { count: preview.data.maxSnapshots })
-              : t("jobs.wizard.schedule.nextRunsLoading")}
-          </p>
+          {preview.status !== "error" && (
+            <p className="text-xs text-muted-foreground">
+              {preview.status === "ready"
+                ? t("jobs.wizard.schedule.maxSnapshots", { count: preview.data.maxSnapshots })
+                : t("jobs.wizard.schedule.nextRunsLoading")}
+            </p>
+          )}
           <p className="text-xs text-muted-foreground">{t("jobs.wizard.schedule.alwaysKeepLatest")}</p>
         </div>
       </section>

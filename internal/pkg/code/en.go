@@ -140,7 +140,7 @@ var en = map[int]string{ //nolint:gosec // 错误文案中的 “token”“pass
 	JobPrefixInvalid:          "Path prefix must be 1–128 letters, digits or ._-/, must not start or end with /, and must not contain .. or //",
 	JobPrefixConflict:         "Path prefix duplicates or nests with job \"%s\" in the same storage",
 	JobCompressionInvalid:     "Compression must be none, gzip or zstd",
-	JobScheduleInvalid:        "Invalid schedule: %s",
+	JobScheduleInvalid:        "Invalid schedule: %[2]s", // 参数依次为中文、英文原因
 	JobTimezoneInvalid:        "Not a valid IANA time zone",
 	JobRetentionDaysInvalid:   "Days to keep must be between 1 and 365",
 	JobRetentionWeeksInvalid:  "Weeks to keep must be between 0 and 520",
@@ -156,4 +156,12 @@ var en = map[int]string{ //nolint:gosec // 错误文案中的 “token”“pass
 	JobRunNotFound:            "Run not found",
 	JobRunFinished:            "The run has already finished and cannot be canceled",
 	JobStatsStorageUnreadable: "Could not read snapshots from the storage. Check the storage status",
+	JobReasonStillRunning:     "The previous run is still running",
+	JobReasonRetryVoided:      "Retry voided: the next scheduled run is due",
+	JobReasonInterrupted:      "OpsNap restarted; the run was interrupted",
+	JobReasonRestart:          "OpsNap restarted",
+	JobReasonTimeout:          "Timed out (exceeded %s)",
+	JobDurationMinutes:        "%d min",
+	JobDurationHours:          "%d h",
+	JobDurationHoursMinutes:   "%d h %d min",
 }

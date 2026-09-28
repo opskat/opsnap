@@ -601,6 +601,20 @@ func TestToolChecks(t *testing.T) {
 		assert.Contains(t, lg.text(), "8.4")
 	})
 
+	t.Run("MariaDB 的 mysqldump 低于 MariaDB 服务端时照常执行并提示", func(t *testing.T) {
+		e := newFakeEnv(t)
+		e.tool("mysqldump", mariadbVersion, mysqlOK)
+		(&fakeDB{answer: tablesOnly()}).install(t)
+		src := mysqlSource()
+		src.ServerVersion = "11.4.2-MariaDB-ubu2404"
+		var lg logs
+		s, err := Start(context.Background(), e.base, src, Options{Databases: []string{"app"}, Log: lg.add})
+		require.NoError(t, err)
+		require.NoError(t, s.Close())
+		assert.Contains(t, lg.text(), "10.11")
+		assert.Contains(t, lg.text(), "11.4")
+	})
+
 	t.Run("找不到工具", func(t *testing.T) {
 		e := newFakeEnv(t)
 		e.tool("pg_dump", pgDumpVersion, pgDumpOK)
@@ -694,5 +708,29 @@ func TestPrivilegeMessages(t *testing.T) {
 	}
 	for _, m := range other {
 		assert.False(t, isPrivilegeMessage(m), m)
+	}
+}
+
+// 导出工具的错误输出并入运行日志：超过保留上限时注明省略了前面的内容，不留下被截断的半行
+func TestToolStderrMergedIntoLog(t *testing.T) {
+	e := newFakeEnv(t)
+	e.tool("mysqldump", oracleVersion, "i=0; while [ $i -lt 3000 ]; do echo warning-line-$i >&2; i=$((i+1)); done; "+mysqlOK)
+	(&fakeDB{answer: tablesOnly()}).install(t)
+	var lg logs
+	s, err := Start(context.Background(), e.base, mysqlSource(), Options{Databases: []string{"app"}, Log: lg.add})
+	require.NoError(t, err)
+	_, err = readAll(t, s)
+	require.NoError(t, err)
+	require.NoError(t, s.Close())
+
+	text := lg.text()
+	assert.Contains(t, text, "mysqldump: warning-line-2999", "保留最后的错误输出")
+	assert.Contains(t, text, "省略", "注明省略了前面的错误输出")
+	for _, line := range strings.Split(text, "\n") {
+		msg, ok := strings.CutPrefix(line, "mysqldump: ")
+		if !ok || strings.Contains(msg, "省略") {
+			continue
+		}
+		assert.Regexp(t, `^warning-line-\d+$`, msg, "没有被截断的半行")
 	}
 }

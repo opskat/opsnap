@@ -79,4 +79,26 @@ describe("数据源表格 · 被任务引用", () => {
     await userEvent.click(await screen.findByRole("menuitem", { name: "删除数据源" }));
     expect(actions.onDelete).toHaveBeenCalledWith(base);
   });
+
+  it("英文界面用英文的列表分隔符列出任务", async () => {
+    await i18n.changeLanguage("en");
+    try {
+      renderTable([
+        {
+          ...base,
+          used_by: {
+            jobs: [
+              { id: 1, name: "a-nightly" },
+              { id: 2, name: "b-weekly" },
+            ],
+          },
+        },
+      ]);
+      await userEvent.click(screen.getByRole("button", { name: "More actions for orders-db" }));
+      const blocked = await screen.findByRole("menuitem", { name: /Delete/ });
+      expect(within(blocked).getByText("Still used by a-nightly, b-weekly, cannot delete")).toBeInTheDocument();
+    } finally {
+      await i18n.changeLanguage("zh-CN");
+    }
+  });
 });

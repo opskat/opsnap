@@ -323,12 +323,124 @@ describe("任务详情页", () => {
     expect(await screen.findByRole("button", { name: "取消运行" })).toBeInTheDocument();
   });
 
-  it("排队中时立即执行按钮不可用", async () => {
+  it("排队中：立即执行不可用，可以取消排队中的运行", async () => {
     respondInitialLoad({ ...baseJob, last_run: queuedRun });
     renderPage();
 
-    const runButton = await screen.findByRole("button", { name: "立即执行" });
-    expect(runButton).toBeDisabled();
+    const cancelButton = await screen.findByRole("button", { name: "取消运行" });
+    expect(screen.queryByRole("button", { name: "立即执行" })).not.toBeInTheDocument();
+    respond(
+      ok({ run: { ...queuedRun, status: "canceled" } }),
+      ok({ items: [{ ...queuedRun, status: "canceled" }], total: 1 })
+    );
+    await userEvent.click(cancelButton);
+    expect(call(5)).toMatchObject({ url: "/api/v1/jobs/1/runs/303/cancel", method: "POST" });
+    expect(await screen.findByRole("button", { name: "立即执行" })).toBeInTheDocument();
+  });
+
+  it("没有失败步骤的失败运行（如 OpsNap 重启中断）只显示原因，不出现未翻译的键", async () => {
+    const interrupted: Run = { ...failedRun, failed_step: "", reason: "OpsNap 重启，运行中断" };
+    respond(
+      ok({ item: baseJob }),
+      ok(stats),
+      ok({ items: [storageItem] }),
+      ok(previewResponse),
+      ok({ items: [interrupted], total: 1 })
+    );
+    renderPage();
+    const rows = await screen.findAllByRole("row");
+    const row = rows.find((r) => within(r).queryByText("失败"))!;
+    respond(ok({ lines: [] }));
+    await userEvent.click(row);
+    expect(await screen.findByText("失败原因：OpsNap 重启，运行中断")).toBeInTheDocument();
+    expect(screen.queryByText(/jobs\.detail/)).not.toBeInTheDocument();
+  });
+
+  it("英文界面的失败步骤与原因使用英文标点", async () => {
+    await i18n.changeLanguage("en");
+    try {
+      respondInitialLoad();
+      renderPage();
+      const rows = await screen.findAllByRole("row");
+      const failedRow = rows.find((r) => within(r).queryByText("Failed"))!;
+      respond(ok({ lines: [] }));
+      await userEvent.click(failedRow);
+      expect(await screen.findByText('Failed at "Verify": 坏归档头')).toBeInTheDocument();
+    } finally {
+      await i18n.changeLanguage("zh-CN");
+    }
+  });
+
+  it("统计中的数字与时间用等宽字体", async () => {
+    respondInitialLoad();
+    renderPage();
+    const region = await screen.findByRole("region", { name: "统计" });
+    expect(await within(region).findByText(/12 份快照/)).toHaveClass("font-mono");
+    expect(within(region).getByText(/18 成功 · 2 失败 · 成功率 90%/)).toHaveClass("font-mono");
+  });
+
+  it("运行结束后刷新统计；展开的运行中记录的日志随之刷新", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      // 按地址响应：轮询、日志与统计的请求顺序不固定
+      let job: JobItem = { ...baseJob, last_run: runningRun };
+      let runs = { items: [runningRun], total: 1 };
+      let jobStats = stats;
+      let lines = [{ time: Date.UTC(2026, 8, 28, 1, 30, 0), step: "export", message: "开始导出" }];
+      const routes: Record<string, () => unknown> = {
+        "/api/v1/jobs/1": () => ({ item: job }),
+        "/api/v1/jobs/1/stats": () => jobStats,
+        "/api/v1/storages": () => ({ items: [storageItem] }),
+        "/api/v1/jobs/schedule-preview": () => previewResponse,
+        "/api/v1/jobs/1/runs?page=1": () => runs,
+        "/api/v1/jobs/1/runs/202/log": () => ({ lines }),
+      };
+      fetchMock.mockImplementation((url: string) =>
+        Promise.resolve(routes[url] ? ok(routes[url]()) : fail(404, `unexpected ${url}`, 404))
+      );
+      renderPage();
+      const rows = await screen.findAllByRole("row");
+      const runningRow = rows.find((r) => within(r).queryByText("运行中"))!;
+      await userEvent.click(runningRow);
+      expect(await screen.findByText(/开始导出/)).toBeInTheDocument();
+
+      // 第一次轮询：仍在运行，展开的日志随之刷新
+      lines = [...lines, { time: Date.UTC(2026, 8, 28, 1, 30, 5), step: "export", message: "已导出 10 MB" }];
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+      });
+      expect(await screen.findByText(/已导出 10 MB/)).toBeInTheDocument();
+
+      // 第二次轮询：运行结束，统计随之刷新
+      const done: Run = { ...runningRun, status: "success", snapshot_id: "k9", finished_at: now() };
+      job = { ...baseJob, last_run: done };
+      runs = { items: [done], total: 1 };
+      jobStats = { ...stats, snapshot_count: 13 };
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+      });
+      const region = screen.getByRole("region", { name: "统计" });
+      expect(await within(region).findByText(/13 份快照/)).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("没有运行中的记录时也低频刷新：计划触发的运行开始后无需手动刷新", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      respondInitialLoad();
+      renderPage();
+      await screen.findByRole("button", { name: "立即执行" });
+
+      respond(ok({ item: { ...baseJob, last_run: runningRun } }), ok({ items: [runningRun, successRun], total: 46 }));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30000);
+      });
+      expect(await screen.findByRole("button", { name: "取消运行" })).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("运行中：立即执行换成取消运行，点击后请求取消接口并更新状态", async () => {
@@ -357,14 +469,14 @@ describe("任务详情页", () => {
     expect(await screen.findByText("已暂停")).toBeInTheDocument();
   });
 
-  it("运行中或排队中时自动刷新，状态落定后停止轮询", async () => {
+  it("运行中或排队中时自动刷新，状态落定后降为低频刷新", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       respondInitialLoad({ ...baseJob, last_run: runningRun });
       renderPage();
       await screen.findByRole("button", { name: "取消运行" });
 
-      respond(ok({ item: { ...baseJob, last_run: { ...runningRun, status: "success" } } }), ok(runsPage1));
+      respond(ok({ item: { ...baseJob, last_run: { ...runningRun, status: "success" } } }), ok(runsPage1), ok(stats));
       await act(async () => {
         await vi.advanceTimersByTimeAsync(3000);
       });

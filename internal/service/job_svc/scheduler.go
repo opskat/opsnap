@@ -33,9 +33,6 @@ const (
 	maintenanceTimeout = time.Hour
 	// maintenanceKey settings 表中记录存储最近一次完整维护时间（秒）的键前缀
 	maintenanceKey = "storage_full_maintenance_"
-
-	reasonStillRunning = "上一次仍在运行"
-	reasonRetryVoided  = "下一次计划时间已到，重试作废"
 )
 
 // pendingRetry 失败后等待中的重试：到 due 时以“重试 attempt/total”入队
@@ -245,7 +242,7 @@ func (s *Scheduler) fire(ctx context.Context, j *job_entity.Job, p time.Time, ki
 	run, err := defaultRunner.Enqueue(ctx, j.ID, t)
 	switch {
 	case errors.Is(err, ErrRunActive):
-		if _, err := defaultRunner.skip(ctx, j.ID, t, reasonStillRunning); err != nil {
+		if _, err := defaultRunner.skip(ctx, j.ID, t, job_entity.ReasonStillRunning); err != nil {
 			log.Error("记录跳过失败", zap.Error(err))
 		}
 	case err != nil:
@@ -268,7 +265,7 @@ func (s *Scheduler) voidRetry(ctx context.Context, jobID int64) {
 	if act == nil || act.Status != job_entity.RunQueued || act.Trigger != job_entity.TriggerRetry {
 		return
 	}
-	ok, err := defaultRunner.void(ctx, act.ID, reasonRetryVoided)
+	ok, err := defaultRunner.void(ctx, act.ID, job_entity.ReasonRetryVoided)
 	if err != nil {
 		logger.Ctx(ctx).Error("作废重试失败", zap.Int64("run_id", act.ID), zap.Error(err))
 		return
@@ -316,7 +313,7 @@ func (s *Scheduler) runRetries(ctx context.Context, now time.Time) time.Time {
 
 // afterRun 运行失败（含超时）后安排重试；取消、跳过、因 OpsNap 停止而中断的不重试
 func (s *Scheduler) afterRun(ctx context.Context, run *job_entity.Run) {
-	if run == nil || run.Status != job_entity.RunFailed || run.Reason == reasonInterrupted {
+	if run == nil || run.Status != job_entity.RunFailed || run.ReasonCode == job_entity.ReasonInterrupted {
 		return
 	}
 	s.mu.Lock()

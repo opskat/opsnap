@@ -224,19 +224,22 @@ func checkPGGlobals(_, tail []byte) error {
 	return nil
 }
 
-// tailBuffer 只保留最后 max 字节的并发安全缓冲
+// tailBuffer 只保留最后 max 字节的并发安全缓冲；String 在超出时注明省略了前面多少字节，
+// 并从第一个完整的行开始（避免半行，也避免被截断的秘密逃过去秘密）
 type tailBuffer struct {
-	mu  sync.Mutex
-	b   []byte
-	max int
+	mu      sync.Mutex
+	b       []byte
+	max     int
+	dropped int
 }
 
 func (t *tailBuffer) Write(p []byte) (int, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.b = append(t.b, p...)
-	if len(t.b) > t.max {
-		t.b = append(t.b[:0], t.b[len(t.b)-t.max:]...)
+	if over := len(t.b) - t.max; over > 0 {
+		t.dropped += over
+		t.b = append(t.b[:0], t.b[over:]...)
 	}
 	return len(p), nil
 }
@@ -247,5 +250,12 @@ func (t *tailBuffer) String() string {
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return string(t.b)
+	if t.dropped == 0 {
+		return string(t.b)
+	}
+	b, dropped := t.b, t.dropped
+	if i := bytes.IndexByte(b, '\n'); i >= 0 {
+		b, dropped = b[i+1:], dropped+i+1
+	}
+	return fmt.Sprintf("（省略了前面 %d 字节的错误输出）\n%s", dropped, b)
 }

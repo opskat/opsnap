@@ -27,6 +27,12 @@ func ListDatabases(ctx context.Context, typ dsconn.Type, conn *dsconn.Conn) ([]a
 	}
 }
 
+// ListOpenDatabases 用当前的库列表实现（ListDatabases，测试中可由 SetDatabaseLister 替换）列出已打开连接上的库，
+// 供备份运行时确认“整个实例”的范围与“指定数据库”是否仍存在
+func ListOpenDatabases(ctx context.Context, typ dsconn.Type, conn *dsconn.Conn) ([]api.Database, error) {
+	return defaultDataSource.databaseLister()(ctx, typ, conn)
+}
+
 // listMySQLDatabases 按库聚合全部表的 data_length + index_length，不含系统库；没有表的库数据量为 0
 func listMySQLDatabases(ctx context.Context, db *sql.DB) ([]api.Database, error) {
 	const query = `SELECT s.schema_name, CAST(COALESCE(SUM(t.data_length + t.index_length), 0) AS UNSIGNED)

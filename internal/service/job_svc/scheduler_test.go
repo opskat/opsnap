@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/opskat/opsnap/internal/model/entity/job_entity"
+	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/testdb"
 	"github.com/opskat/opsnap/internal/repository/job_repo"
 	"github.com/opskat/opsnap/internal/repository/setting_repo"
@@ -340,6 +341,7 @@ func TestSchedulerFires(t *testing.T) {
 		skip := runs[1]
 		assert.Equal(t, job_entity.RunSkipped, skip.Status)
 		assert.Equal(t, "上一次仍在运行", skip.Reason)
+		assert.Equal(t, "The previous run is still running", apiReasons(t, e.ctx, j.ID, code.LangEn)[skip.ID], "英文界面的原因为英文")
 		assert.Equal(t, job_entity.TriggerSchedule, skip.Trigger)
 		assert.Positive(t, skip.ScheduledAt)
 		assert.Equal(t, job_entity.RunRunning, runs[0].Status, "正在运行的不受影响")
@@ -459,6 +461,7 @@ func TestSchedulerRetry(t *testing.T) {
 		require.Len(t, runs, 3)
 		assert.Equal(t, job_entity.RunCanceled, runs[1].Status, "未开始的重试作废")
 		assert.NotEmpty(t, runs[1].Reason)
+		assert.Equal(t, "Retry voided: the next scheduled run is due", apiReasons(t, e.ctx, j.ID, code.LangEn)[runs[1].ID], "英文界面的原因为英文")
 		assert.Equal(t, job_entity.TriggerSchedule, runs[2].Trigger, "不是记为跳过，而是执行计划运行")
 		assert.Equal(t, job_entity.RunQueued, runs[2].Status)
 

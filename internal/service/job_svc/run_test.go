@@ -14,14 +14,18 @@ import (
 	"time"
 
 	"github.com/cago-frame/cago/pkg/gogo"
+	"github.com/cago-frame/cago/pkg/i18n"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	dsapi "github.com/opskat/opsnap/internal/api/datasource"
+	jobapi "github.com/opskat/opsnap/internal/api/job"
 	storageapi "github.com/opskat/opsnap/internal/api/storage"
 	"github.com/opskat/opsnap/internal/model/entity/channel_entity"
 	"github.com/opskat/opsnap/internal/model/entity/datasource_entity"
 	"github.com/opskat/opsnap/internal/model/entity/job_entity"
 	"github.com/opskat/opsnap/internal/model/entity/storage_entity"
+	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/dsconn"
 	"github.com/opskat/opsnap/internal/pkg/fakessh"
 	"github.com/opskat/opsnap/internal/pkg/kopiarepo"
@@ -136,7 +140,11 @@ func newRunEnv(t *testing.T) *runEnv {
 	SetDispatcher(func(int64) {})
 	e.conn = &fakeConnector{}
 	datasource_svc.SetConnector(e.conn)
+	// 假连接没有真实数据库：库列表由测试给出
+	origList := listDatabases
+	e.setDatabases("app", "reports", "postgres")
 	t.Cleanup(func() {
+		listDatabases = origList
 		datasource_svc.SetConnector(nil)
 		SetDispatcher(nil)
 		defaultRunner.setClock(nil)
@@ -198,6 +206,29 @@ func newRunEnv(t *testing.T) *runEnv {
 	e.tool("pg_dump", "pg_dump (PostgreSQL) 16.4", pgDumpOK)
 	e.tool("pg_dumpall", "pg_dumpall (PostgreSQL) 16.4", `printf -- '`+strings.ReplaceAll(globalsOut, "\n", `\n`)+`'`)
 	return e
+}
+
+// setDatabases 运行时从数据源列出的库
+func (e *runEnv) setDatabases(names ...string) {
+	listDatabases = func(context.Context, dsconn.Type, *dsconn.Conn) ([]dsapi.Database, error) {
+		out := make([]dsapi.Database, 0, len(names))
+		for _, n := range names {
+			out = append(out, dsapi.Database{Name: n})
+		}
+		return out, nil
+	}
+}
+
+// apiReasons 以指定的界面语言经接口读取任务的运行记录，返回 运行 ID → 原因
+func apiReasons(t *testing.T, ctx context.Context, jobID int64, lang string) map[int64]string {
+	t.Helper()
+	resp, err := Job().Runs(i18n.WithLanguage(ctx, lang), &jobapi.RunsRequest{ID: jobID, Page: 1})
+	require.NoError(t, err)
+	out := map[int64]string{}
+	for _, r := range resp.Items {
+		out[r.ID] = r.Reason
+	}
+	return out
 }
 
 // tool 写一个假工具：--version 时打印版本；否则记录参数，取出库名到 $db 后执行 body
@@ -486,6 +517,8 @@ func TestRunTimeout(t *testing.T) {
 	assert.Equal(t, job_entity.RunFailed, run.Status)
 	assert.Equal(t, "超时（超过 10 分钟）", run.Reason)
 	assert.Equal(t, job_entity.StepExport, run.FailedStep)
+	assert.Equal(t, "超时（超过 10 分钟）", apiReasons(t, e.ctx, e.job.ID, code.LangZhCN)[run.ID])
+	assert.Equal(t, "Timed out (exceeded 10 min)", apiReasons(t, e.ctx, e.job.ID, code.LangEn)[run.ID], "英文界面的原因为英文")
 	e.assertClean()
 	assert.Empty(t, e.snapshots(e.job.Ref()), "超时不形成快照")
 }
@@ -610,6 +643,90 @@ func TestRunRecover(t *testing.T) {
 	assert.Equal(t, "OpsNap 重启", get(queued.ID).Reason)
 	assert.Equal(t, job_entity.RunSuccess, get(done.ID).Status)
 	e.assertClean()
+
+	zh, en := apiReasons(t, e.ctx, e.job.ID, code.LangZhCN), apiReasons(t, e.ctx, e.job.ID, code.LangEn)
+	assert.Equal(t, "OpsNap 重启，运行中断", zh[running.ID])
+	assert.Equal(t, "OpsNap 重启", zh[queued.ID])
+	assert.Equal(t, "OpsNap restarted; the run was interrupted", en[running.ID], "英文界面的原因为英文")
+	assert.Equal(t, "OpsNap restarted", en[queued.ID], "英文界面的原因为英文")
+}
+
+// 准备步骤在连接数据源之前确认导出工具可用：大版本低于数据源（最近一次测试读到的版本）的 pg_dump、
+// 无法保证 TLS 模式的 MariaDB mysqldump 都在这一步失败（docs/specs/2026-09-27-backup-jobs.md「执行」第 1 步、「第 2 步」）
+func TestRunPrepareChecksToolVersion(t *testing.T) {
+	t.Run("pg_dump 大版本低于服务端", func(t *testing.T) {
+		e := newRunEnv(t)
+		e.ds.Version = "16.4 (Debian 16.4-1)"
+		require.NoError(t, datasource_repo.DataSource().Save(e.ctx, e.ds))
+		e.tool("pg_dump", "pg_dump (PostgreSQL) 15.2", pgDumpOK)
+		run := e.manual()
+		assert.Equal(t, job_entity.RunFailed, run.Status)
+		assert.Equal(t, job_entity.StepPrepare, run.FailedStep, "%s\n%s", run.Reason, logText(run))
+		assert.Contains(t, run.Reason, "15")
+		assert.Contains(t, run.Reason, "修复")
+		assert.Zero(t, e.conn.openCount(), "准备失败时不发起连接")
+		assert.Zero(t, e.ssh.AuthAttempts(), "准备失败时不连接跳板")
+		assert.Empty(t, e.argv("pg_dump"))
+		e.assertClean()
+	})
+
+	t.Run("MariaDB 的 mysqldump 无法保证数据源的 TLS 模式", func(t *testing.T) {
+		e := newRunEnv(t)
+		e.ds.Kind, e.ds.TLSMode, e.ds.Version = datasource_entity.KindMySQL, "require", "8.0.40"
+		require.NoError(t, datasource_repo.DataSource().Save(e.ctx, e.ds))
+		e.job.OptGlobals = false
+		require.NoError(t, job_repo.Job().Save(e.ctx, e.job))
+		e.tool("mysqldump", "mysqldump  Ver 10.19 Distrib 10.11.14-MariaDB, for debian-linux-gnu (x86_64)", "exit 0")
+		run := e.manual()
+		assert.Equal(t, job_entity.RunFailed, run.Status)
+		assert.Equal(t, job_entity.StepPrepare, run.FailedStep, "%s\n%s", run.Reason, logText(run))
+		assert.Contains(t, run.Reason, "TLS")
+		assert.Zero(t, e.conn.openCount(), "准备失败时不发起连接")
+		assert.Empty(t, e.argv("mysqldump"))
+		e.assertClean()
+	})
+}
+
+// “指定数据库”中的库在运行时不存在：本次运行失败并指出是哪个库，不启动导出工具
+// （docs/specs/2026-09-27-backup-jobs.md「第 2 步」）
+func TestRunMissingDatabase(t *testing.T) {
+	e := newRunEnv(t)
+	e.setDatabases("app", "postgres")
+	run := e.manual()
+	assert.Equal(t, job_entity.RunFailed, run.Status)
+	assert.Equal(t, job_entity.StepConnect, run.FailedStep, "%s\n%s", run.Reason, logText(run))
+	assert.Contains(t, run.Reason, "reports")
+	assert.NotContains(t, run.Reason, "app")
+	assert.Empty(t, e.argv("pg_dump"), "不启动导出工具")
+	assert.Empty(t, e.snapshots(e.job.Ref()))
+	e.assertClean()
+}
+
+// 运行刚登记为运行中、还没开始执行各步骤时收到取消：取消照常生效，不会因为还没有取消函数而崩溃
+func TestRunCancelRightAfterStart(t *testing.T) {
+	e := newRunEnv(t)
+	queued, err := Runs().Enqueue(e.ctx, e.job.ID, Trigger{Kind: job_entity.TriggerManual})
+	require.NoError(t, err)
+	_, _, ar, err := defaultRunner.begin(e.ctx, queued.ID)
+	require.NoError(t, err)
+	require.NotNil(t, ar)
+
+	var panicked any
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		defer func() { panicked = recover() }()
+		_, _ = Runs().Cancel(e.ctx, queued.ID)
+	}()
+	require.Eventually(t, func() bool { return ar.ctx.Err() != nil }, 5*time.Second, time.Millisecond, "取消作用到运行")
+	assert.ErrorIs(t, context.Cause(ar.ctx), errCanceled)
+	// 模拟执行随即结束
+	defaultRunner.mu.Lock()
+	delete(defaultRunner.active, queued.ID)
+	defaultRunner.mu.Unlock()
+	close(ar.done)
+	<-done
+	assert.Nil(t, panicked)
 }
 
 func TestRunNowFlag(t *testing.T) {

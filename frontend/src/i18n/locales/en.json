@@ -150,6 +150,8 @@
       "more": "More actions for {{name}}",
       "revealKey": "View key",
       "usedByJobs": "Used by {{count}} jobs",
+      "usedByJobs_one": "Used by {{count}} job",
+      "usedByJobs_other": "Used by {{count}} jobs",
       "deleteBlocked": "Still used by {{items}}, cannot delete"
     },
     "form": {
@@ -529,6 +531,8 @@
         "reprobe": "Reprobe",
         "reprobing": "Reprobing…",
         "usedByJobs": "Used by {{count}} jobs",
+        "usedByJobs_one": "Used by {{count}} job",
+        "usedByJobs_other": "Used by {{count}} jobs",
         "connection": {
           "title": "Connection",
           "type": "Type",
@@ -567,13 +571,17 @@
       },
       "scope": {
         "instance": "Whole instance",
-        "databases": "{{count}} databases"
+        "databases": "{{count}} databases",
+        "databases_one": "{{count}} database",
+        "databases_other": "{{count}} databases"
       },
       "enabled": "Enabled",
       "paused": "Paused",
       "nextRun": "Next {{time}}",
       "noRun": "Never run",
       "snapshotCount": "{{count}} snapshots",
+      "snapshotCount_one": "{{count}} snapshot",
+      "snapshotCount_other": "{{count}} snapshots",
       "exported": "Exported {{size}}",
       "runningFor": "Running for {{duration}}",
       "tookTime": "Took {{duration}}",
@@ -611,6 +619,8 @@
         "title": "Delete job \"{{name}}\"?",
         "hint": "The job and its run history are deleted together and cannot be recovered.",
         "deleteSnapshots": "Also delete this job's {{count}} snapshots",
+        "deleteSnapshots_one": "Also delete this job's {{count}} snapshot",
+        "deleteSnapshots_other": "Also delete this job's {{count}} snapshots",
         "confirm": "Delete"
       }
     },
@@ -670,6 +680,8 @@
         "instanceHint": "Databases are listed again on every run, so new ones are included automatically (system databases excluded).",
         "databasesHint": "Only the checked databases are backed up; a run fails if one of them no longer exists.",
         "instanceSummary": "{{count}} databases · about {{size}}",
+        "instanceSummary_one": "{{count}} database · about {{size}}",
+        "instanceSummary_other": "{{count}} databases · about {{size}}",
         "selectedSummary": "{{count}} selected · about {{size}}",
         "databasesFailed": "Could not read the database list: {{message}}",
         "noDatabases": "The data source has no databases to back up",
@@ -745,11 +757,14 @@
         "timezone": "Time zone",
         "nextRuns": "Next 3 runs",
         "nextRunsLoading": "Calculating…",
+        "previewFailed": "Could not calculate run times: {{message}}",
         "retentionTitle": "Retention",
         "retentionDays": "Keep every snapshot from the last N days",
         "retentionWeeks": "Older than that, keep the last one each week",
         "retentionMonths": "Keep the last one each month",
         "maxSnapshots": "Under this schedule, at most about {{count}} snapshots are kept",
+        "maxSnapshots_one": "Under this schedule, at most about {{count}} snapshot is kept",
+        "maxSnapshots_other": "Under this schedule, at most about {{count}} snapshots are kept",
         "alwaysKeepLatest": "The most recent successful snapshot of this job is always kept",
         "failureTitle": "On failure",
         "retries": "Retries on failure",
@@ -764,6 +779,8 @@
         "scopeInstance": "Whole instance",
         "scopeDatabases": "Selected databases ({{count}})",
         "excludeCount": "Excluding {{count}} tables",
+        "excludeCount_one": "Excluding {{count}} table",
+        "excludeCount_other": "Excluding {{count}} tables",
         "scheduleHourly": "Hourly at minute {{minute}}",
         "scheduleDaily": "Daily at {{time}}",
         "scheduleWeekly": "Weekly on {{weekdays}} at {{time}}",
@@ -777,6 +794,7 @@
         "sizeEstimate": "First run is a full backup; the source data of the selected databases is about {{size}}",
         "sizeNote": "It is usually smaller after export and compression.",
         "sizeUnavailable": "Could not estimate",
+        "sizeLoading": "Estimating…",
         "create": "Create job"
       },
       "errors": {
@@ -810,6 +828,7 @@
       "config": {
         "title": "Configuration",
         "location": "Location in repository",
+        "sourceWithKind": "{{name}} ({{kind}})",
         "schedule": "Schedule",
         "encryptionUnknown": "Unknown",
         "includedNone": "None"
@@ -842,11 +861,15 @@
         "prevPage": "Previous",
         "nextPage": "Next",
         "failedAt": "Failed at \"{{step}}\"",
+        "failedAtWithReason": "Failed at \"{{step}}\": {{reason}}",
+        "failedReason": "Failed: {{reason}}",
         "log": {
           "title": "Execution log",
           "loadFailed": "Couldn't load the log: {{message}}",
           "empty": "No log lines",
-          "omitted": "{{count}} lines omitted"
+          "omitted": "{{count}} lines omitted",
+          "omitted_one": "{{count}} line omitted",
+          "omitted_other": "{{count}} lines omitted"
         },
         "step": {
           "prepare": "Prepare",

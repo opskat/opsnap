@@ -256,6 +256,26 @@ func Start(ctx context.Context, dir string, src Source, opts Options) (_ *Sessio
 	return s, nil
 }
 
+// CheckTools 不连接数据源，只检查这次导出需要的工具：能否在 PATH → tools.dir 中找到并读出版本；
+// PostgreSQL 的 pg_dump / pg_dumpall 大版本不低于 serverVersion（数据源最近一次测试时读到的版本，未知时为空，不比较）；
+// MariaDB 的 mysqldump 无法保证的 TLS 模式。运行的“准备”步骤用它在发起连接之前失败；
+// 连接后 Start 仍按实际读到的服务端版本再检查一次
+func CheckTools(ctx context.Context, typ dsconn.Type, tlsMode dsconn.TLSMode, serverVersion string, opts Options) error {
+	src := Source{Config: dsconn.Config{Type: typ, TLS: dsconn.TLSConfig{Mode: tlsMode}}, ServerVersion: serverVersion}
+	// 版本低于服务端的提示由 Start 写进日志，这里不重复
+	s := &Session{}
+	var p planner
+	switch typ {
+	case dsconn.TypeMySQL:
+		p = &mysqlPlan{src: src, opts: opts}
+	case dsconn.TypePostgreSQL:
+		p = &postgresPlan{src: src, opts: opts}
+	default:
+		return fmt.Errorf("%w：不支持导出 %q 类型的数据源", ErrInvalidOptions, typ)
+	}
+	return p.tools(ctx, s)
+}
+
 // planner 一种数据源的导出步骤
 type planner interface {
 	// tools 查找导出工具并检查版本与 TLS 支持，不创建任何文件

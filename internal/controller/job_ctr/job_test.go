@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	authapi "github.com/opskat/opsnap/internal/api/auth"
+	dsapi "github.com/opskat/opsnap/internal/api/datasource"
 	api "github.com/opskat/opsnap/internal/api/job"
 	storageapi "github.com/opskat/opsnap/internal/api/storage"
 	tokenapi "github.com/opskat/opsnap/internal/api/token"
@@ -26,6 +27,7 @@ import (
 	"github.com/opskat/opsnap/internal/model/entity/datasource_entity"
 	"github.com/opskat/opsnap/internal/model/entity/storage_entity"
 	"github.com/opskat/opsnap/internal/pkg/code"
+	"github.com/opskat/opsnap/internal/pkg/dsconn"
 	"github.com/opskat/opsnap/internal/pkg/kopiarepo"
 	"github.com/opskat/opsnap/internal/pkg/probe"
 	"github.com/opskat/opsnap/internal/pkg/testdb"
@@ -74,13 +76,20 @@ func setupTest(t *testing.T) *env {
 	storage_svc.SetDataDir(t.TempDir())
 	t.Cleanup(func() { job_svc.SetActiveRunChecker(nil) })
 	// 运行在后台执行：先等它们结束，再恢复连接器并释放数据库
-	t.Cleanup(func() { datasource_svc.SetConnector(nil) })
+	t.Cleanup(func() {
+		datasource_svc.SetConnector(nil)
+		datasource_svc.SetDatabaseLister(nil)
+	})
 	t.Cleanup(gogo.Wait)
 	e := &env{ctx: ctx, bin: t.TempDir()}
 	t.Setenv("PATH", e.bin)
 	probe.SetToolsDir("")
 	job_svc.SetWorkDir(filepath.Join(t.TempDir(), "runs"))
 	datasource_svc.SetConnector(fakeConnector{})
+	// 假连接没有真实数据库：运行时列出的库由测试给出
+	datasource_svc.SetDatabaseLister(func(context.Context, dsconn.Type, *dsconn.Conn) ([]dsapi.Database, error) {
+		return []dsapi.Database{{Name: "app"}, {Name: "reports"}}, nil
+	})
 	e.tool(pgDumpOK)
 
 	setupCode, _ := auth_svc.Auth().PrepareSetupCode(ctx)

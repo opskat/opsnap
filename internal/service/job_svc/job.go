@@ -131,7 +131,7 @@ func (st settings) apply(j *job_entity.Job) {
 	j.Retries, j.RetryInterval, j.Timeout = st.failure.Retries, st.failure.RetryInterval, st.failure.Timeout
 }
 
-func (s *jobSvc) toItem(j *job_entity.Job, ds *datasource_entity.DataSource, st *storage_entity.Storage, last *job_entity.Run) *api.Item {
+func (s *jobSvc) toItem(ctx context.Context, j *job_entity.Job, ds *datasource_entity.DataSource, st *storage_entity.Storage, last *job_entity.Run) *api.Item {
 	item := &api.Item{
 		ID: j.ID, Name: j.Name, Type: j.Type,
 		DataSourceID: j.DataSourceID, StorageID: j.StorageID, Prefix: j.Prefix,
@@ -147,7 +147,7 @@ func (s *jobSvc) toItem(j *job_entity.Job, ds *datasource_entity.DataSource, st 
 		Enabled:       j.Enabled,
 		CreatedAt:     j.Createtime,
 		UpdatedAt:     j.Updatetime,
-		LastRun:       defaultRunner.toRun(last),
+		LastRun:       defaultRunner.toRun(ctx, last),
 		SnapshotCount: j.SnapshotCount,
 	}
 	if ds != nil {
@@ -177,7 +177,7 @@ func (s *jobSvc) item(ctx context.Context, j *job_entity.Job) (*api.Item, error)
 	if err != nil {
 		return nil, err
 	}
-	return s.toItem(j, ds, st, last), nil
+	return s.toItem(ctx, j, ds, st, last), nil
 }
 
 // lastRun 任务最近一次运行，没有时为 nil
@@ -280,7 +280,7 @@ func (s *jobSvc) List(ctx context.Context, _ *api.ListRequest) (*api.ListRespons
 	}
 	items := make([]*api.Item, 0, len(jobs))
 	for _, j := range jobs {
-		items = append(items, s.toItem(j, dss[j.DataSourceID], sts[j.StorageID], last[j.ID]))
+		items = append(items, s.toItem(ctx, j, dss[j.DataSourceID], sts[j.StorageID], last[j.ID]))
 	}
 	return &api.ListResponse{Items: items}, nil
 }
@@ -341,7 +341,7 @@ func (s *jobSvc) Create(ctx context.Context, req *api.CreateRequest) (*api.Creat
 	if err != nil {
 		return nil, err
 	}
-	return &api.CreateResponse{Item: s.toItem(j, ds, st, last)}, nil
+	return &api.CreateResponse{Item: s.toItem(ctx, j, ds, st, last)}, nil
 }
 
 func (s *jobSvc) Update(ctx context.Context, req *api.UpdateRequest) (*api.UpdateResponse, error) {

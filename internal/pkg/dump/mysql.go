@@ -38,9 +38,6 @@ func (p *mysqlPlan) tools(ctx context.Context, s *Session) error {
 		return fmt.Errorf("%w：主控端的 mysqldump 来自 MariaDB（%s），在服务端不支持 TLS 时会退回明文，且只能连同主机名一起校验证书，"+
 			"无法保证数据源的 TLS 模式 %q。修复：在 PATH 或 tools.dir 中提供 MySQL 官方的 mysqldump", ErrUnsupportedTLS, t.raw, mode)
 	}
-	if p.mariadb {
-		return nil
-	}
 	if smaj, smin, ok := probe.ParseMajorMinor(p.src.ServerVersion); ok && (t.major < smaj || t.major == smaj && t.minor < smin) {
 		s.logf("mysqldump 版本 %d.%d 低于服务端 %d.%d，照常导出；如果导出失败，请在 PATH 或 tools.dir 中提供不低于服务端版本的 mysqldump",
 			t.major, t.minor, smaj, smin)

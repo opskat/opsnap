@@ -158,7 +158,11 @@ export function StepConfirm({
             </Choice>
           </div>
           <p className="text-xs text-muted-foreground">
-            <span>{sizeText() ?? t("jobs.wizard.confirm.sizeUnavailable")}</span>{" "}
+            <span className="font-mono">
+              {dbs.status === "loading"
+                ? t("jobs.wizard.confirm.sizeLoading")
+                : (sizeText() ?? t("jobs.wizard.confirm.sizeUnavailable"))}
+            </span>{" "}
             <span>{t("jobs.wizard.confirm.sizeNote")}</span>
           </p>
         </section>

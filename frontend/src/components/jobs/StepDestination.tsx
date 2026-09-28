@@ -95,7 +95,10 @@ export function StepDestination({
   return (
     <div className="flex flex-col gap-6">
       <section className="flex flex-col gap-2.5">
-        <SectionTitle title={t("jobs.wizard.destination.storage")} hint={t("jobs.wizard.destination.storageHint")} />
+        <SectionTitle
+          title={t("jobs.wizard.destination.storage")}
+          hint={locked ? t("jobs.wizard.destination.lockedHint") : t("jobs.wizard.destination.storageHint")}
+        />
         {list()}
         <FieldError>{errors.storage}</FieldError>
       </section>

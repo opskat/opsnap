@@ -198,6 +198,16 @@ const (
 	JobRunFinished
 	// JobStatsStorageUnreadable 只用于统计响应中的提示：无法读取存储中的快照
 	JobStatsStorageUnreadable
+	// JobReason* 运行记录的固定原因（job_entity.Run.ReasonCode），只用于运行记录的显示
+	JobReasonStillRunning
+	JobReasonRetryVoided
+	JobReasonInterrupted
+	JobReasonRestart
+	JobReasonTimeout
+	// JobDuration* 时长的描述，用于 JobReasonTimeout
+	JobDurationMinutes
+	JobDurationHours
+	JobDurationHoursMinutes
 )
 
 func init() {

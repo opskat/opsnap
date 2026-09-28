@@ -22,8 +22,8 @@ const (
 	recentRuns = 30
 )
 
-// toRun 转为响应；运行中的记录带实时的已导出量与已运行时间
-func (r *runner) toRun(run *job_entity.Run) *api.Run {
+// toRun 转为响应（固定原因按 ctx 的界面语言显示）；运行中的记录带实时的已导出量与已运行时间
+func (r *runner) toRun(ctx context.Context, run *job_entity.Run) *api.Run {
 	if run == nil {
 		return nil
 	}
@@ -31,7 +31,7 @@ func (r *runner) toRun(run *job_entity.Run) *api.Run {
 		RetryAttempt: run.RetryAttempt, RetryTotal: run.RetryTotal, ScheduledAt: run.ScheduledAt,
 		CreatedAt: run.Createtime, StartedAt: run.StartedAt / 1000, FinishedAt: run.FinishedAt / 1000,
 		ExportedBytes: run.ExportedBytes, UploadedBytes: run.UploadedBytes, SnapshotID: run.SnapshotID,
-		FailedStep: run.FailedStep, Reason: run.Reason}
+		FailedStep: run.FailedStep, Reason: run.DisplayReason(ctx)}
 	switch {
 	case run.FinishedAt > 0 && run.StartedAt > 0:
 		out.DurationMs = run.FinishedAt - run.StartedAt
@@ -70,7 +70,7 @@ func (s *jobSvc) RunNow(ctx context.Context, req *api.RunNowRequest) (*api.RunNo
 		return nil, err
 	}
 	defaultRunner.dispatchRun(run.ID)
-	return &api.RunNowResponse{Run: defaultRunner.toRun(run)}, nil
+	return &api.RunNowResponse{Run: defaultRunner.toRun(ctx, run)}, nil
 }
 
 func (s *jobSvc) CancelRun(ctx context.Context, req *api.CancelRunRequest) (*api.CancelRunResponse, error) {
@@ -89,7 +89,7 @@ func (s *jobSvc) CancelRun(ctx context.Context, req *api.CancelRunRequest) (*api
 	case err != nil:
 		return nil, err
 	}
-	return &api.CancelRunResponse{Run: defaultRunner.toRun(run)}, nil
+	return &api.CancelRunResponse{Run: defaultRunner.toRun(ctx, run)}, nil
 }
 
 func (s *jobSvc) Runs(ctx context.Context, req *api.RunsRequest) (*api.RunsResponse, error) {
@@ -103,7 +103,7 @@ func (s *jobSvc) Runs(ctx context.Context, req *api.RunsRequest) (*api.RunsRespo
 	}
 	items := make([]*api.Run, 0, len(rows))
 	for _, run := range rows {
-		items = append(items, defaultRunner.toRun(run))
+		items = append(items, defaultRunner.toRun(ctx, run))
 	}
 	return &api.RunsResponse{Items: items, Total: total}, nil
 }
@@ -137,7 +137,7 @@ func (s *jobSvc) Stats(ctx context.Context, req *api.StatsRequest) (*api.StatsRe
 	if err != nil {
 		return nil, err
 	}
-	resp.LastSuccess = defaultRunner.toRun(last)
+	resp.LastSuccess = defaultRunner.toRun(ctx, last)
 	recent, err := job_repo.Run().RecentFinished(ctx, j.ID, recentRuns)
 	if err != nil {
 		return nil, err
