@@ -26,8 +26,9 @@ func currentToolsDir() string {
 	return v
 }
 
-// toolPath 先在 PATH 中查找 name，PATH 中找不到时在 tools.dir 中查找；找到时返回可执行文件的路径
-func toolPath(name string) (string, bool) {
+// ToolPath 先在 PATH 中查找 name，PATH 中找不到时在 tools.dir 中查找；找到时返回可执行文件的路径。
+// 探测与备份执行使用同一查找顺序
+func ToolPath(name string) (string, bool) {
 	if p, err := exec.LookPath(name); err == nil {
 		return p, true
 	}
@@ -48,6 +49,9 @@ var versionRe = regexp.MustCompile(`(\d+)\.(\d+)(?:\.(\d+))?`)
 
 // distribRe 旧版 MySQL 客户端的 --version 输出（如 "mysqldump  Ver 10.13 Distrib 5.7.44"）中客户端的版本号
 var distribRe = regexp.MustCompile(`Distrib\s+(\d+)\.(\d+)`)
+
+// ParseMajorMinor 解析服务端版本或工具 --version 输出中的主次版本号，规则同能力探测
+func ParseMajorMinor(text string) (major, minor int, ok bool) { return parseMajorMinor(text) }
 
 // parseMajorMinor 解析版本号文本（如服务端版本、工具 --version 输出）中的主次版本号；
 // 有 Distrib 时取它之后的版本号，Ver 之后的只是工具自身的版本
@@ -78,19 +82,19 @@ type toolStatus struct {
 
 // lookupTool 查找 name 并执行 --version 解析版本号
 func lookupTool(ctx context.Context, name string) toolStatus {
-	path, ok := toolPath(name)
+	path, ok := ToolPath(name)
 	if !ok {
 		return toolStatus{Found: false}
 	}
-	major, minor, raw, err := toolVersion(ctx, path)
+	major, minor, raw, err := ToolVersion(ctx, path)
 	if err != nil {
 		return toolStatus{Found: true, Err: err}
 	}
 	return toolStatus{Found: true, Major: major, Minor: minor, Raw: raw}
 }
 
-// toolVersion 执行 `<path> --version` 并解析首个 x.y[.z] 版本号
-func toolVersion(ctx context.Context, path string) (major, minor int, raw string, err error) {
+// ToolVersion 执行 `<path> --version` 并解析版本号（有 Distrib 时取其后的客户端版本），raw 为原始输出
+func ToolVersion(ctx context.Context, path string) (major, minor int, raw string, err error) {
 	out, err := exec.CommandContext(ctx, path, "--version").Output()
 	if err != nil {
 		return 0, 0, "", err

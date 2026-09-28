@@ -86,3 +86,9 @@ func TestLoadFindsRepoEnvFile(t *testing.T) {
 	assert.Equal(t, "from-env", e.Get("TEST_ENV_HOST"))
 	assert.Empty(t, e.Get("TEST_ENV_PG_PORT"))
 }
+
+func TestTempDBName(t *testing.T) {
+	a, b := TempDBName(t), TempDBName(t)
+	assert.Regexp(t, `^opsnap_it_[0-9a-f]{12}$`, a)
+	assert.NotEqual(t, a, b, "每次调用得到不同的名字")
+}

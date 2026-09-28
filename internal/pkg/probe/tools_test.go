@@ -29,7 +29,7 @@ func TestToolPathFindsInPATH(t *testing.T) {
 	t.Setenv("PATH", dir)
 	SetToolsDir("")
 
-	path, ok := toolPath("mysqldump")
+	path, ok := ToolPath("mysqldump")
 	require.True(t, ok)
 	assert.Equal(t, filepath.Join(dir, "mysqldump"), path)
 }
@@ -41,7 +41,7 @@ func TestToolPathFallsBackToToolsDir(t *testing.T) {
 	SetToolsDir(toolsDirPath)
 	t.Cleanup(func() { SetToolsDir("") })
 
-	path, ok := toolPath("pg_dump")
+	path, ok := ToolPath("pg_dump")
 	require.True(t, ok)
 	assert.Equal(t, filepath.Join(toolsDirPath, "pg_dump"), path)
 }
@@ -55,7 +55,7 @@ func TestToolPathPATHTakesPrecedenceOverToolsDir(t *testing.T) {
 	SetToolsDir(toolsDirPath)
 	t.Cleanup(func() { SetToolsDir("") })
 
-	path, ok := toolPath("mysqldump")
+	path, ok := ToolPath("mysqldump")
 	require.True(t, ok)
 	assert.Equal(t, filepath.Join(pathDir, "mysqldump"), path)
 }
@@ -64,7 +64,7 @@ func TestToolPathNotFound(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	SetToolsDir("")
 
-	_, ok := toolPath("mysqldump")
+	_, ok := ToolPath("mysqldump")
 	assert.False(t, ok)
 }
 
@@ -72,7 +72,7 @@ func TestToolPathToolsDirUnconfigured(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	SetToolsDir("")
 
-	_, ok := toolPath("pg_dump")
+	_, ok := ToolPath("pg_dump")
 	assert.False(t, ok)
 }
 
@@ -80,7 +80,7 @@ func TestToolVersionParsesLeadingVersion(t *testing.T) {
 	dir := t.TempDir()
 	path := writeFakeTool(t, dir, "mysqldump", "mysqldump  Ver 8.0.40 for Linux on x86_64")
 
-	major, minor, raw, err := toolVersion(context.Background(), path)
+	major, minor, raw, err := ToolVersion(context.Background(), path)
 	require.NoError(t, err)
 	assert.Equal(t, 8, major)
 	assert.Equal(t, 0, minor)
@@ -92,7 +92,7 @@ func TestToolVersionPrefersDistrib(t *testing.T) {
 	dir := t.TempDir()
 	path := writeFakeTool(t, dir, "mysqldump", "mysqldump  Ver 10.13 Distrib 5.7.44, for Linux (x86_64)")
 
-	major, minor, _, err := toolVersion(context.Background(), path)
+	major, minor, _, err := ToolVersion(context.Background(), path)
 	require.NoError(t, err)
 	assert.Equal(t, 5, major)
 	assert.Equal(t, 7, minor)
@@ -102,6 +102,6 @@ func TestToolVersionUnparseable(t *testing.T) {
 	dir := t.TempDir()
 	path := writeFakeTool(t, dir, "mysqldump", "not a version string")
 
-	_, _, _, err := toolVersion(context.Background(), path)
+	_, _, _, err := ToolVersion(context.Background(), path)
 	assert.Error(t, err)
 }
