@@ -52,7 +52,7 @@ type Storage struct {
 	Name string `json:"name"`
 	// Kind local / s3
 	Kind string `json:"kind"`
-	// Location 显示用的位置，与存储列表相同（本地为路径，S3 为 Endpoint/Bucket/前缀）
+	// Location 显示用的位置，与存储列表相同（本地为路径，S3 为 s3://<bucket>/<前缀>）
 	Location string `json:"location"`
 	// Path 本地目录的路径；S3 为空
 	Path string `json:"path"`

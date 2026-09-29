@@ -109,6 +109,10 @@ func (s *jobSvc) Runs(ctx context.Context, req *api.RunsRequest) (*api.RunsRespo
 	return &api.RunsResponse{Items: items, Total: total}, nil
 }
 
+func (s *jobSvc) RunView(ctx context.Context, run *job_entity.Run) *api.Run {
+	return defaultRunner.toRun(ctx, run)
+}
+
 func (s *jobSvc) RunLog(ctx context.Context, req *api.RunLogRequest) (*api.RunLogResponse, error) {
 	if _, err := s.find(ctx, req.ID); err != nil {
 		return nil, err
