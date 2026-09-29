@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -263,5 +265,47 @@ func TestJobRunsPagination(t *testing.T) {
 		assert.Empty(t, e.runs(t, item.ID, 3).Items)
 		// 极大的页码不能因为偏移量溢出而回到第 1 页
 		assert.Empty(t, e.runs(t, item.ID, 1<<62).Items, "超出范围的页码没有记录")
+	})
+}
+
+// 运行记录的失败原因与执行日志按请求的 Accept-Language 显示：OpsNap 自己的文字随语言变化，
+// 导出工具的错误输出原样保留且去掉秘密（docs/specs/2026-09-27-backup-jobs.md「界面」）
+func TestJobRunMessagesFollowAcceptLanguage(t *testing.T) {
+	e := setupTest(t)
+	e.tool(`echo 'pg_dump: error: query failed: ERROR:  permission denied for table secret (pw=` + pgPassword + `)' >&2; exit 1`)
+	item := e.create(t, e.pgCreate("权限不足", "pg/denied"))
+	require.NoError(t, e.do(&api.RunNowRequest{ID: item.ID}, &api.RunNowResponse{}))
+	run := e.waitFinished(t, item.ID)
+	require.Equal(t, job_entity.RunFailed, run.Status)
+	raw := "pg_dump: error: query failed: ERROR:  permission denied for table secret (pw=******)"
+	chinese := regexp.MustCompile(`[\p{Han}\x{3000}-\x{303F}\x{FF00}-\x{FFEF}“”]`)
+
+	read := func(lang string) (string, string) {
+		runs := &api.RunsResponse{}
+		require.NoError(t, e.doLang(lang, &api.RunsRequest{ID: item.ID, Page: 1}, runs))
+		require.Len(t, runs.Items, 1)
+		lg := &api.RunLogResponse{}
+		require.NoError(t, e.doLang(lang, &api.RunLogRequest{ID: item.ID, RunID: run.ID}, lg))
+		var b strings.Builder
+		for _, l := range lg.Lines {
+			b.WriteString(l.Message + "\n")
+		}
+		return runs.Items[0].Reason, b.String()
+	}
+
+	convey.Convey("Accept-Language: en 时原因与日志为英文，原文保留", t, func() {
+		reason, log := read("en-US,en;q=0.9")
+		assert.Contains(t, reason, raw)
+		assert.Contains(t, reason, "exit code 1")
+		assert.False(t, chinese.MatchString(reason), reason)
+		assert.False(t, chinese.MatchString(log), log)
+		assert.Contains(t, log, raw)
+		assert.NotContains(t, reason+log, pgPassword)
+	})
+	convey.Convey("Accept-Language: zh-CN 时为中文，与原来一致", t, func() {
+		reason, log := read("zh-CN,zh;q=0.9")
+		assert.Equal(t, "数据源账号缺少权限：pg_dump 失败（退出码 1）: "+raw, reason)
+		assert.Contains(t, log, "检查存储、数据源与导出工具")
+		assert.NotContains(t, reason+log, pgPassword)
 	})
 }

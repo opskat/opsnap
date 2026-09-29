@@ -20,6 +20,7 @@ func RunMigrations(db *gorm.DB) error {
 		t20260928Jobs,
 		t20260928JobRuns,
 		t20260928JobRunReasonCode,
+		t20260929JobRunReasonEn,
 	)
 }
 

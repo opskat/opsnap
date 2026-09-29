@@ -2,11 +2,12 @@ package dump
 
 import (
 	"context"
-	"fmt"
 	"net/url"
 	"strings"
 
+	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/dsconn"
+	"github.com/opskat/opsnap/internal/pkg/l10n"
 	"github.com/opskat/opsnap/internal/pkg/probe"
 )
 
@@ -32,13 +33,12 @@ func (p *postgresPlan) tools(ctx context.Context, _ *Session) error {
 
 // pgTool 查找工具；大版本低于服务端时无法导出
 func pgTool(ctx context.Context, name, server string) (*toolInfo, error) {
-	t, err := findTool(ctx, name, "PostgreSQL 客户端")
+	t, err := findTool(ctx, name, l10n.New(code.DumpPkgPostgreSQL))
 	if err != nil {
 		return nil, err
 	}
 	if smaj, _, ok := probe.ParseMajorMinor(server); ok && t.major < smaj {
-		return nil, fmt.Errorf("%w：%s 大版本 %d 低于服务端 %d。修复：在主控端安装 PostgreSQL %d 或更新版本的客户端，放在 PATH 或 tools.dir 中",
-			ErrToolVersion, name, t.major, smaj, smaj)
+		return nil, l10n.Errorf(code.DumpPGToolTooOld, ErrToolVersion, name, t.major, smaj, smaj)
 	}
 	return t, nil
 }
@@ -47,7 +47,7 @@ func (p *postgresPlan) prepare(ctx context.Context, s *Session) error {
 	cfg := p.src.Config
 	// 密码文件一行一条，没有办法表示换行
 	if strings.ContainsAny(cfg.Password, "\r\n") {
-		return fmt.Errorf("%w：密码含换行符，无法写入 pg_dump 的密码文件", ErrInvalidOptions)
+		return l10n.Errorf(code.DumpPGPasswordNewline, ErrInvalidOptions)
 	}
 	pass, err := s.writeSecret("pgpass", []byte("*:*:*:*:"+pgpassEscape(cfg.Password)+"\n"))
 	if err != nil {
@@ -168,7 +168,7 @@ func (p *postgresPlan) matchIn(ctx context.Context, db string, rules []string, m
 		err := conn.QueryRowContext(ctx, "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "+
 			"WHERE n.nspname = $1 AND c.relname = $2 AND c.relkind IN ('r', 'p', 'v', 'm', 'f')", schema, table).Scan(&n)
 		if err != nil {
-			return fmt.Errorf("检查排除规则 %s: %w", ex, err)
+			return l10n.Errorf(code.DumpCheckExclude, ex, err)
 		}
 		matched[ex] = n > 0
 	}

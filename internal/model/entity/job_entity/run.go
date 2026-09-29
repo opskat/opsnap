@@ -61,9 +61,11 @@ type Run struct {
 	UploadedBytes int64 `gorm:"column:uploaded_bytes"`
 	// SnapshotID 仅成功
 	SnapshotID string `gorm:"column:snapshot_id"`
-	// FailedStep、Reason 仅失败（Reason 已去掉秘密）；跳过与被重启取消时 Reason 为原因
+	// FailedStep、Reason 仅失败（Reason 已去掉秘密）；跳过与被重启取消时 Reason 为原因。
+	// Reason 为中文，ReasonEn 为同一原因的英文（其中导出工具与数据库的原文不翻译）；ReasonEn 为空时两种语言都显示 Reason
 	FailedStep string `gorm:"column:failed_step"`
 	Reason     string `gorm:"column:reason"`
+	ReasonEn   string `gorm:"column:reason_en"`
 	// ReasonCode OpsNap 给出的固定原因（见 SetFixedReason），接口按界面语言显示；其余原因为空，Reason 原样显示
 	ReasonCode string `gorm:"column:reason_code"`
 	// Log 执行日志（LogLine 的 JSON 数组）
@@ -80,10 +82,20 @@ func (r *Run) Active() bool { return r.Status == RunQueued || r.Status == RunRun
 // LogLine 执行日志的一行；Omitted 大于 0 时是省略标记
 type LogLine struct {
 	// Time 毫秒
-	Time    int64  `json:"time"`
-	Step    string `json:"step"`
-	Message string `json:"message"`
-	Omitted int    `json:"omitted,omitempty"`
+	Time int64  `json:"time"`
+	Step string `json:"step"`
+	// Message 中文；MessageEn 为英文，与中文相同或更早的记录中没有时为空
+	Message   string `json:"message"`
+	MessageEn string `json:"message_en,omitempty"`
+	Omitted   int    `json:"omitted,omitempty"`
+}
+
+// Text 按 ctx 的界面语言显示这一行
+func (l LogLine) Text(ctx context.Context) string {
+	if l.MessageEn != "" && code.Lang(ctx) == code.LangEn {
+		return l.MessageEn
+	}
+	return l.Message
 }
 
 // LogLines 解析保存的执行日志
@@ -126,14 +138,26 @@ func ReasonText(ctx context.Context, reasonCode string) (text string, ok bool) {
 
 // SetFixedReason 记录固定原因：ReasonCode 供接口按界面语言显示，Reason 同时保存中文原文（写进运行日志）
 func (r *Run) SetFixedReason(reasonCode string) {
-	r.ReasonCode = reasonCode
+	r.ReasonCode, r.ReasonEn = reasonCode, ""
 	r.Reason, _ = ReasonText(i18n.WithLanguage(context.Background(), code.LangZhCN), reasonCode)
 }
 
-// DisplayReason 按 ctx 的语言给出的原因：固定原因取对应语言的文案，其余为原文
+// SetReason 记录其余的原因：中文与英文（已去掉秘密）
+func (r *Run) SetReason(zh, en string) {
+	r.ReasonCode, r.Reason, r.ReasonEn = "", zh, en
+	if en == zh {
+		r.ReasonEn = ""
+	}
+}
+
+// DisplayReason 按 ctx 的语言给出的原因：固定原因取对应语言的文案，其余取对应语言的文字
+// （更早的记录只有中文时显示中文）
 func (r *Run) DisplayReason(ctx context.Context) string {
 	if text, ok := ReasonText(ctx, r.ReasonCode); ok {
 		return text
+	}
+	if r.ReasonEn != "" && code.Lang(ctx) == code.LangEn {
+		return r.ReasonEn
 	}
 	return r.Reason
 }

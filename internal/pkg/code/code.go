@@ -2,13 +2,20 @@
 // 新增错误码时必须同时在 zhCN 与 en 中补充文案，code_test 会检查两者一致。
 package code
 
-import "github.com/cago-frame/cago/pkg/i18n"
+import (
+	"context"
+
+	"github.com/cago-frame/cago/pkg/i18n"
+)
 
 // 语言标识，与 cago i18n 的 DefaultLang 保持一致
 const (
 	LangZhCN = "zh-cn"
 	LangEn   = "en"
 )
+
+// Lang ctx 的界面语言：LangZhCN 或 LangEn（未设置时为默认语言 LangZhCN）
+func Lang(ctx context.Context) string { return i18n.T(ctx, Language) }
 
 // 通用
 const (
@@ -208,6 +215,182 @@ const (
 	JobDurationMinutes
 	JobDurationHours
 	JobDurationHoursMinutes
+)
+
+// 运行记录（失败原因、执行日志）中由 OpsNap 生成的文字，只用于显示：由 internal/pkg/l10n 在显示时按查看者的
+// 界面语言拼出，导出工具与数据库的原文作为参数原样代入
+const (
+	// Language 当前界面语言的标识（LangZhCN、LangEn），见 Lang
+	Language = iota + 10800
+	// ListSep 列表分隔符
+	ListSep
+	// WrapColon “原因: 详情”（半角冒号）
+	WrapColon
+	// WrapFullColon “原因：详情”（中文为全角冒号）
+	WrapFullColon
+	// RunLog* 运行日志与失败原因中 OpsNap 自己的文字（job_svc）
+	RunLogPrepare
+	RunStorageMissing
+	RunStorageNotOK
+	RunDataSourceMissing
+	RunHostKeyChanged
+	RunLogToolPath
+	RunOpenStorageFailed
+	RunLogStorageOpened
+	RunLogConnecting
+	RunConnectFailed
+	RunLogConnected
+	RunListDatabasesFailed
+	RunNoDatabases
+	RunMissingDatabases
+	RunLogDatabases
+	RunStartDumpFailed
+	RunLogForwarding
+	RunLogExporting
+	RunLogExportChecked
+	RunLogFileSize
+	RunLogSnapshotVerified
+	RunLogListSnapshotsFailed
+	RunLogRetention
+	RunLogDeleteFailed
+	RunLogDeleted
+	RunLogMaintainFailed
+	RunLogMaintained
+	RunLogCanceled
+	RunLogAborted
+	// RunReasonEllipsis 过长的失败原因中省略部分的标记
+	RunReasonEllipsis
+	// Dump* 导出包（internal/pkg/dump）的错误与日志
+	DumpErrInvalidOptions
+	DumpErrToolNotFound
+	DumpErrToolVersion
+	DumpErrUnsupportedTLS
+	DumpErrPrivilege
+	DumpErrIncomplete
+	DumpErrClosed
+	DumpToolFailed
+	DumpStderrOmitted
+	DumpViaChannelFailed
+	DumpUnsupportedType
+	DumpNoDialer
+	DumpNoDatabases
+	DumpEmptyDatabase
+	DumpGlobalsPGOnly
+	DumpMySQLOnlyOptions
+	DumpExcludeFormat
+	DumpExcludeFormatMySQL
+	DumpExcludeFormatPG
+	DumpToolMissing
+	DumpPkgMySQL
+	DumpPkgPostgreSQL
+	DumpToolVersionUnknown
+	DumpConnect
+	DumpNoSystemCA
+	DumpStartTool
+	DumpReadOutput
+	DumpGlobalsSuperuser
+	DumpIncompleteMySQL
+	DumpIncompletePGArchive
+	DumpIncompletePGGlobals
+	DumpMariaDBTLS
+	DumpMySQLDumpOlder
+	DumpVerifyCAOnly
+	DumpListTables
+	DumpNonInnoDB
+	DumpExcludeUnmatched
+	DumpAccounts
+	DumpAccountsPrivilege
+	DumpPGToolTooOld
+	DumpPGPasswordNewline
+	DumpCheckExclude
+	// Kopia* 仓库包（internal/pkg/kopiarepo）写入快照、保留与维护的错误
+	KopiaErrInvalidSnapshot
+	KopiaErrVerify
+	KopiaErrNotJobSnapshot
+	KopiaUnsupportedCompression
+	KopiaNoPrefix
+	KopiaNoFiles
+	KopiaBadFileName
+	KopiaDupFileName
+	KopiaNoReader
+	KopiaWriteSnapshot
+	KopiaWriteIncomplete
+	KopiaWriteFatal
+	KopiaSaveManifest
+	KopiaVerifyDeleteFailed
+	KopiaRootNotDir
+	KopiaReadDir
+	KopiaFileCount
+	KopiaFileMissing
+	KopiaFileSize
+	KopiaFileNoObject
+	KopiaFileIncomplete
+	KopiaListSnapshots
+	KopiaLoadManifests
+	KopiaDeleteSnapshots
+	KopiaMaintainMode
+	KopiaMaintainUnsupported
+	KopiaMaintain
+	// Net* 网络链路包（internal/pkg/netchain）的错误
+	NetErrTooManyHops
+	NetErrCycle
+	NetErrInvalidHop
+	NetErrAuthFailed
+	NetErrNegotiation
+	NetErrProtocol
+	NetErrHostKeyUnknown
+	NetErrHostKeyChanged
+	NetErrPassphraseMissing
+	NetErrPassphraseWrong
+	NetErrKeyInvalid
+	NetHopFailed
+	NetHostKeyChangedDetail
+	NetHostKeyUnknownDetail
+	NetTimeout
+	NetCanceled
+	NetSSHHandshake
+	NetSocksNetwork
+	NetSocksClosed
+	NetSocksNotSocks
+	NetSocksAuthRequired
+	NetSocksNoUserPass
+	NetSocksBadMethod
+	NetSocksCredTooLong
+	NetSocksReply1
+	NetSocksReply2
+	NetSocksReply3
+	NetSocksReply4
+	NetSocksReply5
+	NetSocksReply6
+	NetSocksReply7
+	NetSocksReply8
+	NetSocksReplyCode
+	NetSocksBadPort
+	NetSocksHostTooLong
+	NetSocksBadReply
+	NetSocksConnectFailed
+	NetSocksBadAddrType
+	NetUnknownKind
+	NetNoHost
+	NetBadPort
+	NetNoSSHUser
+	NetSSHAuthRequired
+	NetHopCount
+	NetChannelTwice
+	NetHopInvalid
+	NetDialFailed
+	NetNotSSHTarget
+	// Conn* 数据源连接包（internal/pkg/dsconn）的错误
+	ConnErrInvalidConfig
+	ConnNoUser
+	ConnUnknownTLSMode
+	ConnCANotPEM
+	ConnCertNotPEM
+	ConnKeyInvalid
+	ConnKeyMismatch
+	ConnCertMissing
+	ConnKeyMissing
+	ConnNoPeerCert
 )
 
 func init() {

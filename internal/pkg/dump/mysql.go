@@ -6,14 +6,15 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 	"io"
 	"sort"
 	"strings"
 
 	"github.com/go-sql-driver/mysql"
 
+	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/dsconn"
+	"github.com/opskat/opsnap/internal/pkg/l10n"
 	"github.com/opskat/opsnap/internal/pkg/probe"
 )
 
@@ -27,7 +28,7 @@ type mysqlPlan struct {
 }
 
 func (p *mysqlPlan) tools(ctx context.Context, s *Session) error {
-	t, err := findTool(ctx, "mysqldump", "MySQL 客户端")
+	t, err := findTool(ctx, "mysqldump", l10n.New(code.DumpPkgMySQL))
 	if err != nil {
 		return err
 	}
@@ -35,12 +36,10 @@ func (p *mysqlPlan) tools(ctx context.Context, s *Session) error {
 	p.mariadb = strings.Contains(t.raw, "MariaDB")
 	mode := p.src.Config.TLS.Mode
 	if p.mariadb && mode != "" && mode != dsconn.TLSPrefer && mode != dsconn.TLSDisable {
-		return fmt.Errorf("%w：主控端的 mysqldump 来自 MariaDB（%s），在服务端不支持 TLS 时会退回明文，且只能连同主机名一起校验证书，"+
-			"无法保证数据源的 TLS 模式 %q。修复：在 PATH 或 tools.dir 中提供 MySQL 官方的 mysqldump", ErrUnsupportedTLS, t.raw, mode)
+		return l10n.Errorf(code.DumpMariaDBTLS, ErrUnsupportedTLS, t.raw, mode)
 	}
 	if smaj, smin, ok := probe.ParseMajorMinor(p.src.ServerVersion); ok && (t.major < smaj || t.major == smaj && t.minor < smin) {
-		s.logf("mysqldump 版本 %d.%d 低于服务端 %d.%d，照常导出；如果导出失败，请在 PATH 或 tools.dir 中提供不低于服务端版本的 mysqldump",
-			t.major, t.minor, smaj, smin)
+		s.logm(l10n.New(code.DumpMySQLDumpOlder, t.major, t.minor, smaj, smin))
 	}
 	return nil
 }
@@ -130,7 +129,7 @@ func (p *mysqlPlan) optionFile(s *Session) (string, error) {
 	default:
 		lines = append(lines, "ssl-mode="+oracleSSLMode(mode))
 		if mode == dsconn.TLSVerifyFull {
-			s.logf("mysqldump 经本机端口转发连接数据源，无法按主机名校验服务端证书，本次只校验 CA；主机名已在 OpsNap 经同一链路连接数据源时校验")
+			s.logm(l10n.New(code.DumpVerifyCAOnly))
 		}
 	}
 	for _, kv := range [][2]string{{"ssl-ca", files.ca}, {"ssl-cert", files.cert}, {"ssl-key", files.key}} {
@@ -171,7 +170,7 @@ func (p *mysqlPlan) checkTables(ctx context.Context, db *sql.DB, s *Session) err
 	//nolint:gosec // 拼接的只有 ? 占位符，库名经参数传入
 	rows, err := db.QueryContext(ctx, "SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE, ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA IN ("+marks+")", args...)
 	if err != nil {
-		return fmt.Errorf("列出要导出的表: %w", err)
+		return l10n.Errorf(code.DumpListTables, err)
 	}
 	defer func() { _ = rows.Close() }()
 	excluded := map[string]bool{}
@@ -183,7 +182,7 @@ func (p *mysqlPlan) checkTables(ctx context.Context, db *sql.DB, s *Session) err
 		var schema, name, typ string
 		var engine sql.NullString
 		if err := rows.Scan(&schema, &name, &typ, &engine); err != nil {
-			return fmt.Errorf("列出要导出的表: %w", err)
+			return l10n.Errorf(code.DumpListTables, err)
 		}
 		key := schema + "." + name
 		if _, ok := excluded[key]; ok {
@@ -195,12 +194,12 @@ func (p *mysqlPlan) checkTables(ctx context.Context, db *sql.DB, s *Session) err
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return fmt.Errorf("列出要导出的表: %w", err)
+		return l10n.Errorf(code.DumpListTables, err)
 	}
 	logUnmatched(s, p.opts.ExcludeTables, excluded)
 	if len(nonInnoDB) > 0 {
 		sort.Strings(nonInnoDB)
-		s.logf("以下 %d 张表不是 InnoDB，导出时不保证与其他表一致：%s", len(nonInnoDB), strings.Join(nonInnoDB, "、"))
+		s.logm(l10n.New(code.DumpNonInnoDB, len(nonInnoDB), l10n.Join(nonInnoDB, code.ListSep)))
 	}
 	return nil
 }
@@ -209,7 +208,7 @@ func (p *mysqlPlan) checkTables(ctx context.Context, db *sql.DB, s *Session) err
 func logUnmatched(s *Session, rules []string, matched map[string]bool) {
 	for _, ex := range rules {
 		if !matched[ex] {
-			s.logf("排除规则 %s 未匹配任何表", ex)
+			s.logm(l10n.New(code.DumpExcludeUnmatched, ex))
 		}
 	}
 }
@@ -218,12 +217,12 @@ func logUnmatched(s *Session, rules []string, matched map[string]bool) {
 func mysqlAccounts(ctx context.Context, db *sql.DB) ([]byte, error) {
 	conn, err := db.Conn(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("导出账号与权限: %w", err)
+		return nil, l10n.Errorf(code.DumpAccounts, err)
 	}
 	defer func() { _ = conn.Close() }()
 	var current string
 	if err := conn.QueryRowContext(ctx, "SELECT CURRENT_USER()").Scan(&current); err != nil {
-		return nil, fmt.Errorf("导出账号与权限: %w", err)
+		return nil, l10n.Errorf(code.DumpAccounts, err)
 	}
 	// MySQL 8.0.17 起把认证串中的二进制内容以十六进制输出，导出文件才能原样导入；其他版本没有该变量，忽略错误
 	_, _ = conn.ExecContext(ctx, "SET SESSION print_identified_with_as_hex = ON")
@@ -311,11 +310,10 @@ func accountsError(err error, current string) error {
 			if i := strings.LastIndex(current, "@"); i >= 0 {
 				user, host = current[:i], current[i+1:]
 			}
-			return fmt.Errorf("%w：导出账号与权限需要读取 mysql 系统库（%s）。修复：GRANT SELECT ON mysql.* TO '%s'@'%s';",
-				ErrPrivilege, me.Message, user, host)
+			return l10n.Errorf(code.DumpAccountsPrivilege, ErrPrivilege, me.Message, user, host)
 		}
 	}
-	return fmt.Errorf("导出账号与权限: %w", err)
+	return l10n.Errorf(code.DumpAccounts, err)
 }
 
 // mariadbSandbox MariaDB 10.11.8 起 mysqldump 输出的第一行。MySQL 官方的 mysql 客户端把其中的 \- 当作未知命令，

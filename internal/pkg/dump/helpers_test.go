@@ -27,6 +27,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/opskat/opsnap/internal/pkg/dsconn"
+	"github.com/opskat/opsnap/internal/pkg/l10n"
 	"github.com/opskat/opsnap/internal/pkg/netchain"
 	"github.com/opskat/opsnap/internal/pkg/probe"
 )
@@ -159,16 +160,16 @@ func pgSource() Source {
 	}
 }
 
-// logs 收集运行日志
+// logs 收集运行日志（中文）
 type logs struct {
 	mu    sync.Mutex
 	lines []string
 }
 
-func (l *logs) add(s string) {
+func (l *logs) add(m l10n.Localizer) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.lines = append(l.lines, s)
+	l.lines = append(l.lines, m.Localize(context.Background()))
 }
 
 func (l *logs) text() string {

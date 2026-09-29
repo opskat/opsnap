@@ -3,7 +3,6 @@ package kopiarepo
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -20,6 +19,9 @@ import (
 	"github.com/kopia/kopia/snapshot/policy"
 	"github.com/kopia/kopia/snapshot/snapshotfs"
 	"github.com/kopia/kopia/snapshot/upload"
+
+	"github.com/opskat/opsnap/internal/pkg/code"
+	"github.com/opskat/opsnap/internal/pkg/l10n"
 )
 
 // Compression 快照中文件内容的压缩方式
@@ -84,10 +86,10 @@ const (
 )
 
 // ErrInvalidSnapshot 写快照的请求不完整或不合法，未写入任何数据
-var ErrInvalidSnapshot = errors.New("快照请求不合法")
+var ErrInvalidSnapshot error = l10n.Errorf(code.KopiaErrInvalidSnapshot)
 
 // ErrVerify 快照清单已保存但读回校验没有通过，清单随即被删除（删除也失败时错误中一并说明）；调用方据此把失败归入“校验”一步
-var ErrVerify = errors.New("读回校验快照")
+var ErrVerify error = l10n.Errorf(code.KopiaErrVerify)
 
 func (c Compression) compressor() (compression.Name, error) {
 	switch c {
@@ -98,7 +100,7 @@ func (c Compression) compressor() (compression.Name, error) {
 	case CompressionZstd, "":
 		return "zstd", nil
 	}
-	return "", fmt.Errorf("%w: 不支持的压缩方式 %q", ErrInvalidSnapshot, string(c))
+	return "", l10n.Errorf(code.KopiaUnsupportedCompression, ErrInvalidSnapshot, string(c))
 }
 
 // labels 标签按 kopia 命令行的约定加 "tag:" 前缀，`kopia snapshot list --tags job:1` 可直接筛选
@@ -113,22 +115,22 @@ func (t SnapshotTags) labels() map[string]string {
 
 func (r SnapshotRequest) validate() error {
 	if strings.Trim(r.Prefix, "/") == "" {
-		return fmt.Errorf("%w: 缺少路径前缀", ErrInvalidSnapshot)
+		return l10n.Errorf(code.KopiaNoPrefix, ErrInvalidSnapshot)
 	}
 	if len(r.Files) == 0 {
-		return fmt.Errorf("%w: 没有文件", ErrInvalidSnapshot)
+		return l10n.Errorf(code.KopiaNoFiles, ErrInvalidSnapshot)
 	}
 	seen := map[string]bool{}
 	for _, f := range r.Files {
 		if f.Name == "" || f.Name == "." || f.Name == ".." || strings.ContainsAny(f.Name, "/\\") {
-			return fmt.Errorf("%w: 文件名 %q 不合法", ErrInvalidSnapshot, f.Name)
+			return l10n.Errorf(code.KopiaBadFileName, ErrInvalidSnapshot, f.Name)
 		}
 		if seen[f.Name] {
-			return fmt.Errorf("%w: 文件名 %q 重复", ErrInvalidSnapshot, f.Name)
+			return l10n.Errorf(code.KopiaDupFileName, ErrInvalidSnapshot, f.Name)
 		}
 		seen[f.Name] = true
 		if f.Reader == nil {
-			return fmt.Errorf("%w: 文件 %q 没有内容", ErrInvalidSnapshot, f.Name)
+			return l10n.Errorf(code.KopiaNoReader, ErrInvalidSnapshot, f.Name)
 		}
 	}
 	return nil
@@ -218,21 +220,21 @@ func (w *Writer) WriteSnapshot(ctx context.Context, req SnapshotRequest) (*Snaps
 			return rerr
 		}
 		if err != nil {
-			return fmt.Errorf("写入快照: %w", err)
+			return l10n.Errorf(code.KopiaWriteSnapshot, err)
 		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		if man.IncompleteReason != "" {
-			return fmt.Errorf("写入快照未完成: %s", man.IncompleteReason)
+			return l10n.Errorf(code.KopiaWriteIncomplete, man.IncompleteReason)
 		}
 		if ds := man.RootEntry.DirSummary; ds != nil && ds.FatalErrorCount > 0 {
-			return fmt.Errorf("写入快照失败: %d 个文件出错", ds.FatalErrorCount)
+			return l10n.Errorf(code.KopiaWriteFatal, ds.FatalErrorCount)
 		}
 		man.Tags = req.Tags.labels()
 		id, err = snapshot.SaveSnapshot(ctx, rw, man)
 		if err != nil {
-			return fmt.Errorf("保存快照清单: %w", err)
+			return l10n.Errorf(code.KopiaSaveManifest, err)
 		}
 		return nil
 	})
@@ -265,9 +267,9 @@ func (w *Writer) confirm(ctx context.Context, id manifest.ID, files []FileResult
 		func(ctx context.Context, rw repo.RepositoryWriter) error {
 			return rw.DeleteManifest(ctx, id)
 		}); derr != nil {
-		return fmt.Errorf("%w: %w（删除清单也失败: %w）", ErrVerify, err, derr)
+		return l10n.Errorf(code.KopiaVerifyDeleteFailed, ErrVerify, err, derr)
 	}
-	return fmt.Errorf("%w: %w", ErrVerify, err)
+	return l10n.Errorf(code.WrapColon, ErrVerify, err)
 }
 
 // readBack 读回快照清单，核对文件集合、每个文件的大小，并确认其内容全部在仓库索引中。测试可替换
@@ -282,33 +284,33 @@ var readBack = func(ctx context.Context, rep repo.Repository, id manifest.ID, wa
 	}
 	dir, ok := root.(kfs.Directory)
 	if !ok {
-		return errors.New("快照根不是目录")
+		return l10n.Errorf(code.KopiaRootNotDir)
 	}
 	entries, err := kfs.GetAllEntries(ctx, dir)
 	if err != nil {
-		return fmt.Errorf("读取快照目录: %w", err)
+		return l10n.Errorf(code.KopiaReadDir, err)
 	}
 	got := make(map[string]kfs.Entry, len(entries))
 	for _, e := range entries {
 		got[e.Name()] = e
 	}
 	if len(got) != len(want) {
-		return fmt.Errorf("快照中有 %d 个文件，应为 %d 个", len(got), len(want))
+		return l10n.Errorf(code.KopiaFileCount, len(got), len(want))
 	}
 	for _, f := range want {
 		e, ok := got[f.Name]
 		if !ok {
-			return fmt.Errorf("快照中缺少文件 %s", f.Name)
+			return l10n.Errorf(code.KopiaFileMissing, f.Name)
 		}
 		if e.Size() != f.Size {
-			return fmt.Errorf("文件 %s 大小为 %d，应为 %d", f.Name, e.Size(), f.Size)
+			return l10n.Errorf(code.KopiaFileSize, f.Name, e.Size(), f.Size)
 		}
 		de, ok := e.(snapshot.HasDirEntry)
 		if !ok {
-			return fmt.Errorf("文件 %s 没有内容标识", f.Name)
+			return l10n.Errorf(code.KopiaFileNoObject, f.Name)
 		}
 		if _, err := rep.VerifyObject(ctx, de.DirEntry().ObjectID); err != nil {
-			return fmt.Errorf("文件 %s 内容不完整: %w", f.Name, err)
+			return l10n.Errorf(code.KopiaFileIncomplete, f.Name, err)
 		}
 	}
 	return nil

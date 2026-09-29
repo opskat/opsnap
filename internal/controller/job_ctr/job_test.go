@@ -128,7 +128,7 @@ func setupTest(t *testing.T) *env {
 
 	testMux := muxtest.NewTestMux(muxtest.WithBaseUrl("http://opsnap.test/api/v1"))
 	ctr := NewJob()
-	authed := testMux.Group("/api/v1", middleware.SameOrigin()).Group("/", middleware.Auth())
+	authed := testMux.Group("/api/v1", middleware.Language(), middleware.SameOrigin()).Group("/", middleware.Auth())
 	authed.Bind(ctr.List, ctr.Get, ctr.Create, ctr.Update, ctr.Pause, ctr.Enable, ctr.Delete, ctr.SchedulePreview,
 		ctr.RunNow, ctr.CancelRun, ctr.Runs, ctr.RunLog, ctr.Stats)
 	e.mux = testMux
@@ -138,6 +138,12 @@ func setupTest(t *testing.T) *env {
 // do 用 API 令牌调用
 func (e *env) do(req, resp any) error {
 	return e.mux.Do(e.ctx, req, resp, muxclient.WithHeader(http.Header{"Authorization": {"Bearer " + e.token}}))
+}
+
+// doLang 用 API 令牌并带 Accept-Language 调用
+func (e *env) doLang(lang string, req, resp any) error {
+	return e.mux.Do(e.ctx, req, resp, muxclient.WithHeader(http.Header{"Authorization": {"Bearer " + e.token},
+		"Accept-Language": {lang}}))
 }
 
 func errCode(err error) int {

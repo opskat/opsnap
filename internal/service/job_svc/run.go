@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cago-frame/cago/pkg/gogo"
+	"github.com/cago-frame/cago/pkg/i18n"
 	"github.com/cago-frame/cago/pkg/logger"
 	"go.uber.org/zap"
 
@@ -20,9 +21,11 @@ import (
 	"github.com/opskat/opsnap/internal/model/entity/datasource_entity"
 	"github.com/opskat/opsnap/internal/model/entity/job_entity"
 	"github.com/opskat/opsnap/internal/model/entity/storage_entity"
+	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/dsconn"
 	"github.com/opskat/opsnap/internal/pkg/dump"
 	"github.com/opskat/opsnap/internal/pkg/kopiarepo"
+	"github.com/opskat/opsnap/internal/pkg/l10n"
 	"github.com/opskat/opsnap/internal/pkg/netchain"
 	"github.com/opskat/opsnap/internal/pkg/probe"
 	"github.com/opskat/opsnap/internal/pkg/retention"
@@ -456,8 +459,9 @@ type stepError struct {
 func (e *stepError) Error() string { return e.err.Error() }
 func (e *stepError) Unwrap() error { return e.err }
 
-func failAt(step string, format string, args ...any) error {
-	return &stepError{step: step, err: fmt.Errorf(format, args...)}
+// failAt 某一步失败，原因为 l10n 文字（args 中的 error 被包装）
+func failAt(step string, msg int, args ...any) error {
+	return &stepError{step: step, err: l10n.Errorf(msg, args...)}
 }
 
 // execution 一次运行的执行过程；设置取自开始时的任务（运行中修改任务不影响本次）
@@ -526,25 +530,25 @@ func requiredTools(j *job_entity.Job, kind string) []string {
 func (x *execution) prepare(ctx context.Context) error {
 	const step = job_entity.StepPrepare
 	x.log.setStep(step)
-	x.log.add("检查存储、数据源与导出工具")
+	x.log.add(l10n.New(code.RunLogPrepare))
 	var err error
 	if x.st, err = storage_repo.Storage().Find(ctx, x.job.StorageID); err != nil {
 		return &stepError{step: step, err: err}
 	}
 	if x.st == nil {
-		return failAt(step, "存储不存在")
+		return failAt(step, code.RunStorageMissing)
 	}
 	if x.st.Status != storage_entity.StatusOK {
-		return failAt(step, "存储“%s”的状态不是“正常”（%s），请先测试存储连接", x.st.Name, x.st.Status)
+		return failAt(step, code.RunStorageNotOK, x.st.Name, x.st.Status)
 	}
 	if x.ds, err = datasource_repo.DataSource().Find(ctx, x.job.DataSourceID); err != nil {
 		return &stepError{step: step, err: err}
 	}
 	if x.ds == nil {
-		return failAt(step, "数据源不存在")
+		return failAt(step, code.RunDataSourceMissing)
 	}
 	if x.ds.Status == datasource_entity.StatusHostKeyChanged {
-		return failAt(step, "数据源“%s”链路上的主机密钥已变化，请先在数据源页面确认新的主机密钥", x.ds.Name)
+		return failAt(step, code.RunHostKeyChanged, x.ds.Name)
 	}
 	// 导出工具可用：找得到、读得出版本；PostgreSQL 工具的大版本不低于数据源最近一次测试时的版本；
 	// MariaDB 的 mysqldump 能满足数据源的 TLS 模式。都在连接之前检查（连接后导出包按实际版本再查一次）
@@ -554,13 +558,13 @@ func (x *execution) prepare(ctx context.Context) error {
 	}
 	for _, name := range requiredTools(x.job, x.ds.Kind) {
 		if path, ok := probe.ToolPath(name); ok {
-			x.log.add(fmt.Sprintf("导出工具 %s：%s", name, path))
+			x.log.add(l10n.New(code.RunLogToolPath, name, path))
 		}
 	}
 	if x.writer, err = storage_svc.Storage().OpenWriter(ctx, x.st.ID); err != nil {
-		return failAt(step, "打开存储“%s”失败: %w", x.st.Name, err)
+		return failAt(step, code.RunOpenStorageFailed, x.st.Name, err)
 	}
-	x.log.add(fmt.Sprintf("已打开存储“%s”", x.st.Name))
+	x.log.add(l10n.New(code.RunLogStorageOpened, x.st.Name))
 	return nil
 }
 
@@ -568,20 +572,20 @@ func (x *execution) prepare(ctx context.Context) error {
 func (x *execution) connect(ctx context.Context) error {
 	const step = job_entity.StepConnect
 	x.log.setStep(step)
-	x.log.add(fmt.Sprintf("沿网络通道连接数据源“%s”（%s:%d）", x.ds.Name, x.ds.Host, x.ds.Port))
+	x.log.add(l10n.New(code.RunLogConnecting, x.ds.Name, x.ds.Host, x.ds.Port))
 	tun, conn, cfg, secrets, err := datasource_svc.DataSource().OpenSaved(ctx, x.ds.ID)
 	x.log.addSecrets(secrets...)
 	if err != nil {
-		return failAt(step, "连接数据源失败: %w", err)
+		return failAt(step, code.RunConnectFailed, err)
 	}
 	x.tunnel = tun
 	defer func() { _ = conn.Close() }()
-	x.log.add("已连接，服务端版本 " + conn.Info.Version)
+	x.log.add(l10n.New(code.RunLogConnected, conn.Info.Version))
 
 	// “整个实例”每次运行重新列出库；“指定数据库”确认每个库仍然存在，不存在时指出是哪个库
 	list, err := listDatabases(ctx, cfg.Type, conn)
 	if err != nil {
-		return failAt(step, "列出实例中的库失败: %w", err)
+		return failAt(step, code.RunListDatabasesFailed, err)
 	}
 	dbs := x.job.Databases()
 	if x.job.Scope == job_entity.ScopeInstance {
@@ -590,12 +594,12 @@ func (x *execution) connect(ctx context.Context) error {
 			dbs = append(dbs, d.Name)
 		}
 		if len(dbs) == 0 {
-			return failAt(step, "实例中没有可导出的库")
+			return failAt(step, code.RunNoDatabases)
 		}
 	} else if missing := missingDatabases(cfg.Type, dbs, list); len(missing) > 0 {
-		return failAt(step, "指定的库在数据源中不存在（或不允许连接）：%s", strings.Join(missing, ", "))
+		return failAt(step, code.RunMissingDatabases, strings.Join(missing, ", "))
 	}
-	x.log.add("导出的库：" + strings.Join(dbs, ", "))
+	x.log.add(l10n.New(code.RunLogDatabases, strings.Join(dbs, ", ")))
 
 	opts := dump.Options{Databases: dbs, ExcludeTables: x.job.ExcludeTableList(), Log: x.log.add}
 	if cfg.Type == dsconn.TypeMySQL {
@@ -605,11 +609,11 @@ func (x *execution) connect(ctx context.Context) error {
 	}
 	sess, err := dump.Start(ctx, x.r.dir(), dump.Source{Dialer: tun, Config: cfg, ServerVersion: conn.Info.Version}, opts)
 	if err != nil {
-		return failAt(step, "准备导出失败: %w", err)
+		return failAt(step, code.RunStartDumpFailed, err)
 	}
 	x.sess = sess
 	x.ar.sess.Store(sess)
-	x.log.add("已在本机 127.0.0.1 开临时端口，导出工具的连接经链路转发到数据源")
+	x.log.add(l10n.New(code.RunLogForwarding))
 	return nil
 }
 
@@ -635,7 +639,7 @@ func missingDatabases(typ dsconn.Type, want []string, list []dsapi.Database) []s
 // export 把导出工具的输出流式写入一份新快照；写入后 kopiarepo 已读回校验每个文件的大小与内容
 func (x *execution) export(ctx context.Context) (*kopiarepo.SnapshotResult, error) {
 	x.log.setStep(job_entity.StepExport)
-	x.log.add(fmt.Sprintf("导出并流式写入仓库，路径前缀 %s，压缩 %s", x.job.Prefix, x.job.Compression))
+	x.log.add(l10n.New(code.RunLogExporting, x.job.Prefix, x.job.Compression))
 	files := make([]kopiarepo.SnapshotFile, 0, len(x.sess.Files()))
 	for _, f := range x.sess.Files() {
 		files = append(files, kopiarepo.SnapshotFile{Name: f.Name, Reader: f})
@@ -655,13 +659,13 @@ func (x *execution) export(ctx context.Context) (*kopiarepo.SnapshotResult, erro
 		return nil, &stepError{step: step, err: err}
 	}
 	x.log.setStep(job_entity.StepVerify)
-	x.log.add("导出工具均正常退出，导出内容通过完整性检查")
+	x.log.add(l10n.New(code.RunLogExportChecked))
 	var total int64
 	for _, f := range res.Files {
 		total += f.Size
-		x.log.add(fmt.Sprintf("%s：%d 字节", f.Name, f.Size))
+		x.log.add(l10n.New(code.RunLogFileSize, f.Name, f.Size))
 	}
-	x.log.add(fmt.Sprintf("快照 %s 已写入并读回校验：%d 个文件，共 %d 字节，新增上传 %d 字节", res.ID, len(res.Files), total, res.UploadedBytes))
+	x.log.add(l10n.New(code.RunLogSnapshotVerified, res.ID, len(res.Files), total, res.UploadedBytes))
 	return res, nil
 }
 
@@ -674,7 +678,7 @@ func (x *execution) retention(ctx context.Context, res *kopiarepo.SnapshotResult
 	ref := x.job.Ref()
 	snaps, err := x.writer.ListJobSnapshots(ctx, ref)
 	if err != nil {
-		x.log.add(fmt.Sprintf("读取本任务的快照失败，本次不应用保留策略: %v", err))
+		x.log.add(l10n.New(code.RunLogListSnapshotsFailed, err))
 		return
 	}
 	loc, err := time.LoadLocation(x.job.Timezone)
@@ -689,20 +693,20 @@ func (x *execution) retention(ctx context.Context, res *kopiarepo.SnapshotResult
 		loc, x.started)
 	// 本次成功的快照无论如何不删除
 	remove = slicesDelete(remove, res.ID)
-	x.log.add(fmt.Sprintf("保留策略：最近 %d 天、%d 周、%d 个月；本任务共 %d 份快照，保留 %d 份，删除 %d 份",
+	x.log.add(l10n.New(code.RunLogRetention,
 		x.job.RetainDays, x.job.RetainWeeks, x.job.RetainMonths, len(snaps), len(snaps)-len(remove), len(remove)))
 	count := len(snaps)
 	if len(remove) > 0 {
 		n, err := x.writer.DeleteSnapshots(ctx, ref, remove)
 		if err != nil {
-			x.log.add(fmt.Sprintf("删除过期快照失败（本次运行仍为成功）: %v", err))
+			x.log.add(l10n.New(code.RunLogDeleteFailed, err))
 		} else {
 			count -= n
-			x.log.add(fmt.Sprintf("已删除 %d 份过期快照，开始快速维护", n))
+			x.log.add(l10n.New(code.RunLogDeleted, n))
 			if err := x.writer.Maintain(ctx, kopiarepo.MaintenanceQuick); err != nil {
-				x.log.add(fmt.Sprintf("快速维护失败（本次运行仍为成功）: %v", err))
+				x.log.add(l10n.New(code.RunLogMaintainFailed, err))
 			} else {
-				x.log.add("快速维护完成；删除的数据在之后的完整维护中释放")
+				x.log.add(l10n.New(code.RunLogMaintained))
 			}
 		}
 	}
@@ -738,40 +742,50 @@ func (x *execution) finish(ctx context.Context, res *kopiarepo.SnapshotResult, e
 	step := x.log.currentStep()
 	var se *stepError
 	if errors.As(err, &se) {
-		step = se.step
+		step, err = se.step, se.err
 	}
 	cause := context.Cause(ctx)
 	switch {
 	case errors.Is(cause, errCanceled):
 		run.Status = job_entity.RunCanceled
-		x.log.add("运行已取消：已终止导出工具、关闭端口转发并删除临时文件，未形成快照")
-	case errors.Is(cause, errShutdown):
+		x.log.add(l10n.New(code.RunLogCanceled))
+	case errors.Is(cause, errShutdown), errors.Is(cause, errTimeout):
+		reasonCode := job_entity.ReasonInterrupted
+		if errors.Is(cause, errTimeout) {
+			reasonCode = job_entity.TimeoutReason(x.job.Timeout)
+		}
 		run.Status, run.FailedStep = job_entity.RunFailed, step
-		run.SetFixedReason(job_entity.ReasonInterrupted)
+		run.SetFixedReason(reasonCode)
 		x.log.setStep(step)
-		x.log.add(run.Reason + "：已终止导出工具，未形成快照")
-	case errors.Is(cause, errTimeout):
-		run.Status, run.FailedStep = job_entity.RunFailed, step
-		run.SetFixedReason(job_entity.TimeoutReason(x.job.Timeout))
-		x.log.setStep(step)
-		x.log.add(run.Reason + "：已终止导出工具，未形成快照")
+		x.log.add(l10n.New(code.RunLogAborted, l10n.Func(func(ctx context.Context) string {
+			text, _ := job_entity.ReasonText(ctx, reasonCode)
+			return text
+		})))
 	default:
 		run.Status, run.FailedStep = job_entity.RunFailed, step
-		msg := x.log.scrub(err.Error())
-		run.Reason = limitReason(msg)
+		// OpsNap 自己的文字按语言显示，导出工具与数据库的原文原样保留；两种语言都去掉秘密
+		reason := l10n.Func(func(ctx context.Context) string { return l10n.Text(ctx, err) })
+		zh, en := x.log.scrub(reason.Localize(zhCtx)), x.log.scrub(reason.Localize(enCtx))
+		run.SetReason(limitReason(zhCtx, zh), limitReason(enCtx, en))
 		x.log.setStep(step)
-		x.log.add(msg)
+		x.log.add(reason)
 	}
 }
 
 // limitReason 过长的失败原因只保留开头与结尾（完整内容在日志中）
-func limitReason(s string) string {
+func limitReason(ctx context.Context, s string) string {
 	r := []rune(s)
 	if len(r) <= reasonHead+reasonTail {
 		return s
 	}
-	return string(r[:reasonHead]) + "\n……\n" + string(r[len(r)-reasonTail:])
+	return string(r[:reasonHead]) + "\n" + i18n.T(ctx, code.RunReasonEllipsis) + "\n" + string(r[len(r)-reasonTail:])
 }
+
+// 运行记录保存两种语言的文字：中文（Reason、LogLine.Message）与英文（ReasonEn、LogLine.MessageEn）
+var (
+	zhCtx = i18n.WithLanguage(context.Background(), code.LangZhCN)
+	enCtx = i18n.WithLanguage(context.Background(), code.LangEn)
+)
 
 // runLog 一次运行的执行日志：每行带时间和步骤名，写入前去掉秘密；超过 MaxLogLines 行时保留开头与结尾，
 // 中间用一行省略标记注明省略了多少行
@@ -822,14 +836,19 @@ func (l *runLog) scrubLocked(text string) string {
 	return text
 }
 
-// add 按当前步骤追加日志，多行文本拆成多行
-func (l *runLog) add(msg string) {
+// add 按当前步骤追加日志：保存中文与英文，都去掉秘密；多行文本拆成多行
+func (l *runLog) add(msg l10n.Localizer) {
+	zh, en := msg.Localize(zhCtx), msg.Localize(enCtx)
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	msg = l.scrubLocked(msg)
+	zhLines := splitLines(l.scrubLocked(zh))
+	enLines := splitLines(l.scrubLocked(en))
 	t := l.now().UnixMilli()
-	for _, line := range strings.Split(strings.TrimRight(msg, "\n"), "\n") {
+	for i, line := range zhLines {
 		entry := job_entity.LogLine{Time: t, Step: l.step, Message: line}
+		if i < len(enLines) && enLines[i] != line {
+			entry.MessageEn = enLines[i]
+		}
 		switch {
 		case len(l.head) < logHead:
 			l.head = append(l.head, entry)
@@ -841,6 +860,8 @@ func (l *runLog) add(msg string) {
 		}
 	}
 }
+
+func splitLines(s string) []string { return strings.Split(strings.TrimRight(s, "\n"), "\n") }
 
 func (l *runLog) lines() []job_entity.LogLine {
 	l.mu.Lock()

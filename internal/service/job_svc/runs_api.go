@@ -123,7 +123,7 @@ func (s *jobSvc) RunLog(ctx context.Context, req *api.RunLogRequest) (*api.RunLo
 	}
 	out := make([]*api.LogLine, 0, len(lines))
 	for _, l := range lines {
-		out = append(out, &api.LogLine{Time: l.Time, Step: l.Step, Message: l.Message, Omitted: l.Omitted})
+		out = append(out, &api.LogLine{Time: l.Time, Step: l.Step, Message: l.Text(ctx), Omitted: l.Omitted})
 	}
 	return &api.RunLogResponse{Lines: out}, nil
 }

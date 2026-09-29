@@ -12,7 +12,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 	"io"
 	"io/fs"
 	"net"
@@ -23,46 +22,62 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/dsconn"
+	"github.com/opskat/opsnap/internal/pkg/l10n"
 	"github.com/opskat/opsnap/internal/pkg/probe"
 )
 
+// 本包的错误与运行日志都是 l10n 文字：Error() 为中文，调用方可用 l10n.Text 按查看者的语言显示；
+// 导出工具的错误输出与驱动错误作为参数原样代入
 var (
 	// ErrInvalidOptions 导出选项或数据源配置无效，未启动任何工具
-	ErrInvalidOptions = errors.New("导出选项无效")
+	ErrInvalidOptions error = l10n.Errorf(code.DumpErrInvalidOptions)
 	// ErrToolNotFound 在 PATH 与 tools.dir 中都找不到导出工具
-	ErrToolNotFound = errors.New("找不到导出工具")
+	ErrToolNotFound error = l10n.Errorf(code.DumpErrToolNotFound)
 	// ErrToolVersion 导出工具版本低于服务端且无法导出（pg_dump / pg_dumpall 大版本）
-	ErrToolVersion = errors.New("导出工具版本过低")
+	ErrToolVersion error = l10n.Errorf(code.DumpErrToolVersion)
 	// ErrUnsupportedTLS 导出工具无法按数据源的 TLS 设置连接
-	ErrUnsupportedTLS = errors.New("导出工具无法按数据源的 TLS 设置连接")
+	ErrUnsupportedTLS error = l10n.Errorf(code.DumpErrUnsupportedTLS)
 	// ErrPrivilege 数据源账号缺少导出所需的权限，错误信息中说明需要的权限
-	ErrPrivilege = errors.New("数据源账号缺少权限")
+	ErrPrivilege error = l10n.Errorf(code.DumpErrPrivilege)
 	// ErrIncomplete 导出工具正常退出，但输出没有通过完整性检查
-	ErrIncomplete = errors.New("导出内容不完整")
+	ErrIncomplete error = l10n.Errorf(code.DumpErrIncomplete)
 )
 
 // errClosed 会话已关闭后继续读取
-var errClosed = errors.New("导出已终止")
+var errClosed error = l10n.Errorf(code.DumpErrClosed)
 
-// ToolError 导出工具以失败状态退出。Stderr 为工具错误输出的末尾，已去掉秘密；
-// Err 为经链路连接数据源的错误（如 *netchain.HopError），没有时为 nil
+// ToolError 导出工具以失败状态退出。Stderr 为工具错误输出的末尾（原文），已去掉秘密，
+// StderrOmitted 为超出保留上限而省略的前面的字节数；Err 为经链路连接数据源的错误（如 *netchain.HopError），没有时为 nil
 type ToolError struct {
-	Tool     string
-	ExitCode int
-	Stderr   string
-	Err      error
+	Tool          string
+	ExitCode      int
+	Stderr        string
+	StderrOmitted int
+	Err           error
 }
 
-func (e *ToolError) Error() string {
-	msg := fmt.Sprintf("%s 失败（退出码 %d）", e.Tool, e.ExitCode)
+func (e *ToolError) Error() string { return e.Localize(context.Background()) }
+
+// Localize 按 ctx 的语言显示；错误输出原样保留
+func (e *ToolError) Localize(ctx context.Context) string {
+	msg := l10n.New(code.DumpToolFailed, e.Tool, e.ExitCode).Localize(ctx)
 	if e.Stderr != "" {
-		msg += ": " + e.Stderr
+		msg += ": " + stderrText(ctx, e.StderrOmitted, e.Stderr)
 	}
 	if e.Err != nil {
-		msg += "；经链路连接数据源失败: " + e.Err.Error()
+		msg += l10n.New(code.DumpViaChannelFailed, e.Err).Localize(ctx)
 	}
 	return msg
+}
+
+// stderrText 错误输出的末尾；省略了前面的内容时先注明省略了多少字节
+func stderrText(ctx context.Context, omitted int, text string) string {
+	if omitted == 0 {
+		return text
+	}
+	return l10n.New(code.DumpStderrOmitted, omitted).Localize(ctx) + "\n" + text
 }
 
 func (e *ToolError) Unwrap() error { return e.Err }
@@ -89,8 +104,8 @@ type Options struct {
 	Globals bool
 	// ExcludeTables 排除的表，MySQL 写作 库.表，PostgreSQL 写作 库.模式.表（见 ValidateExcludeTable）
 	ExcludeTables []string
-	// Log 接收运行日志（已去掉秘密），可为 nil
-	Log func(msg string)
+	// Log 接收运行日志（按任何语言显示都已去掉秘密），可为 nil
+	Log func(msg l10n.Localizer)
 }
 
 // 导出文件名
@@ -113,7 +128,7 @@ const runPrefix = "run-"
 type Session struct {
 	ctx     context.Context //nolint:containedctx // 导出工具在文件首次被读取时才启动，需要沿用运行的 ctx
 	dir     string
-	log     func(string)
+	log     func(l10n.Localizer)
 	secrets []string
 	fwd     *forwarder
 	files   []*File
@@ -176,9 +191,10 @@ func (s *Session) Close() error {
 	return s.closeErr
 }
 
-func (s *Session) logf(format string, args ...any) {
+// logm 写一行运行日志；按哪种语言显示都去掉秘密
+func (s *Session) logm(m l10n.Localizer) {
 	if s.log != nil {
-		s.log(s.scrub(fmt.Sprintf(format, args...)))
+		s.log(l10n.Func(func(ctx context.Context) string { return s.scrub(m.Localize(ctx)) }))
 	}
 }
 
@@ -271,7 +287,7 @@ func CheckTools(ctx context.Context, typ dsconn.Type, tlsMode dsconn.TLSMode, se
 	case dsconn.TypePostgreSQL:
 		p = &postgresPlan{src: src, opts: opts}
 	default:
-		return fmt.Errorf("%w：不支持导出 %q 类型的数据源", ErrInvalidOptions, typ)
+		return l10n.Errorf(code.DumpUnsupportedType, ErrInvalidOptions, typ)
 	}
 	return p.tools(ctx, s)
 }
@@ -287,27 +303,27 @@ type planner interface {
 func validate(src Source, opts Options) error {
 	typ := src.Config.Type
 	if typ != dsconn.TypeMySQL && typ != dsconn.TypePostgreSQL {
-		return fmt.Errorf("%w：不支持导出 %q 类型的数据源", ErrInvalidOptions, typ)
+		return l10n.Errorf(code.DumpUnsupportedType, ErrInvalidOptions, typ)
 	}
 	if src.Dialer == nil {
-		return fmt.Errorf("%w：缺少网络链路", ErrInvalidOptions)
+		return l10n.Errorf(code.DumpNoDialer, ErrInvalidOptions)
 	}
 	if err := src.Config.Validate(); err != nil {
-		return fmt.Errorf("%w：%w", ErrInvalidOptions, err)
+		return l10n.Errorf(code.WrapFullColon, ErrInvalidOptions, err)
 	}
 	if len(opts.Databases) == 0 {
-		return fmt.Errorf("%w：至少选择一个库", ErrInvalidOptions)
+		return l10n.Errorf(code.DumpNoDatabases, ErrInvalidOptions)
 	}
 	for _, db := range opts.Databases {
 		if db == "" {
-			return fmt.Errorf("%w：库名为空", ErrInvalidOptions)
+			return l10n.Errorf(code.DumpEmptyDatabase, ErrInvalidOptions)
 		}
 	}
 	if typ == dsconn.TypeMySQL && opts.Globals {
-		return fmt.Errorf("%w：全局对象只适用于 PostgreSQL", ErrInvalidOptions)
+		return l10n.Errorf(code.DumpGlobalsPGOnly, ErrInvalidOptions)
 	}
 	if typ == dsconn.TypePostgreSQL && (opts.Accounts || opts.Routines || opts.Triggers || opts.Events) {
-		return fmt.Errorf("%w：账号与权限、存储过程、触发器、事件只适用于 MySQL", ErrInvalidOptions)
+		return l10n.Errorf(code.DumpMySQLOnlyOptions, ErrInvalidOptions)
 	}
 	for _, ex := range opts.ExcludeTables {
 		if err := ValidateExcludeTable(typ, ex); err != nil {
@@ -320,9 +336,9 @@ func validate(src Source, opts Options) error {
 // ValidateExcludeTable 检查一条排除规则的格式：MySQL 为 库.表，PostgreSQL 为 库.模式.表，
 // 每一段都不能为空，也不能有首尾空白。格式不对时返回包装了 ErrInvalidOptions 的错误
 func ValidateExcludeTable(typ dsconn.Type, rule string) error {
-	want, format := 2, "库.表"
+	want, format := 2, l10n.New(code.DumpExcludeFormatMySQL)
 	if typ == dsconn.TypePostgreSQL {
-		want, format = 3, "库.模式.表"
+		want, format = 3, l10n.New(code.DumpExcludeFormatPG)
 	}
 	parts := strings.Split(rule, ".")
 	ok := len(parts) == want
@@ -332,21 +348,20 @@ func ValidateExcludeTable(typ dsconn.Type, rule string) error {
 		}
 	}
 	if !ok {
-		return fmt.Errorf("%w：排除规则 %q 应写作 %s", ErrInvalidOptions, rule, format)
+		return l10n.Errorf(code.DumpExcludeFormat, ErrInvalidOptions, rule, format)
 	}
 	return nil
 }
 
 // findTool 按 PATH → tools.dir 查找导出工具并读取版本
-func findTool(ctx context.Context, name, pkg string) (*toolInfo, error) {
+func findTool(ctx context.Context, name string, pkg l10n.Message) (*toolInfo, error) {
 	path, ok := probe.ToolPath(name)
 	if !ok {
-		return nil, fmt.Errorf("%w：%s（先在 PATH 中查找，再在配置项 tools.dir 指定的目录中查找）。修复：在主控端安装 %s，或把 %s 放进 tools.dir",
-			ErrToolNotFound, name, pkg, name)
+		return nil, l10n.Errorf(code.DumpToolMissing, ErrToolNotFound, name, pkg, name)
 	}
 	major, minor, raw, err := probe.ToolVersion(ctx, path)
 	if err != nil {
-		return nil, fmt.Errorf("无法确定 %s（%s）的版本: %w", name, path, err)
+		return nil, l10n.Errorf(code.DumpToolVersionUnknown, name, path, err)
 	}
 	return &toolInfo{name: name, path: path, major: major, minor: minor, raw: raw}, nil
 }
@@ -374,7 +389,7 @@ func connect(ctx context.Context, src Source, database string) (*sql.DB, error) 
 	}
 	db, err := openDB(ctx, src.Dialer, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("连接数据源: %w", err)
+		return nil, l10n.Errorf(code.DumpConnect, err)
 	}
 	return db, nil
 }
@@ -407,7 +422,7 @@ func (s *Session) writeTLS(t dsconn.TLSConfig) (tlsFiles, error) {
 				return out, err
 			}
 		} else if out.ca = systemCABundle(); out.ca == "" {
-			return out, fmt.Errorf("%w：找不到系统 CA 证书包，导出工具无法校验服务端证书。修复：在数据源的 TLS 设置中提供 CA 证书", ErrUnsupportedTLS)
+			return out, l10n.Errorf(code.DumpNoSystemCA, ErrUnsupportedTLS)
 		}
 	}
 	if len(t.ClientCert) > 0 {

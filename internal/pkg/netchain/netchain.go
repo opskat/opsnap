@@ -11,6 +11,9 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
+
+	"github.com/opskat/opsnap/internal/pkg/code"
+	"github.com/opskat/opsnap/internal/pkg/l10n"
 )
 
 // MaxHops 从 OpsNap 出发的整条链路最多几跳
@@ -61,15 +64,15 @@ func (h Hop) addr() string { return net.JoinHostPort(h.Host, strconv.Itoa(h.Port
 func (h Hop) validate() error {
 	switch {
 	case h.Kind != KindSSH && h.Kind != KindSOCKS5:
-		return fmt.Errorf("%w：未知的类型 %q", ErrInvalidHop, h.Kind)
+		return l10n.Errorf(code.NetUnknownKind, ErrInvalidHop, h.Kind)
 	case h.Host == "":
-		return fmt.Errorf("%w：缺少主机", ErrInvalidHop)
+		return l10n.Errorf(code.NetNoHost, ErrInvalidHop)
 	case h.Port < 1 || h.Port > 65535:
-		return fmt.Errorf("%w：端口 %d 超出 1–65535", ErrInvalidHop, h.Port)
+		return l10n.Errorf(code.NetBadPort, ErrInvalidHop, h.Port)
 	case h.Kind == KindSSH && h.User == "":
-		return fmt.Errorf("%w：缺少 SSH 用户名", ErrInvalidHop)
+		return l10n.Errorf(code.NetNoSSHUser, ErrInvalidHop)
 	case h.Kind == KindSSH && (h.Password == "") == (len(h.PrivateKey) == 0):
-		return fmt.Errorf("%w：SSH 认证需要密码或私钥之一", ErrInvalidHop)
+		return l10n.Errorf(code.NetSSHAuthRequired, ErrInvalidHop)
 	}
 	return nil
 }
@@ -93,19 +96,19 @@ type Chain struct {
 // 私钥问题在联网前以 *HopError 报告。
 func NewChain(hops []Hop) (*Chain, error) {
 	if len(hops) > MaxHops {
-		return nil, fmt.Errorf("%w：当前 %d 跳", ErrTooManyHops, len(hops))
+		return nil, l10n.Errorf(code.NetHopCount, ErrTooManyHops, len(hops))
 	}
 	c := &Chain{hops: append([]Hop(nil), hops...), signers: make([]ssh.Signer, len(hops))}
 	seen := map[int64]bool{}
 	for i, h := range hops {
 		if h.ID != 0 {
 			if seen[h.ID] {
-				return nil, fmt.Errorf("%w：通道 %s 出现了两次", ErrCycle, h.Name)
+				return nil, l10n.Errorf(code.NetChannelTwice, ErrCycle, h.Name)
 			}
 			seen[h.ID] = true
 		}
 		if err := h.validate(); err != nil {
-			return nil, fmt.Errorf("第 %d 跳 %s：%w", i+1, h.Name, err)
+			return nil, l10n.Errorf(code.NetHopInvalid, i+1, h.Name, err)
 		}
 		s, err := h.signer()
 		if err != nil {
@@ -195,7 +198,7 @@ func (t *Tunnel) Dial(ctx context.Context, network, addr string) (net.Conn, erro
 		if errors.As(err, &he) {
 			return nil, err
 		}
-		return nil, fmt.Errorf("连接 %s 失败: %w", addr, err)
+		return nil, l10n.Errorf(code.NetDialFailed, addr, err)
 	}
 	return conn, nil
 }
@@ -204,7 +207,7 @@ func (t *Tunnel) Dial(ctx context.Context, network, addr string) (net.Conn, erro
 // 失败返回 *HopError，目标的序号为链路跳数加 1。返回的客户端需在 Tunnel 之前关闭。
 func (t *Tunnel) DialSSH(ctx context.Context, target Hop) (*ssh.Client, error) {
 	if target.Kind != KindSSH {
-		return nil, fmt.Errorf("%w：目标不是 SSH 主机", ErrInvalidHop)
+		return nil, l10n.Errorf(code.NetNotSSHTarget, ErrInvalidHop)
 	}
 	if err := target.validate(); err != nil {
 		return nil, err

@@ -3,7 +3,6 @@ package kopiarepo
 import (
 	"cmp"
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -14,10 +13,13 @@ import (
 	"github.com/kopia/kopia/repo/manifest"
 	"github.com/kopia/kopia/snapshot"
 	"github.com/kopia/kopia/snapshot/snapshotfs"
+
+	"github.com/opskat/opsnap/internal/pkg/code"
+	"github.com/opskat/opsnap/internal/pkg/l10n"
 )
 
 // ErrNotJobSnapshot 要删除的快照不存在或不属于该任务，未删除任何快照
-var ErrNotJobSnapshot = errors.New("快照不存在或不属于该任务")
+var ErrNotJobSnapshot error = l10n.Errorf(code.KopiaErrNotJobSnapshot)
 
 // JobRef 标识一个任务在仓库中的快照：来源 opsnap@opsnap:/<Prefix> 且标签 tag:job 为 JobID。
 // 两者同时匹配才算本任务的快照：其他任务、非 OpsNap 客户端产生的、或同 ID 旧任务留在别的前缀下的快照都不算。
@@ -58,11 +60,11 @@ func (w *Writer) jobManifests(ctx context.Context, job JobRef) ([]*snapshot.Mani
 	src := job.source()
 	ids, err := snapshot.ListSnapshotManifests(ctx, w.rep, &src, map[string]string{"tag:job": strconv.FormatInt(job.JobID, 10)})
 	if err != nil {
-		return nil, fmt.Errorf("读取快照列表: %w", err)
+		return nil, l10n.Errorf(code.KopiaListSnapshots, err)
 	}
 	mans, err := snapshot.LoadSnapshots(ctx, w.rep, ids)
 	if err != nil {
-		return nil, fmt.Errorf("读取快照清单: %w", err)
+		return nil, l10n.Errorf(code.KopiaLoadManifests, err)
 	}
 	return mans, nil
 }
@@ -109,7 +111,7 @@ func (w *Writer) DeleteSnapshots(ctx context.Context, job JobRef, ids []string) 
 	for _, id := range ids {
 		mid := manifest.ID(id)
 		if !own[mid] {
-			return 0, fmt.Errorf("%w: %s", ErrNotJobSnapshot, id)
+			return 0, l10n.Errorf(code.WrapColon, ErrNotJobSnapshot, id)
 		}
 		if !slices.Contains(del, mid) {
 			del = append(del, mid)
@@ -152,7 +154,7 @@ func (w *Writer) deleteManifests(ctx context.Context, ids []manifest.ID) error {
 			return nil
 		})
 	if err != nil {
-		return fmt.Errorf("删除快照: %w", err)
+		return l10n.Errorf(code.KopiaDeleteSnapshots, err)
 	}
 	return nil
 }

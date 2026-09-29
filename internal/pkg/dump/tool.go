@@ -3,13 +3,15 @@ package dump
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/opskat/opsnap/internal/pkg/code"
+	"github.com/opskat/opsnap/internal/pkg/l10n"
 )
 
 const (
@@ -96,7 +98,7 @@ func (r *toolRun) start() error {
 	_ = pw.Close()
 	if err != nil {
 		_ = pr.Close()
-		return fmt.Errorf("启动 %s: %w", r.tool.name, err)
+		return l10n.Errorf(code.DumpStartTool, r.tool.name, err)
 	}
 	r.cmd, r.stdout = cmd, pr
 	return nil
@@ -128,7 +130,7 @@ func (r *toolRun) finish(readErr error) error {
 		return errClosed
 	}
 	if !eof {
-		return fmt.Errorf("读取 %s 的输出: %w", r.tool.name, readErr)
+		return l10n.Errorf(code.DumpReadOutput, r.tool.name, readErr)
 	}
 	if werr != nil {
 		return r.failure(werr)
@@ -136,9 +138,13 @@ func (r *toolRun) finish(readErr error) error {
 	if err := r.check(r.head, r.tail); err != nil {
 		return err
 	}
-	if msg := strings.TrimSpace(r.s.scrub(r.stderr.String())); msg != "" {
+	omitted, tail := r.stderr.tail()
+	if msg := strings.TrimSpace(r.s.scrub(tail)); msg != "" {
+		if omitted > 0 {
+			r.s.logm(l10n.New(code.WrapColon, r.tool.name, l10n.New(code.DumpStderrOmitted, omitted)))
+		}
 		for _, line := range strings.Split(msg, "\n") {
-			r.s.logf("%s: %s", r.tool.name, line)
+			r.s.logm(l10n.Plain(r.tool.name + ": " + line))
 		}
 	}
 	return io.EOF
@@ -146,16 +152,20 @@ func (r *toolRun) finish(readErr error) error {
 
 // failure 把工具的失败退出转换为 *ToolError；缺少权限时同时包装 ErrPrivilege
 func (r *toolRun) failure(werr error) error {
-	te := &ToolError{Tool: r.tool.name, ExitCode: -1, Stderr: strings.TrimSpace(r.s.scrub(r.stderr.String())), Err: r.s.fwd.lastErr()}
+	omitted, tail := r.stderr.tail()
+	te := &ToolError{Tool: r.tool.name, ExitCode: -1, Stderr: strings.TrimSpace(r.s.scrub(tail)), Err: r.s.fwd.lastErr()}
+	if te.Stderr != "" {
+		te.StderrOmitted = omitted
+	}
 	var ee *exec.ExitError
 	if errors.As(werr, &ee) {
 		te.ExitCode = ee.ExitCode()
 	}
 	switch {
 	case strings.Contains(te.Stderr, "permission denied for table pg_authid"):
-		return fmt.Errorf("%w：导出全局对象需要超级用户权限（pg_dumpall 读取 pg_authid）: %w", ErrPrivilege, te)
+		return l10n.Errorf(code.DumpGlobalsSuperuser, ErrPrivilege, te)
 	case isPrivilegeMessage(te.Stderr):
-		return fmt.Errorf("%w：%w", ErrPrivilege, te)
+		return l10n.Errorf(code.WrapFullColon, ErrPrivilege, te)
 	}
 	return te
 }
@@ -210,7 +220,7 @@ func (r *toolRun) closeStdout() {
 func checkMySQLDump(_, tail []byte) error {
 	lines := strings.Split(strings.TrimRight(string(tail), "\r\n\t "), "\n")
 	if !strings.HasPrefix(lines[len(lines)-1], "-- Dump completed") {
-		return fmt.Errorf("%w：mysqldump 的输出没有以完成标记（-- Dump completed）结尾", ErrIncomplete)
+		return l10n.Errorf(code.DumpIncompleteMySQL, ErrIncomplete)
 	}
 	return nil
 }
@@ -218,7 +228,7 @@ func checkMySQLDump(_, tail []byte) error {
 // checkPGArchive pg_dump custom 格式归档头：PGDMP、版本 3 字节、int 与 offset 大小、格式（1 = custom）
 func checkPGArchive(head, _ []byte) error {
 	if len(head) < 11 || !bytes.HasPrefix(head, []byte("PGDMP")) || head[10] != 1 {
-		return fmt.Errorf("%w：pg_dump 的输出不是完整的 custom 格式归档头", ErrIncomplete)
+		return l10n.Errorf(code.DumpIncompletePGArchive, ErrIncomplete)
 	}
 	return nil
 }
@@ -226,13 +236,13 @@ func checkPGArchive(head, _ []byte) error {
 // checkPGGlobals pg_dumpall 的输出以集群导出完成标记结尾
 func checkPGGlobals(_, tail []byte) error {
 	if !bytes.Contains(tail, []byte("PostgreSQL database cluster dump complete")) {
-		return fmt.Errorf("%w：pg_dumpall 的输出没有完成标记（PostgreSQL database cluster dump complete）", ErrIncomplete)
+		return l10n.Errorf(code.DumpIncompletePGGlobals, ErrIncomplete)
 	}
 	return nil
 }
 
-// tailBuffer 只保留最后 max 字节的并发安全缓冲；String 在超出时注明省略了前面多少字节，
-// 并从第一个完整的行开始（避免半行，也避免被截断的秘密逃过去秘密）
+// tailBuffer 只保留最后 max 字节的并发安全缓冲；tail 在超出时从第一个完整的行开始
+// （避免半行，也避免被截断的秘密逃过去秘密），并给出省略了前面多少字节
 type tailBuffer struct {
 	mu      sync.Mutex
 	b       []byte
@@ -251,18 +261,18 @@ func (t *tailBuffer) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func (t *tailBuffer) String() string {
+func (t *tailBuffer) tail() (omitted int, text string) {
 	if t == nil {
-		return ""
+		return 0, ""
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.dropped == 0 {
-		return string(t.b)
+		return 0, string(t.b)
 	}
 	b, dropped := t.b, t.dropped
 	if i := bytes.IndexByte(b, '\n'); i >= 0 {
 		b, dropped = b[i+1:], dropped+i+1
 	}
-	return fmt.Sprintf("（省略了前面 %d 字节的错误输出）\n%s", dropped, b)
+	return dropped, string(b)
 }

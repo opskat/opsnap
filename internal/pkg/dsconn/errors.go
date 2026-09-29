@@ -8,10 +8,14 @@ import (
 	"net"
 	"strings"
 
+	"github.com/cago-frame/cago/pkg/i18n"
 	"github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/opskat/opsnap/internal/pkg/netchain"
+
+	"github.com/opskat/opsnap/internal/pkg/code"
+	"github.com/opskat/opsnap/internal/pkg/l10n"
 )
 
 // Reason 数据源本身连接失败的原因，供上层映射为状态与提示
@@ -34,13 +38,23 @@ const (
 	ReasonFailed Reason = "failed"
 )
 
-// Error 数据源本身连接失败。Msg 为驱动或服务端的原文（已去掉秘密），不保留原始错误以免秘密经 Unwrap 泄露
+// Error 数据源本身连接失败。Msg 为驱动或服务端的原文（已去掉秘密），OpsNap 自己的文字为中文；MsgEn 为同一内容
+// 的英文（原文不翻译），与 Msg 相同时为空。不保留原始错误以免秘密经 Unwrap 泄露
 type Error struct {
 	Reason Reason
 	Msg    string
+	MsgEn  string
 }
 
 func (e *Error) Error() string { return e.Msg }
+
+// Localize 按 ctx 的语言显示
+func (e *Error) Localize(ctx context.Context) string {
+	if e.MsgEn != "" && code.Lang(ctx) == code.LangEn {
+		return e.MsgEn
+	}
+	return e.Msg
+}
 
 // FieldError 某个字段的内容无法使用，Field 为 "ca"、"client_cert" 或 "client_key"
 type FieldError struct {
@@ -68,20 +82,28 @@ func wrapError(ctx context.Context, err error, secrets ...string) error {
 	if errors.As(err, &he) {
 		return he
 	}
-	msg := err.Error()
-	for _, s := range secrets {
-		if s != "" {
-			msg = strings.ReplaceAll(msg, s, "******")
+	var msg l10n.Localizer = l10n.Func(func(ctx context.Context) string {
+		text := l10n.Text(ctx, err)
+		for _, s := range secrets {
+			if s != "" {
+				text = strings.ReplaceAll(text, s, "******")
+			}
 		}
-	}
+		return text
+	})
 	reason := classify(ctx, err)
 	switch reason {
 	case ReasonTimeout:
-		msg = "连接超时: " + msg
+		msg = l10n.New(code.NetTimeout, msg)
 	case ReasonCanceled:
-		msg = "已取消: " + msg
+		msg = l10n.New(code.NetCanceled, msg)
 	}
-	return &Error{Reason: reason, Msg: msg}
+	de := &Error{Reason: reason, Msg: msg.Localize(i18n.WithLanguage(context.Background(), code.LangZhCN)),
+		MsgEn: msg.Localize(i18n.WithLanguage(context.Background(), code.LangEn))}
+	if de.MsgEn == de.Msg {
+		de.MsgEn = ""
+	}
+	return de
 }
 
 func classify(ctx context.Context, err error) Reason {

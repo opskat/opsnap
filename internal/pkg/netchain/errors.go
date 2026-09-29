@@ -3,8 +3,10 @@ package netchain
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net"
+
+	"github.com/opskat/opsnap/internal/pkg/code"
+	"github.com/opskat/opsnap/internal/pkg/l10n"
 )
 
 // Reason 一跳失败的原因，供上层映射为状态与提示
@@ -36,17 +38,18 @@ const (
 )
 
 var (
-	ErrTooManyHops       = errors.New("链路超过 5 跳")
-	ErrCycle             = errors.New("链路成环")
-	ErrInvalidHop        = errors.New("通道配置不完整")
-	ErrAuthFailed        = errors.New("认证失败")
-	ErrNegotiation       = errors.New("SOCKS5 方法协商失败")
-	ErrProtocol          = errors.New("协议错误")
-	ErrHostKeyUnknown    = errors.New("主机密钥未确认")
-	ErrHostKeyChanged    = errors.New("主机密钥已变化")
-	ErrPassphraseMissing = errors.New("私钥已加密，缺少口令")
-	ErrPassphraseWrong   = errors.New("私钥口令错误")
-	ErrKeyInvalid        = errors.New("无法识别的私钥格式")
+	// 本包的错误都是 l10n 文字：Error() 为中文，调用方可用 l10n.Text 按查看者的语言显示
+	ErrTooManyHops       error = l10n.Errorf(code.NetErrTooManyHops)
+	ErrCycle             error = l10n.Errorf(code.NetErrCycle)
+	ErrInvalidHop        error = l10n.Errorf(code.NetErrInvalidHop)
+	ErrAuthFailed        error = l10n.Errorf(code.NetErrAuthFailed)
+	ErrNegotiation       error = l10n.Errorf(code.NetErrNegotiation)
+	ErrProtocol          error = l10n.Errorf(code.NetErrProtocol)
+	ErrHostKeyUnknown    error = l10n.Errorf(code.NetErrHostKeyUnknown)
+	ErrHostKeyChanged    error = l10n.Errorf(code.NetErrHostKeyChanged)
+	ErrPassphraseMissing error = l10n.Errorf(code.NetErrPassphraseMissing)
+	ErrPassphraseWrong   error = l10n.Errorf(code.NetErrPassphraseWrong)
+	ErrKeyInvalid        error = l10n.Errorf(code.NetErrKeyInvalid)
 )
 
 // HopError 第 Index 跳（从 1 开始）失败。只记录通道的标识与地址，不含任何秘密。
@@ -61,8 +64,11 @@ type HopError struct {
 	Err    error
 }
 
-func (e *HopError) Error() string {
-	return fmt.Sprintf("第 %d 跳 %s（%s）：%v", e.Index, e.Name, e.Kind.label(), e.Err)
+func (e *HopError) Error() string { return e.Localize(context.Background()) }
+
+// Localize 按 ctx 的语言显示；底层库的原文原样保留
+func (e *HopError) Localize(ctx context.Context) string {
+	return l10n.New(code.NetHopFailed, e.Index, e.Name, e.Kind.label(), l10n.Text(ctx, e.Err)).Localize(ctx)
 }
 
 func (e *HopError) Unwrap() error { return e.Err }
@@ -76,11 +82,14 @@ type HostKeyError struct {
 	Saved       string
 }
 
-func (e *HostKeyError) Error() string {
+func (e *HostKeyError) Error() string { return e.Localize(context.Background()) }
+
+// Localize 按 ctx 的语言显示
+func (e *HostKeyError) Localize(ctx context.Context) string {
 	if e.Changed {
-		return fmt.Sprintf("%v：保存的是 %s，现在出示的是 %s %s", ErrHostKeyChanged, e.Saved, e.KeyType, e.Fingerprint)
+		return l10n.New(code.NetHostKeyChangedDetail, ErrHostKeyChanged, e.Saved, e.KeyType, e.Fingerprint).Localize(ctx)
 	}
-	return fmt.Sprintf("%v：%s %s", ErrHostKeyUnknown, e.KeyType, e.Fingerprint)
+	return l10n.New(code.NetHostKeyUnknownDetail, ErrHostKeyUnknown, e.KeyType, e.Fingerprint).Localize(ctx)
 }
 
 func (e *HostKeyError) Unwrap() error {
@@ -109,9 +118,9 @@ func newHopError(ctx context.Context, index int, h Hop, err error) error {
 	reason := classify(ctx, err)
 	switch reason {
 	case ReasonTimeout:
-		err = fmt.Errorf("连接超时: %w", err)
+		err = l10n.Errorf(code.NetTimeout, err)
 	case ReasonCanceled:
-		err = fmt.Errorf("已取消: %w", err)
+		err = l10n.Errorf(code.NetCanceled, err)
 	}
 	return &HopError{Index: index, ID: h.ID, Name: h.Name, Kind: h.Kind, Addr: h.addr(), Reason: reason, Err: err}
 }

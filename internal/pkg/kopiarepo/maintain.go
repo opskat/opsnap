@@ -2,12 +2,13 @@ package kopiarepo
 
 import (
 	"context"
-	"errors"
-	"fmt"
 
 	"github.com/kopia/kopia/repo"
 	"github.com/kopia/kopia/repo/maintenance"
 	"github.com/kopia/kopia/snapshot/snapshotmaintenance"
+
+	"github.com/opskat/opsnap/internal/pkg/code"
+	"github.com/opskat/opsnap/internal/pkg/l10n"
 )
 
 // MaintenanceMode 仓库维护方式
@@ -37,11 +38,11 @@ func (w *Writer) Maintain(ctx context.Context, mode MaintenanceMode) error {
 	case MaintenanceFull:
 		km = maintenance.ModeFull
 	default:
-		return fmt.Errorf("不支持的维护方式 %q", string(mode))
+		return l10n.Errorf(code.KopiaMaintainMode, string(mode))
 	}
 	dr, ok := w.rep.(repo.DirectRepository)
 	if !ok {
-		return errors.New("仓库连接不支持维护")
+		return l10n.Errorf(code.KopiaMaintainUnsupported)
 	}
 	defer w.m.lockMaintenance(w.key)()
 	err := repo.DirectWriteSession(ctx, dr, repo.WriteSessionOptions{Purpose: "opsnap:maintenance"},
@@ -49,7 +50,7 @@ func (w *Writer) Maintain(ctx context.Context, mode MaintenanceMode) error {
 			return runMaintenance(ctx, dw, km)
 		})
 	if err != nil {
-		return fmt.Errorf("仓库维护（%s）: %w", mode, err)
+		return l10n.Errorf(code.KopiaMaintain, mode, err)
 	}
 	return nil
 }

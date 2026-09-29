@@ -2,11 +2,13 @@ package netchain
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"strings"
 
 	"golang.org/x/crypto/ssh"
+
+	"github.com/opskat/opsnap/internal/pkg/code"
+	"github.com/opskat/opsnap/internal/pkg/l10n"
 )
 
 // sshHandshake 在 conn 上完成 SSH 握手与认证。
@@ -49,7 +51,7 @@ func sshHandshake(ctx context.Context, conn net.Conn, h Hop, signer ssh.Signer) 
 		return nil, ctx.Err()
 	// x/crypto/ssh 不导出认证失败的错误类型，只能按消息识别
 	case strings.Contains(err.Error(), "unable to authenticate"):
-		return nil, fmt.Errorf("%w: %w", ErrAuthFailed, err)
+		return nil, l10n.Errorf(code.WrapColon, ErrAuthFailed, err)
 	}
-	return nil, fmt.Errorf("%w：SSH 握手失败: %w", ErrProtocol, err)
+	return nil, l10n.Errorf(code.NetSSHHandshake, ErrProtocol, err)
 }

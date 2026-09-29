@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"strconv"
+
+	"github.com/opskat/opsnap/internal/pkg/code"
+	"github.com/opskat/opsnap/internal/pkg/l10n"
 )
 
 // socksDialer 经上一段链路连到 SOCKS5 代理再 CONNECT 目标。
@@ -36,7 +38,7 @@ func (s *socksDialer) dial(ctx context.Context, network, addr string) (net.Conn,
 	switch network {
 	case "tcp", "tcp4", "tcp6":
 	default:
-		return nil, fmt.Errorf("SOCKS5 不支持 %s", network)
+		return nil, l10n.Errorf(code.NetSocksNetwork, network)
 	}
 	conn, err := s.open(ctx)
 	if err != nil {
@@ -71,7 +73,7 @@ const (
 
 func protocolErr(err error) error {
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-		return fmt.Errorf("%w：代理断开了连接", ErrProtocol)
+		return l10n.Errorf(code.NetSocksClosed, ErrProtocol)
 	}
 	return err
 }
@@ -91,18 +93,18 @@ func socksNegotiate(conn net.Conn, user, password string) error {
 	}
 	switch {
 	case reply[0] != socksVersion:
-		return fmt.Errorf("%w：对端不是 SOCKS5 代理", ErrProtocol)
+		return l10n.Errorf(code.NetSocksNotSocks, ErrProtocol)
 	case reply[1] == socksMethodRefused && method == socksMethodNone:
-		return fmt.Errorf("%w：代理要求认证", ErrNegotiation)
+		return l10n.Errorf(code.NetSocksAuthRequired, ErrNegotiation)
 	case reply[1] == socksMethodRefused:
-		return fmt.Errorf("%w：代理不接受用户名密码认证", ErrNegotiation)
+		return l10n.Errorf(code.NetSocksNoUserPass, ErrNegotiation)
 	case reply[1] != method:
-		return fmt.Errorf("%w：代理选择了未提供的认证方式 %d", ErrProtocol, reply[1])
+		return l10n.Errorf(code.NetSocksBadMethod, ErrProtocol, reply[1])
 	case method == socksMethodNone:
 		return nil
 	}
 	if len(user) > 255 || len(password) > 255 {
-		return fmt.Errorf("%w：用户名或密码超过 255 字节", ErrAuthFailed)
+		return l10n.Errorf(code.NetSocksCredTooLong, ErrAuthFailed)
 	}
 	msg := make([]byte, 0, 3+len(user)+len(password))
 	msg = append(msg, 1, byte(len(user))) //nolint:gosec // 上面已限制在 255 字节内
@@ -121,15 +123,15 @@ func socksNegotiate(conn net.Conn, user, password string) error {
 	return nil
 }
 
-var socksReplies = map[byte]string{
-	1: "代理内部错误",
-	2: "代理规则不允许",
-	3: "网络不可达",
-	4: "主机不可达",
-	5: "连接被拒绝",
-	6: "TTL 过期",
-	7: "代理不支持 CONNECT",
-	8: "代理不支持该地址类型",
+var socksReplies = map[byte]int{
+	1: code.NetSocksReply1,
+	2: code.NetSocksReply2,
+	3: code.NetSocksReply3,
+	4: code.NetSocksReply4,
+	5: code.NetSocksReply5,
+	6: code.NetSocksReply6,
+	7: code.NetSocksReply7,
+	8: code.NetSocksReply8,
 }
 
 // socksConnect 发送 CONNECT；主机名不在本地解析
@@ -140,7 +142,7 @@ func socksConnect(conn net.Conn, addr string) error {
 	}
 	port, err := strconv.ParseUint(portStr, 10, 16)
 	if err != nil {
-		return fmt.Errorf("无效的端口 %q", portStr)
+		return l10n.Errorf(code.NetSocksBadPort, portStr)
 	}
 	req := []byte{socksVersion, 1, 0}
 	switch ip := net.ParseIP(host); {
@@ -149,7 +151,7 @@ func socksConnect(conn net.Conn, addr string) error {
 	case ip != nil:
 		req = append(append(req, 4), ip.To16()...)
 	case len(host) > 255:
-		return fmt.Errorf("主机名超过 255 字节")
+		return l10n.Errorf(code.NetSocksHostTooLong)
 	default:
 		req = append(append(req, 3, byte(len(host))), host...) //nolint:gosec // 上一分支已限制在 255 字节内
 	}
@@ -162,14 +164,14 @@ func socksConnect(conn net.Conn, addr string) error {
 		return protocolErr(err)
 	}
 	if head[0] != socksVersion {
-		return fmt.Errorf("%w：CONNECT 应答无效", ErrProtocol)
+		return l10n.Errorf(code.NetSocksBadReply, ErrProtocol)
 	}
 	if head[1] != 0 {
-		msg, ok := socksReplies[head[1]]
-		if !ok {
-			msg = fmt.Sprintf("错误码 %d", head[1])
+		msg := l10n.New(code.NetSocksReplyCode, head[1])
+		if c, ok := socksReplies[head[1]]; ok {
+			msg = l10n.New(c)
 		}
-		return fmt.Errorf("SOCKS5 代理无法连接 %s：%s", addr, msg)
+		return l10n.Errorf(code.NetSocksConnectFailed, addr, msg)
 	}
 	var skip int
 	switch head[3] {
@@ -184,7 +186,7 @@ func socksConnect(conn net.Conn, addr string) error {
 		}
 		skip = int(n[0])
 	default:
-		return fmt.Errorf("%w：CONNECT 应答地址类型无效", ErrProtocol)
+		return l10n.Errorf(code.NetSocksBadAddrType, ErrProtocol)
 	}
 	if _, err := io.ReadFull(conn, make([]byte, skip+2)); err != nil {
 		return protocolErr(err)

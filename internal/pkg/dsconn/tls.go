@@ -4,19 +4,21 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
-	"errors"
 	"fmt"
+
+	"github.com/opskat/opsnap/internal/pkg/code"
+	"github.com/opskat/opsnap/internal/pkg/l10n"
 )
 
 var (
-	errCANotPEM       = errors.New("无法解析 CA 证书（需要 PEM 格式）")
-	errCertNotPEM     = errors.New("无法解析客户端证书（需要 PEM 格式）")
-	errKeyInvalid     = errors.New("无法解析客户端私钥（需要 PEM 格式）")
-	errKeyMismatch    = errors.New("客户端私钥与证书不匹配")
-	errCertMissing    = errors.New("提供了客户端私钥，还需要客户端证书")
-	errKeyMissing     = errors.New("提供了客户端证书，还需要客户端私钥")
-	errNoPeerCert     = errors.New("服务端没有出示证书")
-	errInvalidTLSMode = fmt.Errorf("%w：未知的 TLS 模式", ErrInvalidConfig)
+	errCANotPEM       error = l10n.Errorf(code.ConnCANotPEM)
+	errCertNotPEM     error = l10n.Errorf(code.ConnCertNotPEM)
+	errKeyInvalid     error = l10n.Errorf(code.ConnKeyInvalid)
+	errKeyMismatch    error = l10n.Errorf(code.ConnKeyMismatch)
+	errCertMissing    error = l10n.Errorf(code.ConnCertMissing)
+	errKeyMissing     error = l10n.Errorf(code.ConnKeyMissing)
+	errNoPeerCert     error = l10n.Errorf(code.ConnNoPeerCert)
+	errInvalidTLSMode error = l10n.Errorf(code.ConnUnknownTLSMode, ErrInvalidConfig)
 )
 
 func (m TLSMode) valid() bool {
