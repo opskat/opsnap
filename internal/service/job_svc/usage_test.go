@@ -2,6 +2,7 @@ package job_svc
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"testing"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/opskat/opsnap/internal/model/entity/job_entity"
 	"github.com/opskat/opsnap/internal/model/entity/storage_entity"
 	"github.com/opskat/opsnap/internal/pkg/kopiarepo"
+	"github.com/opskat/opsnap/internal/repository/job_repo"
 	"github.com/opskat/opsnap/internal/repository/storage_repo"
 	"github.com/opskat/opsnap/internal/service/storage_svc"
 )
@@ -81,4 +83,35 @@ func TestFullMaintenanceRecordsStorageUsage(t *testing.T) {
 	e.setStorageStatus(storage_entity.StatusUnreachable)
 	require.ErrorIs(t, fullMaintenance(e.ctx, e.storage), storage_svc.ErrNotReady)
 	assert.Equal(t, u, e.usage(), "状态不是正常：不打开存储，也不记录原因（由状态说明）")
+}
+
+// usageSpy 记录 SetUsage 被调用时最近一次运行在元数据库中的状态
+type usageSpy struct {
+	storage_repo.StorageRepo
+	seen []*job_entity.Run
+}
+
+func (s *usageSpy) SetUsage(ctx context.Context, id int64, u storage_entity.Usage) error {
+	runs, err := job_repo.Run().ListRecent(ctx, "", 1)
+	if err != nil {
+		return err
+	}
+	s.seen = append(s.seen, runs...)
+	return s.StorageRepo.SetUsage(ctx, id, u)
+}
+
+// 仓库用量在运行之后读取：读取时运行已保存为最终状态，已结束，耗时不含读取用量的时间
+func TestRunRecordsStorageUsageAfterRunSaved(t *testing.T) {
+	e := newRunEnv(t)
+	spy := &usageSpy{StorageRepo: storage_repo.Storage()}
+	storage_repo.RegisterStorage(spy)
+	run := e.manual()
+	require.Equal(t, job_entity.RunSuccess, run.Status, run.Reason)
+
+	require.Len(t, spy.seen, 1, "运行之后记录一次用量")
+	seen := spy.seen[0]
+	assert.Equal(t, run.ID, seen.ID)
+	assert.Equal(t, job_entity.RunSuccess, seen.Status, "读取用量时运行已保存为成功")
+	assert.Positive(t, seen.FinishedAt, "读取用量时运行已结束")
+	assert.Positive(t, e.usage().Checktime)
 }

@@ -264,6 +264,10 @@ func TestOverviewStorageUsageAfterRun(t *testing.T) {
 		return err == nil && run != nil && run.FinishedAt > 0
 	}, 30*time.Second, 20*time.Millisecond)
 	require.Equal(t, job_entity.RunSuccess, run.Status, run.Reason)
+	// 用量在运行记录保存之后才读取并记录
+	require.Eventually(t, func() bool {
+		return findStorage(t, e.get(t, ""), item.ID).Snapshots > 0
+	}, 30*time.Second, 20*time.Millisecond)
 
 	convey.Convey("运行之后概览显示新的用量，与任务页的快照数和占用一致", t, func() {
 		row := findStorage(t, e.get(t, ""), item.ID)

@@ -292,6 +292,8 @@ func (r *runner) Execute(ctx context.Context, runID int64) (*job_entity.Run, err
 
 	x := &execution{r: r, run: run, job: j, log: ar.log, ar: ar, started: time.UnixMilli(run.StartedAt)}
 	res, stepErr := x.do(tctx)
+	// 运行被取消、超时或中断时不记录存储用量
+	recordUsage := tctx.Err() == nil
 	x.finish(tctx, res, stepErr)
 
 	// 记录用不受取消影响的 ctx 保存
@@ -309,6 +311,8 @@ func (r *runner) Execute(ctx context.Context, runID int64) (*job_entity.Run, err
 	if err := job_repo.Run().Trim(sctx, j.ID, job_entity.MaxRunsPerJob); err != nil {
 		logger.Ctx(sctx).Warn("清理更早的运行记录失败", zap.Int64("job_id", j.ID), zap.Error(err))
 	}
+	// 运行之后记录存储用量（spec「存储目标」），再关闭写入会话
+	x.closeWriter(ctx, recordUsage)
 	return run, nil
 }
 
@@ -497,8 +501,7 @@ func (x *execution) do(ctx context.Context) (res *kopiarepo.SnapshotResult, err 
 	return res, nil
 }
 
-// close 终止导出工具、关闭本机端口与链路、删除运行临时目录；运行没有被取消、超时或中断时记录存储用量，
-// 最后关闭存储写入会话
+// close 终止导出工具、关闭本机端口与链路、删除运行临时目录；存储写入会话留到运行记录保存之后，由 closeWriter 关闭
 func (x *execution) close(ctx context.Context) {
 	cctx := context.WithoutCancel(ctx)
 	if x.sess != nil {
@@ -509,16 +512,22 @@ func (x *execution) close(ctx context.Context) {
 	if x.tunnel != nil {
 		_ = x.tunnel.Close()
 	}
-	if x.writer != nil && ctx.Err() == nil {
-		// 读取用量不是运行的一部分：随运行取消与超时一起停止，停止时不记录
+}
+
+// closeWriter 在运行记录保存之后调用：record 时（运行没有被取消、超时或中断）先用写入会话记录存储用量，
+// 再关闭写入会话。读取用量不是运行的一部分，不计入运行的耗时；OpsNap 停止时随 ctx 停止，停止时不记录
+func (x *execution) closeWriter(ctx context.Context, record bool) {
+	if x.writer == nil {
+		return
+	}
+	if record && ctx.Err() == nil {
 		uctx, cancel := context.WithTimeout(ctx, usageTimeout)
 		storage_svc.Storage().RecordUsage(uctx, x.st.ID, x.writer)
 		cancel()
 	}
-	if x.writer != nil {
-		if err := x.writer.Close(cctx); err != nil {
-			logger.Ctx(cctx).Warn("关闭存储写入会话失败", zap.Int64("run_id", x.run.ID), zap.Error(err))
-		}
+	cctx := context.WithoutCancel(ctx)
+	if err := x.writer.Close(cctx); err != nil {
+		logger.Ctx(cctx).Warn("关闭存储写入会话失败", zap.Int64("run_id", x.run.ID), zap.Error(err))
 	}
 }
 
