@@ -40,6 +40,33 @@
     "restore": "恢复数据",
     "loadFailedTitle": "概览加载失败",
     "refreshFailed": "刷新失败：{{message}}",
+    "guide": {
+      "title": "开始第一次备份",
+      "description": "OpsNap 按计划把数据源备份到存储。完成下面三步后，这里会显示运行情况、成功率与存储用量。",
+      "step1": {
+        "title": "添加数据源",
+        "description": "要备份的 MySQL 或 PostgreSQL 实例，可以经 SSH 跳板或 SOCKS5 连接。",
+        "done": "已有 {{count}} 个数据源",
+        "done_one": "已有 {{count}} 个数据源",
+        "done_other": "已有 {{count}} 个数据源",
+        "add": "添加数据源",
+        "view": "查看数据源"
+      },
+      "step2": {
+        "title": "添加存储",
+        "description": "快照存放的位置：本地目录或 S3 兼容的对象存储，数据在写入前加密。",
+        "done": "已有 {{count}} 个存储",
+        "done_one": "已有 {{count}} 个存储",
+        "done_other": "已有 {{count}} 个存储",
+        "add": "添加存储",
+        "view": "查看存储"
+      },
+      "step3": {
+        "title": "新建任务",
+        "description": "选择数据源、存储、计划与保留策略；可以创建后立即执行一次。",
+        "note": "需要先完成前两步"
+      }
+    },
     "stats": {
       "protected": "受保护数据源",
       "protectedNone": "还没有被任务备份的数据源",

@@ -307,6 +307,99 @@ describe("概览页 · 四个统计", () => {
   });
 });
 
+const emptyOverview: Overview = {
+  protected: { count: 0, by_kind: [] },
+  success_24h: { runs: 0, success: 0, failed: 0, success_rate: 0 },
+  next_run: null,
+  recent: { items: [], failed: [], failed_24h: 0 },
+  timezone: "Asia/Shanghai",
+  daily: days(),
+  counts: { datasources: 0, storages: 0, jobs: 0 },
+  storage_usage: { packed_bytes: 0, original_bytes: 0, savings: 0, unreadable: 0 },
+  storages: [],
+};
+
+const guideRegion = () => screen.getByRole("region", { name: "开始第一次备份" });
+
+describe("概览页 · 空状态引导", () => {
+  it("没有任务时，统计照常显示，最近运行/柱状图/存储目标换成三步引导，都未完成", async () => {
+    respond(ok(emptyOverview));
+    renderPage();
+
+    await screen.findByRole("region", { name: "开始第一次备份" });
+    expect(stat("受保护数据源")).toHaveTextContent("0");
+    expect(stat("24h 成功率")).toHaveTextContent("—");
+    expect(stat("存储占用")).toHaveTextContent("0 B");
+    expect(stat("下一次运行")).toHaveTextContent("—");
+    expect(screen.queryByRole("region", { name: "最近运行" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "14 天运行" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "存储目标" })).not.toBeInTheDocument();
+
+    const guide = guideRegion();
+    expect(within(guide).getByRole("link", { name: "添加数据源" })).toHaveAttribute("href", "/sources");
+    expect(within(guide).getByRole("link", { name: "添加存储" })).toHaveAttribute("href", "/storage");
+    expect(within(guide).queryByText(/已有 \d+ 个数据源/)).not.toBeInTheDocument();
+    expect(within(guide).queryByText(/已有 \d+ 个存储/)).not.toBeInTheDocument();
+    expect(within(guide).getByText("需要先完成前两步")).toBeInTheDocument();
+    expect(within(guide).getByRole("button", { name: "新建任务" })).toBeDisabled();
+  });
+
+  it("已有数据源时第一步打勾并显示数量，按钮变为查看数据源", async () => {
+    respond(ok({ ...emptyOverview, counts: { ...emptyOverview.counts, datasources: 2 } }));
+    renderPage();
+
+    const guide = await screen.findByRole("region", { name: "开始第一次备份" });
+    expect(within(guide).getByText("已有 2 个数据源")).toBeInTheDocument();
+    expect(within(guide).getByRole("link", { name: "查看数据源" })).toHaveAttribute("href", "/sources");
+    expect(within(guide).queryByRole("link", { name: "添加数据源" })).not.toBeInTheDocument();
+    expect(within(guide).getByRole("link", { name: "添加存储" })).toHaveAttribute("href", "/storage");
+    expect(within(guide).getByRole("button", { name: "新建任务" })).toBeDisabled();
+    expect(within(guide).getByText("需要先完成前两步")).toBeInTheDocument();
+  });
+
+  it("已有数据源与存储后，第二步也打勾，新建任务可用并指向新建向导", async () => {
+    respond(ok({ ...emptyOverview, counts: { datasources: 2, storages: 1, jobs: 0 } }));
+    renderPage();
+
+    const guide = await screen.findByRole("region", { name: "开始第一次备份" });
+    expect(within(guide).getByText("已有 1 个存储")).toBeInTheDocument();
+    expect(within(guide).getByRole("link", { name: "查看存储" })).toHaveAttribute("href", "/storage");
+    expect(within(guide).queryByRole("link", { name: "添加存储" })).not.toBeInTheDocument();
+    expect(within(guide).queryByText("需要先完成前两步")).not.toBeInTheDocument();
+    const createJob = within(guide).getByRole("link", { name: "新建任务" });
+    expect(createJob).toHaveAttribute("href", "/jobs/new");
+  });
+
+  it("有任务后（即使从未运行过），显示完整概览而不是引导", async () => {
+    respond(ok({ ...emptyOverview, counts: { datasources: 1, storages: 1, jobs: 1 } }));
+    renderPage();
+
+    await screen.findByRole("region", { name: "最近运行" });
+    expect(screen.queryByRole("region", { name: "开始第一次备份" })).not.toBeInTheDocument();
+    expect(screen.getByText("还没有运行记录")).toBeInTheDocument();
+  });
+
+  it("英文界面：引导按钮与提示文案", async () => {
+    await act(async () => {
+      await i18n.changeLanguage("en");
+    });
+    try {
+      respond(ok(emptyOverview));
+      renderPage();
+
+      const guide = await screen.findByRole("region", { name: "Start your first backup" });
+      expect(within(guide).getByRole("link", { name: "Add data source" })).toHaveAttribute("href", "/sources");
+      expect(within(guide).getByRole("link", { name: "Add storage" })).toHaveAttribute("href", "/storage");
+      expect(within(guide).getByText("Requires the first two steps")).toBeInTheDocument();
+      expect(within(guide).getByRole("button", { name: "New job" })).toBeDisabled();
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage("zh-CN");
+      });
+    }
+  });
+});
+
 describe("概览页 · 最近运行", () => {
   it("每行显示引擎缩写、任务与地址、类型、状态、耗时、大小与时间", async () => {
     respond(ok(full));

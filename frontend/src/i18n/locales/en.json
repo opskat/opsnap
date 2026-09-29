@@ -40,6 +40,33 @@
     "restore": "Restore data",
     "loadFailedTitle": "Failed to load the overview",
     "refreshFailed": "Refresh failed: {{message}}",
+    "guide": {
+      "title": "Start your first backup",
+      "description": "OpsNap backs up data sources to storage on a schedule. Finish the three steps below and this space will show run status, success rate and storage usage.",
+      "step1": {
+        "title": "Add data source",
+        "description": "The MySQL or PostgreSQL instance to back up, reachable via an SSH jump host or SOCKS5.",
+        "done": "{{count}} data sources added",
+        "done_one": "{{count}} data source added",
+        "done_other": "{{count}} data sources added",
+        "add": "Add data source",
+        "view": "View data sources"
+      },
+      "step2": {
+        "title": "Add storage",
+        "description": "Where snapshots are kept: a local directory or an S3-compatible object store; data is encrypted before it is written.",
+        "done": "{{count}} storages added",
+        "done_one": "{{count}} storage added",
+        "done_other": "{{count}} storages added",
+        "add": "Add storage",
+        "view": "View storage"
+      },
+      "step3": {
+        "title": "New job",
+        "description": "Choose a data source, storage, schedule and retention policy; you can run it once right after creating it.",
+        "note": "Requires the first two steps"
+      }
+    },
     "stats": {
       "protected": "Protected data sources",
       "protectedNone": "No data source is backed up by a job yet",

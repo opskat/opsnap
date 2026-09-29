@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { ComingSoon, comingSoonClass } from "@/components/overview/ComingSoon";
 import { DailyRunsChart } from "@/components/overview/DailyRunsChart";
 import { RecentRuns } from "@/components/overview/RecentRuns";
+import { StartGuide } from "@/components/overview/StartGuide";
 import { StatCards } from "@/components/overview/StatCards";
 import { StorageTargets } from "@/components/overview/StorageTargets";
 import { Button } from "@/components/ui/button";
@@ -35,18 +36,26 @@ function ErrorBlock({ title, message, onRetry }: { title?: string; message: stri
   );
 }
 
-/** 本轮的完整概览；data 为空表示加载中，各区块显示占位 */
+/**
+ * 本轮的完整概览；data 为空表示加载中，各区块显示占位。
+ * 一个任务都没有时（spec「概览」→「空状态」），最近运行 / 14 天运行 / 存储目标换成三步引导。
+ */
 function Dashboard({ data }: { data?: Overview }) {
+  const empty = data ? data.counts.jobs === 0 : false;
   return (
     <>
       <StatCards data={data} />
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
-        <RecentRuns data={data?.recent} />
-        <div className="flex flex-col gap-4">
-          <DailyRunsChart data={data?.daily} />
-          <StorageTargets data={data?.storages} />
+      {empty && data ? (
+        <StartGuide datasources={data.counts.datasources} storages={data.counts.storages} />
+      ) : (
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
+          <RecentRuns data={data?.recent} />
+          <div className="flex flex-col gap-4">
+            <DailyRunsChart data={data?.daily} />
+            <StorageTargets data={data?.storages} />
+          </div>
         </div>
-      </div>
+      )}
     </>
   );
 }
