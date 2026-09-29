@@ -9,6 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	// 任务按 IANA 时区调度：内嵌时区数据库，没有系统时区数据的主机（精简镜像、Windows）上也能解析时区
+	_ "time/tzdata"
+
 	"github.com/cago-frame/cago"
 	"github.com/cago-frame/cago/configs"
 	"github.com/cago-frame/cago/database/db"
@@ -26,6 +29,7 @@ import (
 	"github.com/opskat/opsnap/internal/repository/admin_repo"
 	"github.com/opskat/opsnap/internal/repository/channel_repo"
 	"github.com/opskat/opsnap/internal/repository/datasource_repo"
+	"github.com/opskat/opsnap/internal/repository/job_repo"
 	"github.com/opskat/opsnap/internal/repository/oidc_repo"
 	"github.com/opskat/opsnap/internal/repository/session_repo"
 	"github.com/opskat/opsnap/internal/repository/setting_repo"
@@ -34,6 +38,7 @@ import (
 	"github.com/opskat/opsnap/internal/repository/token_repo"
 	"github.com/opskat/opsnap/internal/service/auth_svc"
 	"github.com/opskat/opsnap/internal/service/datasource_svc"
+	"github.com/opskat/opsnap/internal/service/job_svc"
 	"github.com/opskat/opsnap/internal/service/secret_svc"
 	"github.com/opskat/opsnap/internal/service/storage_svc"
 	"github.com/opskat/opsnap/internal/web"
@@ -99,6 +104,8 @@ func main() {
 			return nil
 		})).
 		Registry(cago.FuncComponent(printSetupCode)).
+		// 在 HTTP 之前启动、之后关闭：关闭时已不再有请求派发新的运行
+		Registry(&schedulerComponent{}).
 		RegistryCancel(mux.HTTP(api.Router)).
 		Start()
 	if err != nil {
@@ -151,6 +158,25 @@ func printSetupCode(ctx context.Context, _ *configs.Config) error {
 	return nil
 }
 
+// schedulerComponent 备份任务的调度组件（job_svc.Scheduler）。启动时依次：清扫 <数据目录>/runs 中
+// 导出临时目录的残留、处理上次退出时未结束的运行、补跑错过的计划、执行“立即执行一次”；
+// 关闭时不再触发新的运行，中断进行中的运行，由 cago 在退出前的等待时间内结束它们
+type schedulerComponent struct {
+	s *job_svc.Scheduler
+}
+
+func (c *schedulerComponent) Start(ctx context.Context, cfg *configs.Config) error {
+	job_svc.SetWorkDir(filepath.Join(dataDir(ctx, cfg), "runs"))
+	c.s = job_svc.NewScheduler()
+	return c.s.Start(ctx)
+}
+
+func (c *schedulerComponent) CloseHandle() {
+	if c.s != nil {
+		c.s.Close()
+	}
+}
+
 // registerRepositories 注册全部仓库实现；服务与命令行子命令共用
 func registerRepositories() {
 	system_repo.RegisterSystem(system_repo.NewSystem())
@@ -162,9 +188,13 @@ func registerRepositories() {
 	storage_repo.RegisterStorage(storage_repo.NewStorage())
 	channel_repo.RegisterChannel(channel_repo.NewChannel())
 	datasource_repo.RegisterDataSource(datasource_repo.NewDataSource())
+	job_repo.RegisterJob(job_repo.NewJob())
+	job_repo.RegisterRun(job_repo.NewRun())
 }
 
-// registerHooks 注册模块之间的钩子：通道的引用计数与删除保护计入数据源；通道的主机密钥变化时经过它的数据源同样标记，重新确认后重新测试这些数据源
+// registerHooks 注册模块之间的钩子：通道的引用计数与删除保护计入数据源；通道的主机密钥变化时经过它的数据源同样标记，重新确认后重新测试这些数据源；
+// 任务对数据源、存储的引用计数与删除、位置更改保护
 func registerHooks() {
 	datasource_svc.RegisterChannelHooks()
+	job_svc.RegisterReferenceHooks()
 }

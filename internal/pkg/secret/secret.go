@@ -7,10 +7,12 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/opskat/opsnap/internal/pkg/code"
+	"github.com/opskat/opsnap/internal/pkg/l10n"
 )
 
 // KeyFileName 数据目录中主密钥文件的文件名
@@ -25,15 +27,15 @@ const (
 )
 
 var (
-	ErrInvalidKey = errors.New("主密钥格式不正确：需要 base64 编码的 32 字节随机数")
-	ErrDecrypt    = errors.New("解密失败：密文损坏或主密钥不匹配")
+	ErrInvalidKey error = l10n.Errorf(code.SecretErrInvalidKey)
+	ErrDecrypt    error = l10n.Errorf(code.SecretErrDecrypt)
 )
 
 // GenerateKey 生成新的随机主密钥
 func GenerateKey() ([]byte, error) {
 	key := make([]byte, keySize)
 	if _, err := rand.Read(key); err != nil {
-		return nil, fmt.Errorf("生成主密钥: %w", err)
+		return nil, l10n.Errorf(code.SecretGenerateKey, err)
 	}
 	return key, nil
 }
@@ -89,11 +91,11 @@ func NewBox(key []byte) (*Box, error) {
 	}
 	block, err := aes.NewCipher(key)
 	if err != nil {
-		return nil, fmt.Errorf("初始化加密: %w", err)
+		return nil, l10n.Errorf(code.SecretInitCipher, err)
 	}
 	aead, err := cipher.NewGCM(block)
 	if err != nil {
-		return nil, fmt.Errorf("初始化加密: %w", err)
+		return nil, l10n.Errorf(code.SecretInitCipher, err)
 	}
 	return &Box{aead: aead}, nil
 }
@@ -102,7 +104,7 @@ func NewBox(key []byte) (*Box, error) {
 func (b *Box) Encrypt(plaintext []byte) (string, error) {
 	nonce := make([]byte, b.aead.NonceSize())
 	if _, err := rand.Read(nonce); err != nil {
-		return "", fmt.Errorf("生成随机数: %w", err)
+		return "", l10n.Errorf(code.SecretRandom, err)
 	}
 	sealed := b.aead.Seal(nonce, nonce, plaintext, nil)
 	return cipherVersion + base64.StdEncoding.EncodeToString(sealed), nil

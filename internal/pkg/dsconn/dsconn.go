@@ -13,6 +13,8 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/opskat/opsnap/internal/pkg/code"
+	"github.com/opskat/opsnap/internal/pkg/l10n"
 	"github.com/opskat/opsnap/internal/pkg/netchain"
 )
 
@@ -91,7 +93,7 @@ func (c Config) GoString() string { return "dsconn.Config{" + c.String() + "}" }
 func (c Config) addr() string { return net.JoinHostPort(c.Host, strconv.Itoa(c.Port)) }
 
 // ErrInvalidConfig 连接参数不完整或取值无效
-var ErrInvalidConfig = errors.New("数据源配置无效")
+var ErrInvalidConfig error = l10n.Errorf(code.ConnErrInvalidConfig)
 
 // Info 连接测试的结果
 type Info struct {
@@ -198,16 +200,16 @@ func Open(ctx context.Context, d Dialer, cfg Config) (*Conn, error) {
 func (c Config) Validate() error {
 	switch {
 	case c.Type != TypeMySQL && c.Type != TypePostgreSQL && c.Type != TypeServerFile:
-		return fmt.Errorf("%w：未知的类型 %q", ErrInvalidConfig, c.Type)
+		return l10n.Errorf(code.NetUnknownKind, ErrInvalidConfig, c.Type)
 	case c.Host == "":
-		return fmt.Errorf("%w：缺少主机", ErrInvalidConfig)
+		return l10n.Errorf(code.NetNoHost, ErrInvalidConfig)
 	case c.Port < 1 || c.Port > 65535:
-		return fmt.Errorf("%w：端口 %d 超出 1–65535", ErrInvalidConfig, c.Port)
+		return l10n.Errorf(code.NetBadPort, ErrInvalidConfig, c.Port)
 	case c.User == "":
-		return fmt.Errorf("%w：缺少用户名", ErrInvalidConfig)
+		return l10n.Errorf(code.ConnNoUser, ErrInvalidConfig)
 	case c.Type == TypeServerFile:
 		if (c.Password == "") == (len(c.PrivateKey) == 0) {
-			return fmt.Errorf("%w：SSH 认证需要密码或私钥之一", ErrInvalidConfig)
+			return l10n.Errorf(code.NetSSHAuthRequired, ErrInvalidConfig)
 		}
 		return nil
 	}

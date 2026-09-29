@@ -4,6 +4,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/opskat/opsnap/internal/pkg/code"
+	"github.com/opskat/opsnap/internal/pkg/l10n"
 )
 
 func TestDecidePostgresVersion(t *testing.T) {
@@ -77,5 +80,12 @@ func TestDecidePgDump(t *testing.T) {
 	t.Run("大版本更低视为不可用（无风险档）", func(t *testing.T) {
 		item := decidePgDump("16.4", toolStatus{Found: true, Major: 15, Raw: "pg_dump (PostgreSQL) 15.2"})
 		assert.Equal(t, TierFail, item.Tier)
+	})
+	t.Run("无法识别版本的原因按两种语言给出，工具输出原样保留", func(t *testing.T) {
+		item := decidePgDump("16.4", toolStatus{Found: true, Err: l10n.Errorf(code.ProbeVersionUnrecognized, "garbage")})
+		assert.Equal(t, TierFail, item.Tier)
+		assert.Equal(t, `找到 pg_dump，但无法确定其版本：无法从 "garbage" 中识别版本号`, item.Detail.ZhCN)
+		assert.Equal(t, `Found pg_dump, but could not determine its version: Could not recognize a version number in "garbage"`,
+			item.Detail.En)
 	})
 }

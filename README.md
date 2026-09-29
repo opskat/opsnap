@@ -60,6 +60,18 @@ Under Sources, connect the MySQL, PostgreSQL and server-file databases and hosts
 - Saving also starts a background capability probe (which backup methods this data source supports, with a copy-pasteable fix for anything missing or risky); reprobe any time from its detail page.
 - A network channel still used by a data source can't be deleted.
 
+## Backup jobs
+
+Under Jobs, a five-step wizard creates a full backup of a MySQL or PostgreSQL data source to a storage: pick the data source, what to back up (the whole instance, re-listed on every run, or chosen databases; routines, triggers, events and accounts for MySQL, roles and tablespaces for PostgreSQL; tables to exclude), where it goes (storage, path prefix, compression), when it runs and how long snapshots are kept, then confirm and optionally run it once right away.
+
+- Exports use the official tools on the OpsNap host — `mysqldump`, or `pg_dump` per database plus `pg_dumpall --globals-only` — found on `PATH`, then in `tools.dir`. They connect through the data source's network channel via a temporary port on `127.0.0.1`; passwords never appear on a command line. The output streams straight into a kopia snapshot, which is read back before the run counts as successful.
+- Schedules: hourly, daily, weekly or Cron, in the job's time zone. A run missed while OpsNap was down is caught up once at startup; a scheduled time that arrives while the previous run is still going is skipped; failures are retried and runs time out as configured. At most 3 runs execute at once; the rest queue.
+- Retention keeps everything from the last N days, then the last snapshot of each week and month for as long as configured; the latest successful snapshot is always kept. Each storage used by a job gets a full repository maintenance once a day.
+- Every run keeps a record with its steps and log. The job list shows each job's last run and snapshot count; the detail page shows its configuration, statistics and run history, with the failed step and log of any run.
+- After creation a job's data source, storage and path prefix cannot change. Deleting a job deletes its run history and, if you tick the box, its snapshots. A data source or storage used by a job cannot be deleted, and the storage's location cannot change.
+
+Snapshots are ordinary kopia snapshots (source `opsnap@opsnap:/<prefix>`, tagged `job:<id>`), so they can be restored without OpsNap as shown above: `kopia snapshot list --all --tags job:<id>`, then `kopia restore`, and import the files with `pg_restore` or `mysql`.
+
 ## Forgotten password
 
 On the server, run:

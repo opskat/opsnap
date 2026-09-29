@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/opskat/opsnap/internal/pkg/dsconn"
+	"github.com/opskat/opsnap/internal/pkg/l10n"
 )
 
 // postgresItems PostgreSQL 的 6 项探测：版本、wal_level、max_wal_senders、复制槽余量、REPLICATION 属性、主控端 pg_dump
@@ -159,11 +160,11 @@ func decidePgDump(serverVersion string, tool toolStatus) Item {
 			En:   "pg_dump was not found in PATH or tools.dir; logical full backup is unavailable.",
 		}, Fix: pgDumpFix}
 	}
-	sMajor, _, _ := parseMajorMinor(serverVersion)
+	sMajor, _, _ := ParseMajorMinor(serverVersion)
 	if tool.Err != nil {
 		return Item{Key: "postgres.pg_dump", Title: itemTitles["postgres.pg_dump"], Tier: TierFail, Detail: Text{
-			ZhCN: fmt.Sprintf("找到 pg_dump，但无法确定其版本：%s", tool.Err),
-			En:   fmt.Sprintf("Found pg_dump, but could not determine its version: %s", tool.Err),
+			ZhCN: fmt.Sprintf("找到 pg_dump，但无法确定其版本：%s", l10n.Text(l10n.ZhCN, tool.Err)),
+			En:   fmt.Sprintf("Found pg_dump, but could not determine its version: %s", l10n.Text(l10n.En, tool.Err)),
 		}, Fix: pgDumpFix}
 	}
 	if tool.Major < sMajor {

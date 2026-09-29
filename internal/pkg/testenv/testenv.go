@@ -5,6 +5,8 @@ package testenv
 
 import (
 	"bufio"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -157,4 +159,17 @@ func skipUnless(t testing.TB, get func() (Service, error)) Service {
 		t.Skipf("%v（在 e2e/.env 或环境变量中配置，见 e2e/.env.example 与 docs/testing.md）", err)
 	}
 	return s
+}
+
+// TempDBPrefix 测试在共享实例上建的临时库名前缀；测试只能建、改、删以它开头的库，且结束时必须删除
+const TempDBPrefix = "opsnap_it_"
+
+// TempDBName 返回一个随机的临时库名（opsnap_it_ 加 12 位十六进制），供测试在共享实例上建库
+func TempDBName(t testing.TB) string {
+	t.Helper()
+	b := make([]byte, 6)
+	if _, err := rand.Read(b); err != nil {
+		t.Fatalf("生成临时库名: %v", err)
+	}
+	return TempDBPrefix + hex.EncodeToString(b)
 }

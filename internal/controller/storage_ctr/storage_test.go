@@ -21,16 +21,20 @@ import (
 	api "github.com/opskat/opsnap/internal/api/storage"
 	tokenapi "github.com/opskat/opsnap/internal/api/token"
 	"github.com/opskat/opsnap/internal/middleware"
+	"github.com/opskat/opsnap/internal/model/entity/job_entity"
 	"github.com/opskat/opsnap/internal/model/entity/storage_entity"
 	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/kopiarepo"
 	"github.com/opskat/opsnap/internal/pkg/testdb"
 	"github.com/opskat/opsnap/internal/repository/admin_repo"
+	"github.com/opskat/opsnap/internal/repository/job_repo"
 	"github.com/opskat/opsnap/internal/repository/session_repo"
 	"github.com/opskat/opsnap/internal/repository/setting_repo"
 	"github.com/opskat/opsnap/internal/repository/storage_repo"
 	"github.com/opskat/opsnap/internal/repository/token_repo"
 	"github.com/opskat/opsnap/internal/service/auth_svc"
+	"github.com/opskat/opsnap/internal/service/datasource_svc"
+	"github.com/opskat/opsnap/internal/service/job_svc"
 	"github.com/opskat/opsnap/internal/service/secret_svc"
 	"github.com/opskat/opsnap/internal/service/storage_svc"
 	"github.com/opskat/opsnap/internal/service/token_svc"
@@ -59,10 +63,17 @@ func setupStorageTest(t *testing.T) *env {
 	session_repo.RegisterSession(session_repo.NewSession())
 	token_repo.RegisterToken(token_repo.NewToken())
 	storage_repo.RegisterStorage(storage_repo.NewStorage())
+	job_repo.RegisterJob(job_repo.NewJob())
 	_, err := secret_svc.Secret().Init(ctx, secret_svc.InitOptions{DataDir: t.TempDir()})
 	require.NoError(t, err)
 	dataDir := t.TempDir()
 	storage_svc.SetDataDir(dataDir)
+	// 任务对存储的引用计数、删除与位置更改保护（docs/specs/2026-09-27-backup-jobs.md「对已有页面的影响」）
+	job_svc.RegisterReferenceHooks()
+	t.Cleanup(func() {
+		storage_svc.SetJobReferrer(nil)
+		datasource_svc.SetJobReferrer(nil)
+	})
 
 	setupCode, _ := auth_svc.Auth().PrepareSetupCode(ctx)
 	_, issued, err := auth_svc.Auth().Setup(ctx, &authapi.SetupRequest{SetupCode: setupCode, Username: "admin", Password: adminPassword},
@@ -266,6 +277,42 @@ func TestCreate(t *testing.T) {
 		convey.Convey("删除不存在的存储返回 404 码", func() {
 			assert.Equal(t, code.StorageNotFound, errCode(e.do(&api.DeleteRequest{ID: 99}, &api.DeleteResponse{})))
 		})
+	})
+}
+
+// TestJobReferences 覆盖 docs/specs/2026-09-27-backup-jobs.md「对已有页面的影响」：
+// 被任务引用的存储不能删除，也不能更改位置，响应与列表都列出/计入引用它的任务；名称仍可修改
+func TestJobReferences(t *testing.T) {
+	convey.Convey("任务的引用计数、删除与位置更改保护计入存储", t, func() {
+		e := setupStorageTest(t)
+		dir := t.TempDir()
+		id := e.create(t, "a", dir, keyA).Item.ID
+		require.NoError(t, job_repo.Job().Create(e.ctx, &job_entity.Job{
+			Name: "nightly", Type: job_entity.TypeBackup, DataSourceID: 1, StorageID: id,
+			Prefix: "nightly", DatabaseNames: "[]", ExcludeTables: "[]",
+			ScheduleKind: "daily", ScheduleWeekdays: "[]", Timezone: "UTC",
+		}))
+
+		items := e.list(t)
+		require.Len(t, items, 1)
+		require.Len(t, items[0].UsedBy.Jobs, 1)
+		assert.Equal(t, "nightly", items[0].UsedBy.Jobs[0].Name)
+
+		err := e.do(&api.DeleteRequest{ID: id}, &api.DeleteResponse{})
+		assert.Equal(t, code.StorageInUse, errCode(err))
+		assert.Contains(t, err.Error(), "nightly")
+		assert.Len(t, e.list(t), 1, "删除被拒绝，存储仍在")
+
+		newDir := filepath.Join(t.TempDir(), "moved")
+		err = e.do(&api.UpdateRequest{ID: id, Name: "a", Location: local(newDir), ConfirmLocationChange: true}, &api.UpdateResponse{})
+		assert.Equal(t, code.StorageLocationLocked, errCode(err))
+		assert.Contains(t, err.Error(), "nightly")
+		assert.NoDirExists(t, newDir)
+		assert.Equal(t, dir, e.list(t)[0].Location, "位置未变")
+
+		resp := &api.UpdateResponse{}
+		require.NoError(t, e.do(&api.UpdateRequest{ID: id, Name: "renamed", Location: local(dir + "/")}, resp))
+		assert.Equal(t, "renamed", resp.Item.Name, "名称不受位置锁定影响，仍可修改")
 	})
 }
 

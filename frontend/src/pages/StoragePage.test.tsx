@@ -31,6 +31,7 @@ const base: Storage = {
   status_message: "",
   checked_at: now() - 120,
   created_at: now() - 3600,
+  used_by: { jobs: [] },
 };
 const minio: Storage = {
   ...base,
@@ -56,6 +57,19 @@ const nas: Storage = {
   location: "/mnt/nas",
   status: "unreachable",
   status_message: "路径不是目录：/mnt/nas",
+};
+const referenced: Storage = {
+  ...base,
+  id: 4,
+  name: "生产存储",
+  path: "/var/backups/prod",
+  location: "/var/backups/prod",
+  used_by: {
+    jobs: [
+      { id: 10, name: "orders-nightly" },
+      { id: 11, name: "billing-weekly" },
+    ],
+  },
 };
 
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -681,6 +695,55 @@ describe("存储页 · 编辑与删除", () => {
     await userEvent.click(within(confirm).getByRole("button", { name: "删除存储" }));
     expect(await screen.findByText("还没有存储")).toBeInTheDocument();
     expect(call(1)).toMatchObject({ url: "/api/v1/storages/1", method: "DELETE" });
+  });
+});
+
+describe("存储页 · 被任务引用", () => {
+  it("列表显示使用数，删除菜单项不可用并列出任务", async () => {
+    respond(ok({ items: [referenced] }));
+    renderPage();
+    await screen.findByText("生产存储");
+    expect(screen.getByText("被 2 个任务使用")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "生产存储 的更多操作" }));
+    const menuItem = await screen.findByRole("menuitem", { name: /删除存储/ });
+    expect(menuItem).toHaveAttribute("aria-disabled", "true");
+    expect(within(menuItem).getByText("仍被 orders-nightly、billing-weekly 使用，不能删除")).toBeInTheDocument();
+  });
+
+  it("S3 存储被引用时只锁定位置（Endpoint、Bucket、前缀），凭据与 TLS 设置仍可修改", async () => {
+    const s3Referenced: Storage = { ...minio, status: "ok", status_message: "", used_by: referenced.used_by };
+    respond(ok({ items: [s3Referenced] }));
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "编辑 MinIO 测试" }));
+    const dialog = await screen.findByRole("dialog", { name: "编辑存储" });
+    expect(within(dialog).getByRole("radio", { name: "S3 兼容存储" })).toBeDisabled();
+    expect(within(dialog).getByLabelText("Endpoint")).toBeDisabled();
+    expect(within(dialog).getByLabelText("Bucket")).toBeDisabled();
+    expect(within(dialog).getByLabelText(/路径前缀/)).toBeDisabled();
+    expect(within(dialog).getByLabelText("Access Key")).not.toBeDisabled();
+    expect(within(dialog).getByLabelText("Secret Key")).not.toBeDisabled();
+    expect(within(dialog).getByLabelText(/Region/)).not.toBeDisabled();
+    for (const sw of within(dialog).getAllByRole("switch")) expect(sw).not.toBeDisabled();
+  });
+
+  it("编辑时锁定位置字段并提示引用它的任务，名称仍可修改", async () => {
+    respond(ok({ items: [referenced] }));
+    renderPage();
+    await userEvent.click(await screen.findByRole("button", { name: "编辑 生产存储" }));
+    const dialog = await screen.findByRole("dialog", { name: "编辑存储" });
+    expect(within(dialog).getByText("被 orders-nightly、billing-weekly 使用，不能更改位置")).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("目录路径")).toBeDisabled();
+    expect(within(dialog).getByRole("radio", { name: "本地目录" })).toBeDisabled();
+
+    await userEvent.clear(within(dialog).getByLabelText("名称"));
+    await userEvent.type(within(dialog).getByLabelText("名称"), "生产存储 2");
+    respond(
+      ok({ state: "repository", created_at: 0, location: referenced.location, location_changed: false }),
+      ok({ item: { ...referenced, name: "生产存储 2" }, snapshots: 0 })
+    );
+    await userEvent.click(within(dialog).getByRole("button", { name: "保存" }));
+    expect(await screen.findByText("生产存储 2")).toBeInTheDocument();
   });
 });
 

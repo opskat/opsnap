@@ -148,7 +148,11 @@
       "edit": "Edit",
       "editNamed": "Edit {{name}}",
       "more": "More actions for {{name}}",
-      "revealKey": "View key"
+      "revealKey": "View key",
+      "usedByJobs": "Used by {{count}} jobs",
+      "usedByJobs_one": "Used by {{count}} job",
+      "usedByJobs_other": "Used by {{count}} jobs",
+      "deleteBlocked": "Still used by {{items}}, cannot delete"
     },
     "form": {
       "createTitle": "New storage",
@@ -172,7 +176,8 @@
       "testing": "Testing…",
       "next": "Next",
       "nextSetKey": "Next: set encryption key",
-      "nextUnlock": "Next: unlock repository"
+      "nextUnlock": "Next: unlock repository",
+      "locationLocked": "Used by {{items}}, location cannot be changed"
     },
     "probe": {
       "notEmpty": "The location is not empty and is not a kopia repository. Choose an empty directory or an existing kopia repository.",
@@ -465,7 +470,8 @@
         "reconfirmNamed": "Reconfirm host key for {{name}}",
         "reconfirmChannelStale": "Couldn't get the key channel {{name}} is currently presenting; try again shortly.",
         "viewDetail": "View Details",
-        "deleteItem": "Delete data source"
+        "deleteItem": "Delete data source",
+        "deleteBlocked": "Still used by {{items}}, cannot delete"
       },
       "form": {
         "createTitle": "New Data Source",
@@ -524,6 +530,9 @@
         "backToList": "Back to list",
         "reprobe": "Reprobe",
         "reprobing": "Reprobing…",
+        "usedByJobs": "Used by {{count}} jobs",
+        "usedByJobs_one": "Used by {{count}} job",
+        "usedByJobs_other": "Used by {{count}} jobs",
         "connection": {
           "title": "Connection",
           "type": "Type",
@@ -541,6 +550,333 @@
           "probedAt": "Probed {{time}}",
           "tables": "{{tables}} ({{count}} total)",
           "fix": "Fix"
+        }
+      }
+    }
+  },
+  "jobs": {
+    "list": {
+      "subtitle": "Back up data sources to storage on a schedule. Every run leaves a record, and a successful run produces a restorable snapshot.",
+      "create": "New job",
+      "loadFailed": "Could not load jobs: {{message}}",
+      "empty": "No jobs yet",
+      "emptyHint": "Create a job to back up a data source to storage on a schedule.",
+      "dismissNotice": "Dismiss",
+      "columns": {
+        "name": "Job",
+        "route": "Data source → storage",
+        "schedule": "Schedule",
+        "lastRun": "Last run",
+        "actions": "Actions"
+      },
+      "scope": {
+        "instance": "Whole instance",
+        "databases": "{{count}} databases",
+        "databases_one": "{{count}} database",
+        "databases_other": "{{count}} databases"
+      },
+      "enabled": "Enabled",
+      "paused": "Paused",
+      "nextRun": "Next {{time}}",
+      "noRun": "Never run",
+      "snapshotCount": "{{count}} snapshots",
+      "snapshotCount_one": "{{count}} snapshot",
+      "snapshotCount_other": "{{count}} snapshots",
+      "exported": "Exported {{size}}",
+      "runningFor": "Running for {{duration}}",
+      "tookTime": "Took {{duration}}",
+      "uploaded": "Uploaded {{size}}",
+      "queuedHint": "Queued",
+      "status": {
+        "queued": "Queued",
+        "running": "Running",
+        "success": "Success",
+        "failed": "Failed",
+        "canceled": "Canceled",
+        "skipped": "Skipped"
+      },
+      "trigger": {
+        "schedule": "Schedule",
+        "manual": "Manual",
+        "catchup": "Catch-up",
+        "retry": "Retry {{attempt}}/{{total}}"
+      },
+      "actions": {
+        "run": "Run now",
+        "runNamed": "Run {{name}} now",
+        "cancel": "Cancel run",
+        "cancelNamed": "Cancel run of {{name}}",
+        "edit": "Edit",
+        "editNamed": "Edit {{name}}",
+        "more": "More actions for {{name}}",
+        "viewDetail": "View details",
+        "pause": "Pause",
+        "enable": "Enable",
+        "delete": "Delete job",
+        "deleteBlocked": "The job is running or queued. Cancel it before deleting"
+      },
+      "delete": {
+        "title": "Delete job \"{{name}}\"?",
+        "hint": "The job and its run history are deleted together and cannot be recovered.",
+        "deleteSnapshots": "Also delete this job's {{count}} snapshots",
+        "deleteSnapshots_one": "Also delete this job's {{count}} snapshot",
+        "deleteSnapshots_other": "Also delete this job's {{count}} snapshots",
+        "confirm": "Delete"
+      }
+    },
+    "wizard": {
+      "title": "New job",
+      "editTitle": "Edit job",
+      "progress": "Step {{step}} of {{total}}",
+      "subtitles": {
+        "source": "Choose the job type and data source",
+        "content": "What to back up and how",
+        "destination": "Where the backup goes",
+        "schedule": "When to run and how long to keep",
+        "confirm": "Review and create"
+      },
+      "steps": {
+        "source": "Type & source",
+        "content": "Content & method",
+        "destination": "Destination",
+        "schedule": "Schedule & retention",
+        "confirm": "Confirm"
+      },
+      "stepsLabel": "Steps",
+      "close": "Close wizard",
+      "back": "Back",
+      "next": "Next",
+      "soon": "Coming in a later release",
+      "notFound": "Job not found",
+      "loadFailed": "Could not load the job: {{message}}",
+      "backToList": "Back to jobs",
+      "cancel": {
+        "title": "Discard this new job?",
+        "titleEdit": "Discard your changes?",
+        "hint": "Nothing you entered will be saved.",
+        "keep": "Keep editing",
+        "discard": "Discard"
+      },
+      "type": {
+        "title": "Job type",
+        "backup": "Backup",
+        "backupHint": "Take point-in-time snapshots into storage and restore any time",
+        "sync": "Sync",
+        "syncHint": "Continuously copy data to another instance of the same kind, without history"
+      },
+      "source": {
+        "title": "Data source",
+        "hint": "Which instance to back up",
+        "loadFailed": "Could not load data sources: {{message}}",
+        "empty": "No usable data sources",
+        "emptyHint": "Create a MySQL or PostgreSQL data source on the Sources page first.",
+        "create": "New data source"
+      },
+      "content": {
+        "probeTitle": "{{name}} capability probe",
+        "scope": "Scope",
+        "instance": "Whole instance",
+        "databases": "Selected databases",
+        "instanceHint": "Databases are listed again on every run, so new ones are included automatically (system databases excluded).",
+        "databasesHint": "Only the checked databases are backed up; a run fails if one of them no longer exists.",
+        "instanceSummary": "{{count}} databases · about {{size}}",
+        "instanceSummary_one": "{{count}} database · about {{size}}",
+        "instanceSummary_other": "{{count}} databases · about {{size}}",
+        "selectedSummary": "{{count}} selected · about {{size}}",
+        "databasesFailed": "Could not read the database list: {{message}}",
+        "noDatabases": "The data source has no databases to back up",
+        "databaseMissing": "No longer exists",
+        "method": "Method",
+        "full": "Full only",
+        "fullHintMysql": "A complete export each time; chunk deduplication keeps the size down",
+        "fullHintPg": "pg_dump exports each database in full; chunk deduplication keeps the size down",
+        "incrementalMysql": "Full + incremental (binlog)",
+        "incrementalMysqlHint": "Periodic full backups with continuous binlog archiving, restorable to any point in time",
+        "incrementalPg": "Physical full + WAL incremental",
+        "incrementalPgHint": "Covers the whole cluster with continuous WAL, restorable to any point in time",
+        "fullUnavailable": "Full backup is unavailable: {{reason}}",
+        "mysqlOptions": "MySQL options",
+        "pgOptions": "PostgreSQL options",
+        "tool": "Full backup tool",
+        "mysqlTool": "mysqldump (official) · consistent snapshot export without locking InnoDB tables",
+        "pgTool": "pg_dump (official) · one custom-format archive per database",
+        "alsoBackup": "Also back up",
+        "options": {
+          "routines": "Stored procedures and functions",
+          "triggers": "Triggers",
+          "events": "Events",
+          "users": "Accounts and privileges",
+          "globals": "Roles, tablespaces and other global objects"
+        },
+        "advanced": "Advanced",
+        "exclude": "Excluded tables",
+        "excludeHintMysql": "One per line as database.table; tables that do not exist are not an error.",
+        "excludeHintPg": "One per line as database.schema.table; tables that do not exist are not an error."
+      },
+      "destination": {
+        "storage": "Storage",
+        "storageHint": "Which storage the snapshots go to",
+        "loadFailed": "Could not load storage: {{message}}",
+        "emptyHint": "Create a local directory or S3-compatible storage on the Storage page first.",
+        "path": "Path",
+        "prefix": "Path prefix",
+        "prefixHint": "Letters, digits and ._-/ only, 1–128 characters",
+        "lockedHint": "The data source, storage and path prefix cannot change after the job is created",
+        "location": "Location in repository:",
+        "locationPending": "shown after you choose a storage",
+        "encryptionCompression": "Encryption and compression",
+        "encryption": "Encryption",
+        "encryptionHint": "Encryption belongs to the storage and uses its repository key; it cannot be changed here.",
+        "encrypted": "Encrypted",
+        "fingerprint": "Repository key fingerprint {{fingerprint}}",
+        "encryptionPending": "Shown after you choose a storage",
+        "compression": "Compression",
+        "compressionHint": "zstd balances speed and size well",
+        "compressionNone": "None"
+      },
+      "schedule": {
+        "frequency": "Frequency",
+        "hourly": "Hourly",
+        "daily": "Daily",
+        "weekly": "Weekly",
+        "cron": "Custom cron",
+        "minuteOfHour": "Minute of the hour",
+        "timeOfDay": "Time of day",
+        "weekdaysLabel": "Weekdays",
+        "weekday": {
+          "0": "Sun",
+          "1": "Mon",
+          "2": "Tue",
+          "3": "Wed",
+          "4": "Thu",
+          "5": "Fri",
+          "6": "Sat"
+        },
+        "cronLabel": "Cron expression",
+        "cronHint": "Standard 5 fields: minute hour day month weekday",
+        "timezone": "Time zone",
+        "nextRuns": "Next 3 runs",
+        "nextRunsLoading": "Calculating…",
+        "previewFailed": "Could not calculate run times: {{message}}",
+        "retentionTitle": "Retention",
+        "retentionDays": "Keep every snapshot from the last N days",
+        "retentionWeeks": "Older than that, keep the last one each week",
+        "retentionMonths": "Keep the last one each month",
+        "maxSnapshots": "Under this schedule, at most about {{count}} snapshots are kept",
+        "maxSnapshots_one": "Under this schedule, at most about {{count}} snapshot is kept",
+        "maxSnapshots_other": "Under this schedule, at most about {{count}} snapshots are kept",
+        "alwaysKeepLatest": "The most recent successful snapshot of this job is always kept",
+        "failureTitle": "On failure",
+        "retries": "Retries on failure",
+        "retryInterval": "Retry interval (minutes)",
+        "timeout": "Timeout (minutes)"
+      },
+      "confirm": {
+        "name": "Job name",
+        "defaultName": "{{name}} full backup",
+        "edit": "Edit",
+        "editSection": "Edit {{section}}",
+        "scopeInstance": "Whole instance",
+        "scopeDatabases": "Selected databases ({{count}})",
+        "excludeCount": "Excluding {{count}} tables",
+        "excludeCount_one": "Excluding {{count}} table",
+        "excludeCount_other": "Excluding {{count}} tables",
+        "scheduleHourly": "Hourly at minute {{minute}}",
+        "scheduleDaily": "Daily at {{time}}",
+        "scheduleWeekly": "Weekly on {{weekdays}} at {{time}}",
+        "scheduleCron": "Cron: {{cron}}",
+        "retentionSummary": "All in last {{days}} days · then 1/week for {{weeks}} weeks · 1/month for {{months}} months",
+        "failureSummary": "Retry {{retries}}x · every {{interval}} min · timeout {{timeout}} min",
+        "createAfterTitle": "After creation",
+        "runNow": "Run once immediately",
+        "runLater": "Wait for the next scheduled run",
+        "runLaterNext": "Next run: {{time}}",
+        "sizeEstimate": "First run is a full backup; the source data of the selected databases is about {{size}}",
+        "sizeNote": "It is usually smaller after export and compression.",
+        "sizeUnavailable": "Could not estimate",
+        "sizeLoading": "Estimating…",
+        "create": "Create job"
+      },
+      "errors": {
+        "sourceRequired": "Choose a data source",
+        "sourceNotReady": "The data source is not healthy ({{reason}}); fix it on the Sources page first",
+        "toolUnavailable": "The export tool on the controller is unavailable; apply the fix and probe again",
+        "databasesRequired": "Select at least one database",
+        "excludeInvalidMysql": "Invalid excluded tables: {{lines}} (MySQL uses database.table)",
+        "excludeInvalidPg": "Invalid excluded tables: {{lines}} (PostgreSQL uses database.schema.table)",
+        "storageRequired": "Choose a storage",
+        "storageNotReady": "The storage is not healthy; fix it on the Storage page first",
+        "prefixInvalid": "Path prefix must be 1–128 letters, digits or ._-/, must not start or end with /, and must not contain .. or //",
+        "prefixConflict": "Path prefix duplicates or nests with job \"{{name}}\" in the same storage",
+        "cronRequired": "Enter a cron expression",
+        "weekdaysRequired": "Select at least one weekday",
+        "retentionDaysInvalid": "Retention days must be an integer between 1 and 365",
+        "retentionWeeksInvalid": "Retention weeks must be an integer between 0 and 520",
+        "retentionMonthsInvalid": "Retention months must be an integer between 0 and 120",
+        "retriesInvalid": "Retries must be an integer between 0 and 5",
+        "retryIntervalInvalid": "Retry interval must be between 1 and 120 minutes",
+        "timeoutInvalid": "Timeout must be between 10 and 2880 minutes (10 minutes to 48 hours)",
+        "nameInvalid": "Job name must be 1–64 characters"
+      }
+    },
+    "detail": {
+      "back": "Back to {{name}}",
+      "notFoundTitle": "Job not found",
+      "notFoundHint": "It may have been deleted, or the link is incorrect.",
+      "backToList": "Back to list",
+      "loadFailed": "Couldn't load the job: {{message}}",
+      "config": {
+        "title": "Configuration",
+        "location": "Location in repository",
+        "sourceWithKind": "{{name}} ({{kind}})",
+        "schedule": "Schedule",
+        "encryptionUnknown": "Unknown",
+        "includedNone": "None"
+      },
+      "stats": {
+        "title": "Statistics",
+        "noSnapshot": "No snapshots yet",
+        "earliestSnapshot": "Earliest {{time}}",
+        "storageUsage": "Repository usage",
+        "exportTotal": "Export total {{size}}",
+        "savings": "Savings {{percent}}",
+        "lastSuccessTitle": "Last success",
+        "noSuccess": "Never succeeded",
+        "recentTitle": "Last 30 runs",
+        "recentSummary": "{{success}} succeeded · {{failed}} failed · {{rate}} success rate"
+      },
+      "runs": {
+        "title": "Run history",
+        "empty": "No runs yet",
+        "loadFailed": "Couldn't load the run history: {{message}}",
+        "columns": {
+          "status": "Status",
+          "trigger": "Trigger",
+          "startedAt": "Started",
+          "duration": "Duration",
+          "bytes": "Exported / uploaded",
+          "snapshot": "Snapshot ID"
+        },
+        "pageInfo": "Page {{page}} of {{total}}",
+        "prevPage": "Previous",
+        "nextPage": "Next",
+        "failedAt": "Failed at \"{{step}}\"",
+        "failedAtWithReason": "Failed at \"{{step}}\": {{reason}}",
+        "failedReason": "Failed: {{reason}}",
+        "log": {
+          "title": "Execution log",
+          "loadFailed": "Couldn't load the log: {{message}}",
+          "empty": "No log lines",
+          "omitted": "{{count}} lines omitted",
+          "omitted_one": "{{count}} line omitted",
+          "omitted_other": "{{count}} lines omitted"
+        },
+        "step": {
+          "prepare": "Prepare",
+          "connect": "Connect to data source",
+          "export": "Export and write to repository",
+          "verify": "Verify",
+          "retention": "Apply retention"
         }
       }
     }

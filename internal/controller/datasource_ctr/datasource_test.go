@@ -39,6 +39,7 @@ import (
 	"github.com/opskat/opsnap/internal/middleware"
 	"github.com/opskat/opsnap/internal/model/entity/channel_entity"
 	"github.com/opskat/opsnap/internal/model/entity/datasource_entity"
+	"github.com/opskat/opsnap/internal/model/entity/job_entity"
 	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/dsconn"
 	"github.com/opskat/opsnap/internal/pkg/fakessh"
@@ -48,12 +49,15 @@ import (
 	"github.com/opskat/opsnap/internal/repository/admin_repo"
 	"github.com/opskat/opsnap/internal/repository/channel_repo"
 	"github.com/opskat/opsnap/internal/repository/datasource_repo"
+	"github.com/opskat/opsnap/internal/repository/job_repo"
 	"github.com/opskat/opsnap/internal/repository/session_repo"
 	"github.com/opskat/opsnap/internal/repository/setting_repo"
 	"github.com/opskat/opsnap/internal/repository/token_repo"
 	"github.com/opskat/opsnap/internal/service/auth_svc"
 	"github.com/opskat/opsnap/internal/service/datasource_svc"
+	"github.com/opskat/opsnap/internal/service/job_svc"
 	"github.com/opskat/opsnap/internal/service/secret_svc"
+	"github.com/opskat/opsnap/internal/service/storage_svc"
 	"github.com/opskat/opsnap/internal/service/token_svc"
 )
 
@@ -174,6 +178,12 @@ func fakeProbeOK(context.Context, dsconn.Type, *dsconn.Conn) []probe.Item {
 		Detail: probe.Text{ZhCN: "正常", En: "OK"}}}
 }
 
+// fakeDatabasesOK 默认的假数据库列表：不依赖 conn（真实 ListDatabases 需要真实的 *sql.DB，mock 连接给不了），
+// 固定返回两个库，只用于不关心具体内容的用例；关心内容或失败路径的用例自行 SetDatabaseLister
+func fakeDatabasesOK(context.Context, dsconn.Type, *dsconn.Conn) ([]api.Database, error) {
+	return []api.Database{{Name: "orders", Size: 1024}, {Name: "billing", Size: 2048}}, nil
+}
+
 func setupTest(t *testing.T) *env {
 	ctx := testdb.New(t)
 	datasource_svc.SetProbeRunner(fakeProbeOK)
@@ -181,6 +191,9 @@ func setupTest(t *testing.T) *env {
 	// 否则一个仍在跑的后台探测会在 runner 被换掉之后才读到它，对着 mock 连接跑真实探测而崩溃；
 	// 也要先于 testdb 释放数据库连接，否则残留的后台探测会在关闭后的数据库上出错（-race 下更明显）
 	t.Cleanup(func() { datasource_svc.SetProbeRunner(nil) })
+	// 假连接给不了真实的 *sql.DB，真实的 ListDatabases 会在读表时崩溃；关心读库列表内容的用例自行 SetDatabaseLister
+	datasource_svc.SetDatabaseLister(fakeDatabasesOK)
+	t.Cleanup(func() { datasource_svc.SetDatabaseLister(nil) })
 	t.Cleanup(gogo.Wait)
 	setting_repo.RegisterSetting(setting_repo.NewSetting())
 	admin_repo.RegisterAdmin(admin_repo.NewAdmin())
@@ -188,9 +201,16 @@ func setupTest(t *testing.T) *env {
 	token_repo.RegisterToken(token_repo.NewToken())
 	channel_repo.RegisterChannel(channel_repo.NewChannel())
 	datasource_repo.RegisterDataSource(datasource_repo.NewDataSource())
+	job_repo.RegisterJob(job_repo.NewJob())
 	_, err := secret_svc.Secret().Init(ctx, secret_svc.InitOptions{DataDir: t.TempDir()})
 	require.NoError(t, err)
 	datasource_svc.RegisterChannelHooks()
+	// 任务对数据源、存储的引用计数与删除保护（docs/specs/2026-09-27-backup-jobs.md「对已有页面的影响」）
+	job_svc.RegisterReferenceHooks()
+	t.Cleanup(func() {
+		datasource_svc.SetJobReferrer(nil)
+		storage_svc.SetJobReferrer(nil)
+	})
 	conn := &fakeConnector{info: dsconn.Info{Version: "8.0.36", TLS: &dsconn.TLSInfo{Version: "TLSv1.3"}}}
 	datasource_svc.SetConnector(conn)
 	t.Cleanup(func() { datasource_svc.SetConnector(nil) })
@@ -207,7 +227,7 @@ func setupTest(t *testing.T) *env {
 	ch := channel_ctr.NewChannel()
 	authed := testMux.Group("/api/v1", middleware.SameOrigin()).Group("/", middleware.Auth())
 	authed.Bind(ctr.List, ctr.Get, ctr.Probe, ctr.Create, ctr.Update, ctr.Test, ctr.ConfirmHostKey, ctr.Delete, ctr.Reprobe,
-		ch.List, ch.Create, ch.Update, ch.Test, ch.ConfirmHostKey, ch.Delete)
+		ctr.Databases, ch.List, ch.Create, ch.Update, ch.Test, ch.ConfirmHostKey, ch.Delete)
 	return &env{ctx: ctx, mux: testMux, token: tok.Token, conn: conn}
 }
 
@@ -973,6 +993,34 @@ func TestChannelReferences(t *testing.T) {
 	})
 }
 
+// TestJobReferences 覆盖 docs/specs/2026-09-27-backup-jobs.md「对已有页面的影响」：
+// 被任务引用的数据源不能删除，删除响应与详情、列表都列出/计入引用它的任务
+func TestJobReferences(t *testing.T) {
+	convey.Convey("任务的引用计数与删除保护计入数据源", t, func() {
+		e := setupTest(t)
+		item := e.create(t, mysqlForm(t, "orders", newDB(t)))
+		require.NoError(t, job_repo.Job().Create(e.ctx, &job_entity.Job{
+			Name: "orders-nightly", Type: job_entity.TypeBackup, DataSourceID: item.ID, StorageID: 1,
+			Prefix: "orders", DatabaseNames: "[]", ExcludeTables: "[]",
+			ScheduleKind: "daily", ScheduleWeekdays: "[]", Timezone: "UTC",
+		}))
+
+		got := e.get(t, item.ID)
+		require.Len(t, got.UsedBy.Jobs, 1)
+		assert.Equal(t, "orders-nightly", got.UsedBy.Jobs[0].Name)
+		require.Len(t, e.findInList(t, item.ID).UsedBy.Jobs, 1, "列表同样计入引用")
+
+		err := e.do(&api.DeleteRequest{ID: item.ID}, &api.DeleteResponse{})
+		assert.Equal(t, code.DataSourceInUse, errCode(err))
+		assert.Contains(t, err.Error(), "orders-nightly")
+		assert.Len(t, e.list(t), 1, "删除被拒绝，数据源仍在")
+
+		require.NoError(t, job_repo.Job().Delete(e.ctx, 1))
+		require.NoError(t, e.do(&api.DeleteRequest{ID: item.ID}, &api.DeleteResponse{}))
+		assert.Empty(t, e.list(t))
+	})
+}
+
 func (e *env) findInList(t *testing.T, id int64) *api.Item {
 	t.Helper()
 	for _, it := range e.list(t) {
@@ -1209,6 +1257,44 @@ func TestReprobe(t *testing.T) {
 						Detail: probe.Text{ZhCN: "超时", En: ctx.Err().Error()}}}
 				})
 			}, 1100*time.Millisecond)
+		})
+	})
+}
+
+func TestDatabases(t *testing.T) {
+	convey.Convey("实时读取数据源的数据库列表", t, func() {
+		e := setupTest(t)
+		dbAddr := newDB(t)
+		item := e.create(t, mysqlForm(t, "orders", dbAddr))
+
+		convey.Convey("返回库名与数据量", func() {
+			resp := &api.DatabasesResponse{}
+			require.NoError(t, e.do(&api.DatabasesRequest{ID: item.ID}, resp))
+			require.Len(t, resp.Databases, 2)
+			assert.Equal(t, api.Database{Name: "orders", Size: 1024}, resp.Databases[0])
+			assert.Equal(t, api.Database{Name: "billing", Size: 2048}, resp.Databases[1])
+		})
+
+		convey.Convey("数据源不存在", func() {
+			err := e.do(&api.DatabasesRequest{ID: 999}, &api.DatabasesResponse{})
+			assert.Equal(t, code.DataSourceNotFound, errCode(err))
+		})
+
+		convey.Convey("连接失败时显示原因，令牌可以调用", func() {
+			e.conn.setOpenErr(errors.New("dial tcp 127.0.0.1:3306: connect: connection refused"))
+			err := e.do(&api.DatabasesRequest{ID: item.ID}, &api.DatabasesResponse{})
+			assert.Equal(t, code.DataSourceDatabasesFailed, errCode(err))
+			assert.Contains(t, err.Error(), "connection refused")
+		})
+
+		convey.Convey("读取失败时显示原因并去掉秘密", func() {
+			datasource_svc.SetDatabaseLister(func(context.Context, dsconn.Type, *dsconn.Conn) ([]api.Database, error) {
+				return nil, fmt.Errorf("SHOW DATABASES 需要密码 %s 才能执行", dbPassword)
+			})
+			err := e.do(&api.DatabasesRequest{ID: item.ID}, &api.DatabasesResponse{})
+			assert.Equal(t, code.DataSourceDatabasesFailed, errCode(err))
+			assert.NotContains(t, err.Error(), dbPassword)
+			assert.Contains(t, err.Error(), "******")
 		})
 	})
 }

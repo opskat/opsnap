@@ -21,6 +21,7 @@ import (
 
 	channelapi "github.com/opskat/opsnap/internal/api/channel"
 	api "github.com/opskat/opsnap/internal/api/datasource"
+	jobapi "github.com/opskat/opsnap/internal/api/job"
 	"github.com/opskat/opsnap/internal/model/entity/channel_entity"
 	"github.com/opskat/opsnap/internal/model/entity/datasource_entity"
 	"github.com/opskat/opsnap/internal/pkg/code"
@@ -62,6 +63,14 @@ type DataSourceSvc interface {
 	// Reprobe 手动触发一次能力探测（详情页“重新探测”）；探测进行中再次触发时合并，不重复探测
 	Reprobe(ctx context.Context, req *api.ReprobeRequest) (*api.ReprobeResponse, error)
 	Delete(ctx context.Context, req *api.DeleteRequest) (*api.DeleteResponse, error)
+	// Databases 实时读取一个已保存数据源的数据库名与数据量（docs/specs/2026-09-27-backup-jobs.md「第 2 步：内容与方式」）
+	Databases(ctx context.Context, req *api.DatabasesRequest) (*api.DatabasesResponse, error)
+
+	// OpenSaved 沿保存的链路连接一个已保存的数据源，供任务的导出与探测之外的场景复用（如运行导出）。
+	// 数据源不存在时返回 datasource_repo.ErrNotFound；其余失败返回原文错误，连同其中出现的秘密
+	// （供调用方去除后再记录或回传）。调用方负责按“先关连接、再关链路”的顺序关闭返回的 *dsconn.Conn 与
+	// *netchain.Tunnel（失败时两者都为 nil，不需要关闭）
+	OpenSaved(ctx context.Context, id int64) (*netchain.Tunnel, *dsconn.Conn, dsconn.Config, []string, error)
 
 	// References 每个通道被哪些数据源直接经由（通道 ID → 数据源），供通道的引用计数与删除保护
 	References(ctx context.Context) (map[int64][]*channelapi.Ref, error)
@@ -75,12 +84,18 @@ type DataSourceSvc interface {
 // 使控制器测试不依赖真实的 MySQL / PostgreSQL / SSH 连接
 type ProbeRunner func(ctx context.Context, typ dsconn.Type, conn *dsconn.Conn) []probe.Item
 
+// JobReferrer 返回使用该数据源的任务，由 job_svc 注册，供列表/详情的引用计数与删除保护；
+// nil 表示任务模块尚未注册（如未涉及任务的测试）
+type JobReferrer func(ctx context.Context, dataSourceID int64) ([]*jobapi.Ref, error)
+
 type dataSourceSvc struct {
 	now func() time.Time
 
 	mu        sync.RWMutex
 	connector dsconn.Connector
 	runner    ProbeRunner
+	dbLister  DatabaseLister
+	jobRefs   JobReferrer
 
 	probeMu sync.Mutex
 	probing map[int64]bool
@@ -91,8 +106,8 @@ type dataSourceSvc struct {
 	probeLimit time.Duration
 }
 
-var defaultDataSource = &dataSourceSvc{now: time.Now, connector: dsconn.Default, runner: probe.Run, probing: map[int64]bool{}, again: map[int64]bool{},
-	probeLimit: probeTimeout}
+var defaultDataSource = &dataSourceSvc{now: time.Now, connector: dsconn.Default, runner: probe.Run, dbLister: ListDatabases,
+	probing: map[int64]bool{}, again: map[int64]bool{}, probeLimit: probeTimeout}
 
 func DataSource() DataSourceSvc {
 	return defaultDataSource
@@ -116,6 +131,60 @@ func SetProbeRunner(r ProbeRunner) {
 	defaultDataSource.mu.Lock()
 	defer defaultDataSource.mu.Unlock()
 	defaultDataSource.runner = r
+}
+
+// SetDatabaseLister 替换实时读取数据库列表的实现（测试用假实现）；nil 恢复为 ListDatabases
+func SetDatabaseLister(l DatabaseLister) {
+	if l == nil {
+		l = ListDatabases
+	}
+	defaultDataSource.mu.Lock()
+	defer defaultDataSource.mu.Unlock()
+	defaultDataSource.dbLister = l
+}
+
+// refMu 串行化“没有任务引用该数据源”的检查与删除，以及新建任务时对数据源的检查与写入（LockReferences）：
+// 检查之后、删除之前新建的任务会指向一个已删除的数据源
+var refMu sync.Mutex
+
+// LockReferences 新建任务时持有，直到任务写入；返回解锁函数
+func LockReferences() (unlock func()) {
+	refMu.Lock()
+	return refMu.Unlock
+}
+
+// SetJobReferrer 由任务模块注册：查询使用某个数据源的任务，用于引用计数与删除保护；nil 表示没有任务模块
+func SetJobReferrer(fn JobReferrer) {
+	defaultDataSource.mu.Lock()
+	defer defaultDataSource.mu.Unlock()
+	defaultDataSource.jobRefs = fn
+}
+
+func (s *dataSourceSvc) jobReferrer() JobReferrer {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.jobRefs
+}
+
+// referencingJobs 使用该数据源的任务；没有注册任务模块时返回空
+func (s *dataSourceSvc) referencingJobs(ctx context.Context, id int64) ([]*jobapi.Ref, error) {
+	fn := s.jobReferrer()
+	if fn == nil {
+		return nil, nil
+	}
+	return fn(ctx, id)
+}
+
+// usedByJobs 单个数据源的引用摘要，供列表与详情展示；不返回 nil 切片，避免响应中出现 null
+func (s *dataSourceSvc) usedByJobs(ctx context.Context, id int64) (*api.UsedBy, error) {
+	jobs, err := s.referencingJobs(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if jobs == nil {
+		jobs = []*jobapi.Ref{}
+	}
+	return &api.UsedBy{Jobs: jobs}, nil
 }
 
 // SetProbeDoneHook 仅供测试：每次后台探测结束时调用一次，代替 sleep 等待完成；nil 取消
@@ -153,6 +222,12 @@ func (s *dataSourceSvc) conn() dsconn.Connector {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.connector
+}
+
+func (s *dataSourceSvc) databaseLister() DatabaseLister {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.dbLister
 }
 
 func (s *dataSourceSvc) probeRunner() ProbeRunner {
@@ -245,40 +320,77 @@ func (s *dataSourceSvc) runProbe(id int64) {
 	}
 }
 
-// probeOnce 沿保存的链路连接数据源并执行一次探测；连接失败或超时时返回原因（原文，已去掉秘密），
-// 此时 items 为 nil，调用方按“无法探测”处理，不落任何探测项
-func (s *dataSourceSvc) probeOnce(ctx context.Context, id int64) ([]datasource_entity.ProbeItem, string) {
+// OpenSaved 沿保存的链路连接一个已保存的数据源：解密设置、按链路建立隧道、认证并返回保持打开的连接，
+// 供探测之外的场景复用（如任务导出、运行时按需查库）。数据源不存在时返回 datasource_repo.ErrNotFound；
+// 其余失败原样返回（未去秘密），连同其中出现的秘密（供调用方在展示或记录前用 scrub 去除）。
+// 调用方负责按“先关连接、再关链路”的顺序关闭返回的 *dsconn.Conn 与 *netchain.Tunnel；失败时两者都为 nil
+func (s *dataSourceSvc) OpenSaved(ctx context.Context, id int64) (*netchain.Tunnel, *dsconn.Conn, dsconn.Config, []string, error) {
 	ds, err := datasource_repo.DataSource().Find(ctx, id)
 	if err != nil {
-		return nil, err.Error()
+		return nil, nil, dsconn.Config{}, nil, err
 	}
 	if ds == nil {
-		return nil, ""
+		return nil, nil, dsconn.Config{}, nil, datasource_repo.ErrNotFound
 	}
 	cfg, secrets, err := s.savedConfig(ctx, ds)
 	if err != nil {
-		return nil, scrub(err.Error(), secrets...)
+		return nil, nil, dsconn.Config{}, secrets, err
 	}
 	hops, err := s.hops(ctx, ds.ChannelID)
 	if err != nil {
-		return nil, scrub(err.Error(), secrets...)
+		return nil, nil, dsconn.Config{}, secrets, err
 	}
 	chain, err := netchain.NewChain(hops)
 	if err != nil {
-		return nil, scrub(err.Error(), secrets...)
+		return nil, nil, dsconn.Config{}, secrets, err
 	}
 	tun, err := chain.Connect(ctx)
 	if err != nil {
-		return nil, scrub(err.Error(), secrets...)
+		return nil, nil, dsconn.Config{}, secrets, err
 	}
-	defer func() { _ = tun.Close() }()
 	conn, err := s.conn().Open(ctx, tun, cfg)
 	if err != nil {
+		_ = tun.Close()
+		return nil, nil, dsconn.Config{}, secrets, err
+	}
+	return tun, conn, cfg, secrets, nil
+}
+
+// probeOnce 沿保存的链路连接数据源并执行一次探测；连接失败或超时时返回原因（原文，已去掉秘密），
+// 此时 items 为 nil，调用方按“无法探测”处理，不落任何探测项。数据源在此期间被删除时同样返回 nil 与
+// 空原因，调用方（runProbe）据此不写任何结果
+func (s *dataSourceSvc) probeOnce(ctx context.Context, id int64) ([]datasource_entity.ProbeItem, string) {
+	tun, conn, cfg, secrets, err := s.OpenSaved(ctx, id)
+	if err != nil {
+		if errors.Is(err, datasource_repo.ErrNotFound) {
+			return nil, ""
+		}
 		return nil, scrub(err.Error(), secrets...)
 	}
 	defer func() { _ = conn.Close() }()
-	results := s.probeRunner()(ctx, dsconn.Type(ds.Kind), conn)
+	defer func() { _ = tun.Close() }()
+	results := s.probeRunner()(ctx, cfg.Type, conn)
 	return toProbeEntityItems(results), ""
+}
+
+// Databases 实时读取一个已保存数据源的数据库名与数据量（docs/specs/2026-09-27-backup-jobs.md
+// 「第 2 步：内容与方式」）：数据源不存在时返回 code.DataSourceNotFound；连接或读取失败时返回
+// code.DataSourceDatabasesFailed，原因已去掉秘密
+func (s *dataSourceSvc) Databases(ctx context.Context, req *api.DatabasesRequest) (*api.DatabasesResponse, error) {
+	tun, conn, cfg, secrets, err := s.OpenSaved(ctx, req.ID)
+	if err != nil {
+		if errors.Is(err, datasource_repo.ErrNotFound) {
+			return nil, i18n.NewNotFoundError(ctx, code.DataSourceNotFound)
+		}
+		return nil, i18n.NewError(ctx, code.DataSourceDatabasesFailed, scrub(err.Error(), secrets...))
+	}
+	defer func() { _ = conn.Close() }()
+	defer func() { _ = tun.Close() }()
+	dbs, err := s.databaseLister()(ctx, cfg.Type, conn)
+	if err != nil {
+		return nil, i18n.NewError(ctx, code.DataSourceDatabasesFailed, scrub(err.Error(), secrets...))
+	}
+	return &api.DatabasesResponse{Databases: dbs}, nil
 }
 
 // toProbeEntityItems probe.Item（探测包给出的结果）转为落库用的结构
@@ -1025,9 +1137,21 @@ func (s *dataSourceSvc) RetestThroughChannel(ctx context.Context, channelID int6
 }
 
 func (s *dataSourceSvc) Delete(ctx context.Context, req *api.DeleteRequest) (*api.DeleteResponse, error) {
+	defer LockReferences()()
 	ds, err := s.find(ctx, req.ID)
 	if err != nil {
 		return nil, err
+	}
+	jobs, err := s.referencingJobs(ctx, ds.ID)
+	if err != nil {
+		return nil, err
+	}
+	if len(jobs) > 0 {
+		names := make([]string, 0, len(jobs))
+		for _, j := range jobs {
+			names = append(names, j.Name)
+		}
+		return nil, i18n.NewError(ctx, code.DataSourceInUse, strings.Join(names, ", "))
 	}
 	if err := datasource_repo.DataSource().Delete(ctx, ds.ID); err != nil {
 		return nil, err
@@ -1060,7 +1184,11 @@ func (s *dataSourceSvc) List(ctx context.Context, _ *api.ListRequest) (*api.List
 	}
 	items := make([]*api.Item, 0, len(rows))
 	for _, ds := range rows {
-		items = append(items, s.toItem(ctx, ds, byID))
+		used, err := s.usedByJobs(ctx, ds.ID)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, s.toItem(ctx, ds, byID, used))
 	}
 	return &api.ListResponse{Items: items}, nil
 }
@@ -1083,10 +1211,14 @@ func (s *dataSourceSvc) item(ctx context.Context, ds *datasource_entity.DataSour
 	if err != nil {
 		return nil, err
 	}
-	return s.toItem(ctx, ds, byID), nil
+	used, err := s.usedByJobs(ctx, ds.ID)
+	if err != nil {
+		return nil, err
+	}
+	return s.toItem(ctx, ds, byID, used), nil
 }
 
-func (s *dataSourceSvc) toItem(ctx context.Context, ds *datasource_entity.DataSource, byID map[int64]*channel_entity.Channel) *api.Item {
+func (s *dataSourceSvc) toItem(ctx context.Context, ds *datasource_entity.DataSource, byID map[int64]*channel_entity.Channel, used *api.UsedBy) *api.Item {
 	item := &api.Item{
 		ID:               ds.ID,
 		Name:             ds.Name,
@@ -1112,6 +1244,7 @@ func (s *dataSourceSvc) toItem(ctx context.Context, ds *datasource_entity.DataSo
 		FailedHop:        failedHop(ds),
 		CheckedAt:        ds.Checktime,
 		CreatedAt:        ds.Createtime,
+		UsedBy:           used,
 	}
 	if ds.Version != "" || ds.System != "" {
 		item.Server = &api.ServerInfo{Version: ds.Version, System: ds.System}

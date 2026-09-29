@@ -1,24 +1,11 @@
-import {
-  ArrowLeft,
-  Check,
-  CircleAlert,
-  CircleCheck,
-  Copy,
-  Cpu,
-  Database,
-  Loader2,
-  RefreshCw,
-  Server,
-  Terminal,
-  TriangleAlert,
-  Waypoints,
-} from "lucide-react";
+import { ArrowLeft, Cpu, Database, Loader2, RefreshCw, Server, Terminal, Waypoints } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useParams } from "react-router";
 
 import { DataSourceFormDialog } from "@/components/sources/DataSourceFormDialog";
 import { HostKeyDialog } from "@/components/sources/HostKeyDialog";
+import { FixBlock, TierIcon } from "@/components/sources/ProbeParts";
 import { Button } from "@/components/ui/button";
 import { ApiError } from "@/lib/api";
 import { relativeTime } from "@/lib/format";
@@ -55,18 +42,6 @@ const statusStyle: Record<DataSourceItem["status"], string> = {
   unreachable: "bg-destructive-soft text-destructive",
   host_key_changed: "bg-warning-soft text-warning",
 };
-
-const tierStyle: Record<string, string> = {
-  ok: "text-success",
-  warn: "text-warning",
-  fail: "text-destructive",
-};
-
-function tierIcon(tier: string) {
-  if (tier === "fail") return <CircleAlert className={cn("size-4 shrink-0", tierStyle.fail)} />;
-  if (tier === "warn") return <TriangleAlert className={cn("size-4 shrink-0", tierStyle.warn)} />;
-  return <CircleCheck className={cn("size-4 shrink-0", tierStyle.ok)} />;
-}
 
 /** 链路中一跳的类型标注：通道用 SSH / SOCKS5 缩写（与表单链路预览一致），数据源本身用其类型名称 */
 function hopTypeLabel(t: (key: string) => string, kind: string) {
@@ -105,7 +80,6 @@ export function SourceDetailPage() {
   const [testing, setTesting] = useState(false);
   const [reprobing, setReprobing] = useState(false);
   const [actionError, setActionError] = useState<string>();
-  const [copiedKey, setCopiedKey] = useState<string>();
   const [formOpen, setFormOpen] = useState(false);
   const [formKey, setFormKey] = useState(0);
   const [rowHostKey, setRowHostKey] = useState<{
@@ -265,16 +239,6 @@ export function SourceDetailPage() {
     }
   };
 
-  const copyFix = async (key: string, text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopiedKey(key);
-      window.setTimeout(() => setCopiedKey((k) => (k === key ? undefined : k)), 1500);
-    } catch {
-      // 剪贴板不可用时静默失败，不影响页面其余功能
-    }
-  };
-
   if (state.status === "loading") {
     return (
       <section className="px-8 py-6">
@@ -368,6 +332,11 @@ export function SourceDetailPage() {
                 .filter(Boolean)
                 .join(" · ")}
             </p>
+            {(item.used_by?.jobs.length ?? 0) > 0 && (
+              <p className="text-sm text-muted-foreground">
+                {t("sources.dataSource.detail.usedByJobs", { count: item.used_by?.jobs.length ?? 0 })}
+              </p>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" disabled={testing} onClick={() => void test()}>
@@ -452,7 +421,7 @@ export function SourceDetailPage() {
               {(probe.items ?? []).map((probeItem) => (
                 <li key={probeItem.key} className="flex flex-col gap-1.5 px-4 py-3">
                   <span className="flex items-center gap-2 text-sm font-medium">
-                    {tierIcon(probeItem.tier)}
+                    <TierIcon tier={probeItem.tier} />
                     {pick(probeItem.title)}
                   </span>
                   <span className="pl-6 text-xs text-muted-foreground">
@@ -467,19 +436,9 @@ export function SourceDetailPage() {
                       </>
                     )}
                   </span>
-                  {probeItem.tier !== "ok" && pick(probeItem.fix) && (
-                    <div className="ml-6 flex items-center justify-between gap-3 rounded-md bg-warning-soft px-3 py-2 text-xs text-warning">
-                      <code className="whitespace-pre-wrap break-all">{pick(probeItem.fix)}</code>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="shrink-0"
-                        onClick={() => void copyFix(probeItem.key, pick(probeItem.fix))}
-                      >
-                        {copiedKey === probeItem.key ? <Check /> : <Copy />}
-                        {copiedKey === probeItem.key ? t("common.copied") : t("common.copy")}
-                      </Button>
+                  {probeItem.tier !== "ok" && (
+                    <div className="ml-6">
+                      <FixBlock fix={probeItem.fix} />
                     </div>
                   )}
                 </li>

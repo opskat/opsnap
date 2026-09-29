@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/opskat/opsnap/internal/pkg/code"
+	"github.com/opskat/opsnap/internal/pkg/l10n"
 	"github.com/opskat/opsnap/internal/pkg/secret"
 	"github.com/opskat/opsnap/internal/repository/setting_repo"
 )
@@ -26,9 +28,9 @@ const (
 )
 
 var (
-	ErrKeyMissing     = errors.New("主密钥缺失")
-	ErrKeyMismatch    = errors.New("主密钥与数据库不匹配")
-	ErrNotInitialized = errors.New("主密钥尚未初始化")
+	ErrKeyMissing     error = l10n.Errorf(code.SecretErrKeyMissing)
+	ErrKeyMismatch    error = l10n.Errorf(code.SecretErrKeyMismatch)
+	ErrNotInitialized error = l10n.Errorf(code.SecretErrNotInitialized)
 )
 
 type InitOptions struct {

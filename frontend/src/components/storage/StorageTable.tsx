@@ -9,7 +9,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { relativeTime } from "@/lib/format";
+import { joinNames, relativeTime } from "@/lib/format";
 import type { Storage, StorageStatus } from "@/lib/storage";
 import { cn } from "@/lib/utils";
 
@@ -41,7 +41,7 @@ export function StorageTable({
   testing?: ReadonlySet<number>;
   actions: RowActions;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   return (
     <div role="table" aria-label={t("nav.storage")} className="overflow-hidden rounded-lg border bg-card">
       <div role="row" className={cn(columns, "bg-accent py-2.25 text-xs text-muted-foreground")}>
@@ -53,89 +53,114 @@ export function StorageTable({
           {t("storage.list.actions")}
         </span>
       </div>
-      {items.map((s) => (
-        <div key={s.id} role="row" className={cn(columns, "border-t py-3 text-sm")}>
-          <span role="cell" className="flex min-w-0 items-center gap-3">
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground [&_svg]:size-4">
-              {s.kind === "local" ? <Folder /> : <Cloud />}
+      {items.map((s) => {
+        const usedByJobs = s.used_by?.jobs ?? [];
+        const canDelete = usedByJobs.length === 0;
+        return (
+          <div key={s.id} role="row" className={cn(columns, "border-t py-3 text-sm")}>
+            <span role="cell" className="flex min-w-0 items-center gap-3">
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground [&_svg]:size-4">
+                {s.kind === "local" ? <Folder /> : <Cloud />}
+              </span>
+              <span className="flex min-w-0 flex-col">
+                <span className="truncate font-medium">{s.name}</span>
+                <span className="text-xs text-muted-foreground">{t(`storage.kind.${s.kind}`)}</span>
+                {usedByJobs.length > 0 && (
+                  <span className="text-xs text-muted-foreground">
+                    {t("storage.list.usedByJobs", { count: usedByJobs.length })}
+                  </span>
+                )}
+              </span>
             </span>
-            <span className="flex min-w-0 flex-col">
-              <span className="truncate font-medium">{s.name}</span>
-              <span className="text-xs text-muted-foreground">{t(`storage.kind.${s.kind}`)}</span>
+            <span role="cell" className="flex min-w-0 flex-col font-mono text-xs">
+              <span className="truncate">{s.location}</span>
+              <span className="truncate text-muted-foreground">
+                {s.kind === "local" ? t("storage.list.host") : s.endpoint}
+              </span>
             </span>
-          </span>
-          <span role="cell" className="flex min-w-0 flex-col font-mono text-xs">
-            <span className="truncate">{s.location}</span>
-            <span className="truncate text-muted-foreground">
-              {s.kind === "local" ? t("storage.list.host") : s.endpoint}
+            <span role="cell" className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground">
+              <Lock className="size-3.5" />
+              {s.fingerprint}
             </span>
-          </span>
-          <span role="cell" className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground">
-            <Lock className="size-3.5" />
-            {s.fingerprint}
-          </span>
-          <span role="cell" className="flex min-w-0 flex-col items-start gap-1">
-            <span className={cn("rounded-sm px-1.75 py-0.5 text-2xs font-medium", statusStyle[s.status])}>
-              {t(`storage.status.${s.status}`)}
+            <span role="cell" className="flex min-w-0 flex-col items-start gap-1">
+              <span className={cn("rounded-sm px-1.75 py-0.5 text-2xs font-medium", statusStyle[s.status])}>
+                {t(`storage.status.${s.status}`)}
+              </span>
+              <span className="max-w-full truncate text-xs text-muted-foreground" title={s.status_message || undefined}>
+                {s.status === "ok"
+                  ? t("storage.list.checked", { time: relativeTime(t, s.checked_at) })
+                  : s.status_message}
+              </span>
             </span>
-            <span className="max-w-full truncate text-xs text-muted-foreground" title={s.status_message || undefined}>
-              {s.status === "ok"
-                ? t("storage.list.checked", { time: relativeTime(t, s.checked_at) })
-                : s.status_message}
-            </span>
-          </span>
-          <span role="cell" className="flex items-center justify-end gap-1">
-            {s.status === "wrong_key" && (
-              <Button variant="ghost" size="sm" className="text-warning" onClick={() => actions.onUnlock(s)}>
-                {t("storage.list.unlock")}
-              </Button>
-            )}
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={testing?.has(s.id)}
-              aria-label={t("storage.list.testNamed", { name: s.name })}
-              onClick={() => actions.onTest(s)}
-            >
-              {testing?.has(s.id) ? t("storage.form.testing") : t("storage.form.test")}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label={t("storage.list.editNamed", { name: s.name })}
-              onClick={() => actions.onEdit(s)}
-            >
-              {t("storage.list.edit")}
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon-sm" aria-label={t("storage.list.more", { name: s.name })}>
-                  <Ellipsis />
+            <span role="cell" className="flex items-center justify-end gap-1">
+              {s.status === "wrong_key" && (
+                <Button variant="ghost" size="sm" className="text-warning" onClick={() => actions.onUnlock(s)}>
+                  {t("storage.list.unlock")}
                 </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {actions.onRevealKey && (
-                  <DropdownMenuItem onSelect={() => actions.onRevealKey?.(s)}>
-                    <KeyRound />
-                    {t("storage.list.revealKey")}
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={testing?.has(s.id)}
+                aria-label={t("storage.list.testNamed", { name: s.name })}
+                onClick={() => actions.onTest(s)}
+              >
+                {testing?.has(s.id) ? t("storage.form.testing") : t("storage.form.test")}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-label={t("storage.list.editNamed", { name: s.name })}
+                onClick={() => actions.onEdit(s)}
+              >
+                {t("storage.list.edit")}
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon-sm" aria-label={t("storage.list.more", { name: s.name })}>
+                    <Ellipsis />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {actions.onRevealKey && (
+                    <DropdownMenuItem onSelect={() => actions.onRevealKey?.(s)}>
+                      <KeyRound />
+                      {t("storage.list.revealKey")}
+                    </DropdownMenuItem>
+                  )}
+                  {actions.onDownloadKey && (
+                    <DropdownMenuItem onSelect={() => actions.onDownloadKey?.(s)}>
+                      <Download />
+                      {t("storage.key.download")}
+                    </DropdownMenuItem>
+                  )}
+                  {(actions.onRevealKey || actions.onDownloadKey) && <DropdownMenuSeparator />}
+                  <DropdownMenuItem
+                    variant="destructive"
+                    disabled={!canDelete}
+                    onSelect={() => canDelete && actions.onDelete(s)}
+                  >
+                    <Trash2 />
+                    <span className="flex min-w-0 flex-col">
+                      {t("storage.delete.confirm")}
+                      {!canDelete && (
+                        <span className="text-xs font-normal text-muted-foreground">
+                          {t("storage.list.deleteBlocked", {
+                            items: joinNames(
+                              usedByJobs.map((j) => j.name),
+                              i18n.language
+                            ),
+                          })}
+                        </span>
+                      )}
+                    </span>
                   </DropdownMenuItem>
-                )}
-                {actions.onDownloadKey && (
-                  <DropdownMenuItem onSelect={() => actions.onDownloadKey?.(s)}>
-                    <Download />
-                    {t("storage.key.download")}
-                  </DropdownMenuItem>
-                )}
-                {(actions.onRevealKey || actions.onDownloadKey) && <DropdownMenuSeparator />}
-                <DropdownMenuItem variant="destructive" onSelect={() => actions.onDelete(s)}>
-                  <Trash2 />
-                  {t("storage.delete.confirm")}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </span>
-        </div>
-      ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }

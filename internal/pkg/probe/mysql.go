@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/opskat/opsnap/internal/pkg/dsconn"
+	"github.com/opskat/opsnap/internal/pkg/l10n"
 )
 
 // mysqlBinlogRetentionThreshold 7 天，单位秒（spec 中的默认阈值）
@@ -258,11 +259,11 @@ func decideMySQLDump(serverVersion string, tool toolStatus) Item {
 			En:   "mysqldump was not found in PATH or tools.dir; full backup is unavailable.",
 		}, Fix: mysqlDumpFix}
 	}
-	sMajor, sMinor, _ := parseMajorMinor(serverVersion)
+	sMajor, sMinor, _ := ParseMajorMinor(serverVersion)
 	if tool.Err != nil {
 		return Item{Key: "mysql.mysqldump", Title: itemTitles["mysql.mysqldump"], Tier: TierWarn, Detail: Text{
-			ZhCN: fmt.Sprintf("找到 mysqldump，但无法确定其版本：%s", tool.Err),
-			En:   fmt.Sprintf("Found mysqldump, but could not determine its version: %s", tool.Err),
+			ZhCN: fmt.Sprintf("找到 mysqldump，但无法确定其版本：%s", l10n.Text(l10n.ZhCN, tool.Err)),
+			En:   fmt.Sprintf("Found mysqldump, but could not determine its version: %s", l10n.Text(l10n.En, tool.Err)),
 		}, Fix: mysqlDumpFix}
 	}
 	if tool.Major < sMajor || (tool.Major == sMajor && tool.Minor < sMinor) {

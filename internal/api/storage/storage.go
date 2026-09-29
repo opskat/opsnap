@@ -2,7 +2,17 @@
 // 任何响应都不包含 S3 Secret Key，也不包含仓库密钥（生成密钥接口返回的是尚未保存的新密钥）。
 package storage
 
-import "github.com/cago-frame/cago/server/mux"
+import (
+	"github.com/cago-frame/cago/server/mux"
+
+	jobapi "github.com/opskat/opsnap/internal/api/job"
+)
+
+// UsedBy 引用该存储的对象
+type UsedBy struct {
+	// Jobs 使用该存储的任务
+	Jobs []*jobapi.Ref `json:"jobs"`
+}
 
 // Location 存储类型与位置参数；新建、编辑与测试连接共用
 type Location struct {
@@ -48,6 +58,8 @@ type Item struct {
 	StatusMessage string `json:"status_message"`
 	CheckedAt     int64  `json:"checked_at"`
 	CreatedAt     int64  `json:"created_at"`
+	// UsedBy 引用该存储的任务（docs/specs/2026-09-27-backup-jobs.md「对已有页面的影响」）
+	UsedBy *UsedBy `json:"used_by"`
 }
 
 // ListRequest 列出全部存储；不会触发测试连接

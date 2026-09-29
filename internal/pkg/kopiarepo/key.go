@@ -4,9 +4,11 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"math/big"
 	"strings"
+
+	"github.com/opskat/opsnap/internal/pkg/code"
+	"github.com/opskat/opsnap/internal/pkg/l10n"
 )
 
 const keyAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
@@ -21,7 +23,7 @@ func GenerateKey() (string, error) {
 		}
 		n, err := rand.Int(rand.Reader, limit)
 		if err != nil {
-			return "", fmt.Errorf("生成仓库密钥: %w", err)
+			return "", l10n.Errorf(code.KopiaGenerateKey, err)
 		}
 		b.WriteByte(keyAlphabet[n.Int64()])
 	}

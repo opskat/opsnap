@@ -3,7 +3,6 @@ package kopiarepo
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -18,17 +17,20 @@ import (
 	"github.com/kopia/kopia/repo/encryption"
 	"github.com/kopia/kopia/repo/format"
 	"github.com/kopia/kopia/snapshot"
+
+	"github.com/opskat/opsnap/internal/pkg/code"
+	"github.com/opskat/opsnap/internal/pkg/l10n"
 )
 
 var (
 	// ErrInvalidPassword 密钥打不开仓库
-	ErrInvalidPassword = errors.New("密钥不正确，无法解开这个仓库")
+	ErrInvalidPassword error = l10n.Errorf(code.KopiaErrInvalidPassword)
 	// ErrNotEmpty 建库时目标位置不为空，也不是 kopia 仓库
-	ErrNotEmpty = errors.New("目标位置不为空，且不是 kopia 仓库")
+	ErrNotEmpty error = l10n.Errorf(code.KopiaErrNotEmpty)
 	// ErrAlreadyRepository 建库时目标位置已是 kopia 仓库
-	ErrAlreadyRepository = errors.New("目标位置已是 kopia 仓库")
+	ErrAlreadyRepository error = l10n.Errorf(code.KopiaErrAlreadyRepository)
 	// ErrNotRepository 连接时目标位置不是 kopia 仓库
-	ErrNotRepository = errors.New("目标位置不是 kopia 仓库")
+	ErrNotRepository error = l10n.Errorf(code.KopiaErrNotRepository)
 )
 
 // Encryption 新建仓库使用的加密算法
@@ -44,13 +46,15 @@ type Manager struct {
 	mu sync.Mutex
 	// locks 每个存储一把锁：同一存储的连接配置同一时间只由一个操作改写
 	locks map[int64]*sync.Mutex
+	// maintLocks 每个位置一把锁：每个写入会话的配置目录不同，kopia 在配置旁的维护锁管不到其他会话
+	maintLocks map[string]*sync.Mutex
 }
 
 // configName 校验时 kopia 写入的连接配置文件名，其中有明文的存储凭据
 const configName = "repository.config"
 
 // NewManager root 通常为 <数据目录>/kopia。
-// 启动时清理上次进程在校验途中退出留下的连接配置，不让其中的明文凭据留在磁盘上。
+// 启动时清理上次进程在校验或写入途中退出留下的连接配置，不让其中的明文凭据留在磁盘上。
 func NewManager(root string) *Manager {
 	// 逐项列目录而不用 Glob：数据目录名中的 [ ] * ? 会被 Glob 当作通配符，导致什么也清不掉
 	entries, _ := os.ReadDir(root)
@@ -59,13 +63,13 @@ func NewManager(root string) *Manager {
 			continue
 		}
 		p := filepath.Join(root, e.Name())
-		if strings.HasPrefix(e.Name(), tmpVerifyPrefix) {
+		if strings.HasPrefix(e.Name(), tmpVerifyPrefix) || strings.HasPrefix(e.Name(), tmpWritePrefix) {
 			_ = os.RemoveAll(p)
 			continue
 		}
 		_ = os.Remove(filepath.Join(p, configName))
 	}
-	return &Manager{root: root, locks: map[int64]*sync.Mutex{}}
+	return &Manager{root: root, locks: map[int64]*sync.Mutex{}, maintLocks: map[string]*sync.Mutex{}}
 }
 
 func (m *Manager) dir(id int64) string {
@@ -74,13 +78,18 @@ func (m *Manager) dir(id int64) string {
 
 // lock 锁住该存储的本机目录，返回解锁函数
 func (m *Manager) lock(id int64) func() {
-	m.mu.Lock()
-	l, ok := m.locks[id]
+	return lockIn(&m.mu, m.locks, id)
+}
+
+// lockIn 取出（没有则建立）locks 中 key 对应的锁并锁住，返回解锁函数；mu 保护 locks
+func lockIn[K comparable](mu *sync.Mutex, locks map[K]*sync.Mutex, key K) func() {
+	mu.Lock()
+	l, ok := locks[key]
 	if !ok {
 		l = &sync.Mutex{}
-		m.locks[id] = l
+		locks[key] = l
 	}
-	m.mu.Unlock()
+	mu.Unlock()
 	l.Lock()
 	return l.Unlock
 }
@@ -116,7 +125,7 @@ func Create(ctx context.Context, loc Location, password string) error {
 		return ErrAlreadyRepository
 	}
 	if err != nil {
-		return fmt.Errorf("创建 kopia 仓库: %w", err)
+		return l10n.Errorf(code.KopiaCreate, err)
 	}
 	return nil
 }
@@ -151,31 +160,41 @@ func (m *Manager) Verify(ctx context.Context, id int64, loc Location, password s
 	// 连接配置里有明文的存储凭据（如 S3 Secret Key），用完即删，不留在磁盘上
 	defer func() { _ = os.Remove(cfg) }()
 
-	st, err := openStorage(ctx, loc, false)
+	r, err := connectAndOpen(ctx, cfg, loc, password, true)
 	if err != nil {
 		return 0, err
-	}
-	defer func() { _ = st.Close(ctx) }()
-	err = repo.Connect(ctx, cfg, st, password, &repo.ConnectOptions{
-		ClientOptions: repo.ClientOptions{ReadOnly: true},
-	})
-	if err != nil {
-		return 0, connectError(err)
-	}
-
-	r, err := repo.Open(ctx, cfg, password, &repo.Options{
-		DisableRepositoryLog: true,
-		OnFatalError:         func(error) {},
-	})
-	if err != nil {
-		return 0, connectError(err)
 	}
 	defer func() { _ = r.Close(ctx) }()
 	ids, err := snapshot.ListSnapshotManifests(ctx, r, nil, nil)
 	if err != nil {
-		return 0, fmt.Errorf("读取快照列表: %w", err)
+		return 0, l10n.Errorf(code.KopiaListSnapshots, err)
 	}
 	return len(ids), nil
+}
+
+// connectAndOpen 把连接配置写到 cfg 并打开仓库。cfg 中有明文的存储凭据，由调用方在用完后删除。
+// 仓库日志关闭，打开本身不向仓库写入任何内容；客户端身份固定为 opsnap@opsnap，不随本机主机名变化。
+func connectAndOpen(ctx context.Context, cfg string, loc Location, password string, readOnly bool) (repo.Repository, error) {
+	st, err := openStorage(ctx, loc, false)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = st.Close(ctx) }()
+	err = repo.Connect(ctx, cfg, st, password, &repo.ConnectOptions{
+		ClientOptions: repo.ClientOptions{ReadOnly: readOnly, Hostname: sourceHost, Username: sourceUser},
+	})
+	if err != nil {
+		return nil, connectError(err)
+	}
+	r, err := repo.Open(ctx, cfg, password, &repo.Options{
+		DisableRepositoryLog: true,
+		// 默认会 os.Exit
+		OnFatalError: func(error) {},
+	})
+	if err != nil {
+		return nil, connectError(err)
+	}
+	return r, nil
 }
 
 // Remove 清理该存储在本机的 kopia 配置；不触碰存储中的数据
@@ -193,7 +212,7 @@ func connectError(err error) error {
 	case errors.Is(err, blob.ErrInvalidCredentials):
 		return locErr(ReasonAccessDenied, err)
 	}
-	return fmt.Errorf("连接 kopia 仓库: %w", err)
+	return l10n.Errorf(code.KopiaConnect, err)
 }
 
 // openStorage 按位置得到 kopia 存储后端
@@ -208,7 +227,7 @@ func openStorage(ctx context.Context, loc Location, isCreate bool) (blob.Storage
 			return nil, locErr(ReasonNoAccess, err)
 		}
 		if !fi.IsDir() {
-			return nil, locErr(ReasonNotDirectory, fmt.Errorf("%s 不是目录", loc.Path))
+			return nil, locErr(ReasonNotDirectory, l10n.Errorf(code.KopiaNotDirectory, loc.Path))
 		}
 		// kopia 的 filesystem 后端一经访问就会写入 .shards，连接前先确认确实是仓库，避免改动非仓库目录
 		if _, ok := localRepository(loc.Path); !ok && !isCreate {

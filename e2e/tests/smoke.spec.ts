@@ -27,7 +27,9 @@ test.describe("启动与身份", () => {
 test.describe("主导航", () => {
   test("前端路由可直接访问并刷新", async ({ page }) => {
     await page.goto("/jobs");
-    await expect(page.getByRole("link", { name: /任务|Jobs/ })).toHaveAttribute("aria-current", "page");
+    // 只看侧栏主导航里的“任务”：任务列表页本身还有“新建任务”链接
+    const nav = page.getByRole("navigation", { name: "main" });
+    await expect(nav.getByRole("link", { name: /^(任务|Jobs)$/ })).toHaveAttribute("aria-current", "page");
     await page.reload();
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
   });

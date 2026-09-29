@@ -34,3 +34,8 @@ export function relativeTime(t: TFunction, unix: number) {
   if (minutes < 24 * 60) return t("time.hoursAgo", { count: Math.floor(minutes / 60) });
   return formatDate(unix);
 }
+
+/** 按界面语言连接名称列表：中文用顿号，其他语言用逗号 */
+export function joinNames(names: string[], language: string) {
+  return names.join(language.toLowerCase().startsWith("zh") ? "、" : ", ");
+}

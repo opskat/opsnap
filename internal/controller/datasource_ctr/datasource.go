@@ -58,3 +58,8 @@ func (c *DataSource) Reprobe(ctx context.Context, req *api.ReprobeRequest) (*api
 func (c *DataSource) Delete(ctx context.Context, req *api.DeleteRequest) (*api.DeleteResponse, error) {
 	return datasource_svc.DataSource().Delete(ctx, req)
 }
+
+// Databases 实时读取一个已保存数据源的数据库列表与数据量
+func (c *DataSource) Databases(ctx context.Context, req *api.DatabasesRequest) (*api.DatabasesResponse, error) {
+	return datasource_svc.DataSource().Databases(ctx, req)
+}

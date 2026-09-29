@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { ApiError } from "@/lib/api";
 import { ErrorCode } from "@/lib/auth";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, joinNames } from "@/lib/format";
 import {
   emptyLocation,
   locationOf,
@@ -66,7 +66,11 @@ export function StorageFormDialog({
   /** 本地目录旁的“浏览…”按钮；不传时不显示 */
   browse?: (current: string, pick: (path: string) => void) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  // locked 被任务引用的存储不能更改位置（docs/specs/2026-09-27-backup-jobs.md「对已有页面的影响」）：
+  // 只锁定决定位置的字段（类型、目录路径，或 Endpoint、Bucket、路径前缀），名称、凭据与 TLS 设置仍可修改
+  const usedByJobs = editing?.used_by?.jobs ?? [];
+  const locked = usedByJobs.length > 0;
   const initial = (): StorageDraft => ({
     name: editing?.name ?? "",
     location: editing ? locationOf(editing) : emptyLocation(),
@@ -187,7 +191,17 @@ export function StorageFormDialog({
             <DialogDescription>{t("storage.form.hint")}</DialogDescription>
           </DialogHeader>
           <div className="flex max-h-[70vh] flex-col gap-4 overflow-y-auto p-5">
-            <KindTabs value={loc.kind} onChange={setKind} />
+            {locked && (
+              <p className="rounded-md bg-warning-soft px-3 py-2.5 text-sm text-warning">
+                {t("storage.form.locationLocked", {
+                  items: joinNames(
+                    usedByJobs.map((j) => j.name),
+                    i18n.language
+                  ),
+                })}
+              </p>
+            )}
+            <KindTabs value={loc.kind} onChange={setKind} disabled={locked} />
             <FormField
               label={t("storage.form.name")}
               value={draft.name}
@@ -208,6 +222,7 @@ export function StorageFormDialog({
                     hint={t("storage.form.pathHint")}
                     error={fieldErrors.path}
                     mono
+                    disabled={locked}
                     onChange={(e) => {
                       bind("path")(e);
                       setFieldErrors((f) => ({ ...f, path: undefined }));
@@ -219,6 +234,7 @@ export function StorageFormDialog({
                     type="button"
                     variant="outline"
                     className="mb-5.5"
+                    disabled={locked}
                     onClick={() => browse(loc.path, (path) => update({ path }))}
                   >
                     {t("storage.form.browse")}
@@ -234,18 +250,20 @@ export function StorageFormDialog({
                   hint={t("storage.form.endpointHint")}
                   error={fieldErrors.endpoint}
                   mono
+                  disabled={locked}
                   onChange={(e) => {
                     bind("endpoint")(e);
                     setFieldErrors((f) => ({ ...f, endpoint: undefined }));
                   }}
                 />
                 <FormField label={<Optional label="Region" />} value={loc.region} mono onChange={bind("region")} />
-                <FormField label="Bucket" value={loc.bucket} mono onChange={bind("bucket")} />
+                <FormField label="Bucket" value={loc.bucket} mono disabled={locked} onChange={bind("bucket")} />
                 <FormField
                   label={<Optional label={t("storage.form.prefix")} />}
                   value={loc.prefix}
                   hint={t("storage.form.finalLocation", { location: s3Location(loc.bucket, loc.prefix) })}
                   mono
+                  disabled={locked}
                   onChange={bind("prefix")}
                 />
                 <FormField
@@ -319,7 +337,15 @@ export function StorageFormDialog({
   );
 }
 
-function KindTabs({ value, onChange }: { value: StorageKind; onChange: (kind: StorageKind) => void }) {
+function KindTabs({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: StorageKind;
+  onChange: (kind: StorageKind) => void;
+  disabled?: boolean;
+}) {
   const { t } = useTranslation();
   const options: { value: StorageKind; label: string; icon: ReactNode }[] = [
     { value: "local", label: t("storage.kind.local"), icon: <Folder /> },
@@ -339,9 +365,10 @@ function KindTabs({ value, onChange }: { value: StorageKind; onChange: (kind: St
             type="button"
             role="radio"
             aria-checked={selected}
+            disabled={disabled}
             onClick={() => onChange(o.value)}
             className={cn(
-              "flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-sm [&_svg]:size-4",
+              "flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:size-4",
               selected ? "bg-card font-semibold text-foreground" : "text-muted-foreground hover:text-foreground"
             )}
           >

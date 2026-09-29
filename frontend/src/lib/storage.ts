@@ -1,9 +1,15 @@
 import { request } from "@/lib/api";
+import type { JobRef } from "@/lib/sources";
 
 export type StorageKind = "local" | "s3";
 export type StorageStatus = "ok" | "wrong_key" | "unreachable";
 /** 测试连接时目标位置的情况 */
 export type ProbeState = "empty" | "repository" | "not_empty";
+
+/** 引用该存储的任务（docs/specs/2026-09-27-backup-jobs.md「对已有页面的影响」） */
+export interface StorageUsedBy {
+  jobs: JobRef[];
+}
 
 /** 新建、编辑与测试连接共用的位置参数 */
 export interface StorageLocation {
@@ -43,6 +49,8 @@ export interface Storage {
   /** Unix 秒 */
   checked_at: number;
   created_at: number;
+  /** 引用它的任务；旧响应或未涉及任务的测试夹具可能没有这个字段 */
+  used_by?: StorageUsedBy;
 }
 
 export interface ProbeResult {

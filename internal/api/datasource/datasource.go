@@ -9,6 +9,7 @@ import (
 	"github.com/cago-frame/cago/server/mux"
 
 	channelapi "github.com/opskat/opsnap/internal/api/channel"
+	jobapi "github.com/opskat/opsnap/internal/api/job"
 )
 
 // Form 数据源设置；测试连接、新建与编辑共用
@@ -58,6 +59,12 @@ type ServerInfo struct {
 	System string `json:"system"`
 	// TLS 连接已加密时非空
 	TLS *TLS `json:"tls"`
+}
+
+// UsedBy 引用该数据源的对象
+type UsedBy struct {
+	// Jobs 使用该数据源的任务
+	Jobs []*jobapi.Ref `json:"jobs"`
 }
 
 // FailedHop 最近一次测试失败的位置
@@ -148,6 +155,8 @@ type Item struct {
 	CreatedAt int64      `json:"created_at"`
 	// Probe 能力探测的摘要与结果，尚未探测过时为 nil
 	Probe *Probe `json:"probe"`
+	// UsedBy 引用该数据源的任务（docs/specs/2026-09-27-backup-jobs.md「对已有页面的影响」）
+	UsedBy *UsedBy `json:"used_by"`
 }
 
 // ListRequest 列出全部数据源；不会触发测试连接
@@ -248,6 +257,26 @@ type ReprobeRequest struct {
 type ReprobeResponse struct {
 	// Item 触发后的当前状态，Item.Probe.State 通常为 probing
 	Item *Item `json:"item"`
+}
+
+// Database 数据源里的一个数据库
+type Database struct {
+	Name string `json:"name"`
+	// Size 字节数
+	Size int64 `json:"size"`
+}
+
+// DatabasesRequest 实时读取一个已保存数据源的数据库列表与数据量（docs/specs/2026-09-27-backup-jobs.md
+// 「第 2 步：内容与方式」）：向导第 2 步进入“指定数据库”时调用，用于展示库名与数据量、供选择，
+// 以及第 5 步估算源数据量。MySQL 不含 information_schema、performance_schema、sys、mysql；
+// PostgreSQL 只列允许连接的非模板库。读取失败时返回原因（原文，已去掉秘密）
+type DatabasesRequest struct {
+	mux.Meta `path:"/datasources/:id/databases" method:"GET"`
+	ID       int64 `uri:"id" binding:"required"`
+}
+
+type DatabasesResponse struct {
+	Databases []Database `json:"databases"`
 }
 
 // DeleteRequest 删除数据源：只删除 OpsNap 中的记录与凭据，不影响数据库或服务器
