@@ -61,7 +61,7 @@ func mysqlItems(ctx context.Context, conn *dsconn.Conn) []Item {
 		items = append(items, item)
 	}
 
-	items = append(items, decideMySQLDump(conn.Info.Version, lookupTool(ctx, "mysqldump")))
+	items = append(items, decideMySQLDump(conn.Info.Version, lookupTool(ctx, "mysqldump", conn.Info.Version)))
 	return items
 }
 
@@ -268,13 +268,13 @@ func decideMySQLDump(serverVersion string, tool toolStatus) Item {
 	}
 	if tool.Major < sMajor || (tool.Major == sMajor && tool.Minor < sMinor) {
 		return Item{Key: "mysql.mysqldump", Title: itemTitles["mysql.mysqldump"], Tier: TierWarn, Detail: Text{
-			ZhCN: fmt.Sprintf("本机 mysqldump（%s）版本低于服务端（%s）", tool.Raw, serverVersion),
-			En:   fmt.Sprintf("The local mysqldump (%s) is older than the server (%s).", tool.Raw, serverVersion),
+			ZhCN: fmt.Sprintf("选用的 %s：%s（%s）版本低于服务端（%s）", tool.Name, tool.Path, tool.Version, serverVersion),
+			En:   fmt.Sprintf("The selected %s: %s (%s) is older than the server (%s).", tool.Name, tool.Path, tool.Version, serverVersion),
 		}, Fix: mysqlDumpFix}
 	}
 	return Item{Key: "mysql.mysqldump", Title: itemTitles["mysql.mysqldump"], Tier: TierOK, Detail: Text{
-		ZhCN: fmt.Sprintf("已找到 mysqldump（%s），版本不低于服务端", tool.Raw),
-		En:   fmt.Sprintf("Found mysqldump (%s), not older than the server.", tool.Raw),
+		ZhCN: fmt.Sprintf("选用 %s：%s（%s），版本不低于服务端", tool.Name, tool.Path, tool.Version),
+		En:   fmt.Sprintf("Using %s: %s (%s), not older than the server.", tool.Name, tool.Path, tool.Version),
 	}}
 }
 

@@ -115,15 +115,15 @@ func TestDecideMySQLDump(t *testing.T) {
 		assert.Contains(t, item.Fix.ZhCN, "Docker")
 	})
 	t.Run("版本不低于服务端", func(t *testing.T) {
-		item := decideMySQLDump("8.0.36", toolStatus{Found: true, Major: 8, Minor: 0, Raw: "mysqldump  Ver 8.0.40"})
+		item := decideMySQLDump("8.0.36", toolStatus{Found: true, Tool: Tool{Major: 8, Minor: 0, Raw: "mysqldump  Ver 8.0.40"}})
 		assert.Equal(t, TierOK, item.Tier)
 	})
 	t.Run("版本更高也可用", func(t *testing.T) {
-		item := decideMySQLDump("8.0.36", toolStatus{Found: true, Major: 8, Minor: 1, Raw: "mysqldump  Ver 8.1.0"})
+		item := decideMySQLDump("8.0.36", toolStatus{Found: true, Tool: Tool{Major: 8, Minor: 1, Raw: "mysqldump  Ver 8.1.0"}})
 		assert.Equal(t, TierOK, item.Tier)
 	})
 	t.Run("版本更低为风险", func(t *testing.T) {
-		item := decideMySQLDump("8.1.0", toolStatus{Found: true, Major: 8, Minor: 0, Raw: "mysqldump  Ver 8.0.40"})
+		item := decideMySQLDump("8.1.0", toolStatus{Found: true, Tool: Tool{Major: 8, Minor: 0, Raw: "mysqldump  Ver 8.0.40"}})
 		assert.Equal(t, TierWarn, item.Tier)
 	})
 	t.Run("找到但无法识别版本视为风险", func(t *testing.T) {

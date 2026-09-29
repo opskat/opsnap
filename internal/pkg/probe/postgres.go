@@ -42,7 +42,7 @@ func postgresItems(ctx context.Context, conn *dsconn.Conn) []Item {
 		items = append(items, item)
 	}
 
-	items = append(items, decidePgDump(conn.Info.Version, lookupTool(ctx, "pg_dump")))
+	items = append(items, decidePgDump(conn.Info.Version, lookupTool(ctx, "pg_dump", conn.Info.Version)))
 	return items
 }
 
@@ -169,13 +169,13 @@ func decidePgDump(serverVersion string, tool toolStatus) Item {
 	}
 	if tool.Major < sMajor {
 		return Item{Key: "postgres.pg_dump", Title: itemTitles["postgres.pg_dump"], Tier: TierFail, Detail: Text{
-			ZhCN: fmt.Sprintf("本机 pg_dump（%s）大版本低于服务端（%s）", tool.Raw, serverVersion),
-			En:   fmt.Sprintf("The local pg_dump (%s) has an older major version than the server (%s).", tool.Raw, serverVersion),
+			ZhCN: fmt.Sprintf("选用的 pg_dump：%s（%s）大版本低于服务端（%s）", tool.Path, tool.Version, serverVersion),
+			En:   fmt.Sprintf("The selected pg_dump: %s (%s) has an older major version than the server (%s).", tool.Path, tool.Version, serverVersion),
 		}, Fix: pgDumpFix}
 	}
 	return Item{Key: "postgres.pg_dump", Title: itemTitles["postgres.pg_dump"], Tier: TierOK, Detail: Text{
-		ZhCN: fmt.Sprintf("已找到 pg_dump（%s），大版本不低于服务端", tool.Raw),
-		En:   fmt.Sprintf("Found pg_dump (%s), whose major version is not older than the server.", tool.Raw),
+		ZhCN: fmt.Sprintf("选用 pg_dump：%s（%s），大版本不低于服务端", tool.Path, tool.Version),
+		En:   fmt.Sprintf("Using pg_dump: %s (%s), whose major version is not older than the server.", tool.Path, tool.Version),
 	}}
 }
 

@@ -15,30 +15,30 @@ import (
 type postgresPlan struct {
 	src         Source
 	opts        Options
-	dump, globs *toolInfo
+	dump, globs *probe.Tool
 }
 
-func (p *postgresPlan) tools(ctx context.Context, _ *Session) error {
+func (p *postgresPlan) tools(ctx context.Context, s *Session) error {
 	var err error
-	if p.dump, err = pgTool(ctx, "pg_dump", p.src.ServerVersion); err != nil {
+	if p.dump, err = pgTool(ctx, s, "pg_dump", p.src.ServerVersion); err != nil {
 		return err
 	}
 	if p.opts.Globals {
-		if p.globs, err = pgTool(ctx, "pg_dumpall", p.src.ServerVersion); err != nil {
+		if p.globs, err = pgTool(ctx, s, "pg_dumpall", p.src.ServerVersion); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// pgTool 查找工具；大版本低于服务端时无法导出
-func pgTool(ctx context.Context, name, server string) (*toolInfo, error) {
-	t, err := findTool(ctx, name, l10n.New(code.DumpPkgPostgreSQL))
+// pgTool 按服务端版本选用工具；大版本低于服务端时无法导出
+func pgTool(ctx context.Context, s *Session, name, server string) (*probe.Tool, error) {
+	t, err := s.findTool(ctx, name, server, l10n.New(code.DumpPkgPostgreSQL))
 	if err != nil {
 		return nil, err
 	}
-	if smaj, _, ok := probe.ParseMajorMinor(server); ok && t.major < smaj {
-		return nil, l10n.Errorf(code.DumpPGToolTooOld, ErrToolVersion, name, t.major, smaj, smaj)
+	if smaj, _, ok := probe.ParseMajorMinor(server); ok && t.Major < smaj {
+		return nil, l10n.Errorf(code.DumpPGToolTooOld, ErrToolVersion, name, t.Major, smaj, smaj)
 	}
 	return t, nil
 }

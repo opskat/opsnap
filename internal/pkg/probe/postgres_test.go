@@ -70,15 +70,15 @@ func TestDecidePgDump(t *testing.T) {
 		assert.Contains(t, item.Fix.ZhCN, "Docker")
 	})
 	t.Run("大版本不低于服务端", func(t *testing.T) {
-		item := decidePgDump("16.4", toolStatus{Found: true, Major: 16, Raw: "pg_dump (PostgreSQL) 16.4"})
+		item := decidePgDump("16.4", toolStatus{Found: true, Tool: Tool{Major: 16, Raw: "pg_dump (PostgreSQL) 16.4"}})
 		assert.Equal(t, TierOK, item.Tier)
 	})
 	t.Run("大版本更高也可用", func(t *testing.T) {
-		item := decidePgDump("16.4", toolStatus{Found: true, Major: 17, Raw: "pg_dump (PostgreSQL) 17.0"})
+		item := decidePgDump("16.4", toolStatus{Found: true, Tool: Tool{Major: 17, Raw: "pg_dump (PostgreSQL) 17.0"}})
 		assert.Equal(t, TierOK, item.Tier)
 	})
 	t.Run("大版本更低视为不可用（无风险档）", func(t *testing.T) {
-		item := decidePgDump("16.4", toolStatus{Found: true, Major: 15, Raw: "pg_dump (PostgreSQL) 15.2"})
+		item := decidePgDump("16.4", toolStatus{Found: true, Tool: Tool{Major: 15, Raw: "pg_dump (PostgreSQL) 15.2"}})
 		assert.Equal(t, TierFail, item.Tier)
 	})
 	t.Run("无法识别版本的原因按两种语言给出，工具输出原样保留", func(t *testing.T) {

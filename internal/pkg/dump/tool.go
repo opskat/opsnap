@@ -12,6 +12,7 @@ import (
 
 	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/l10n"
+	"github.com/opskat/opsnap/internal/pkg/probe"
 )
 
 const (
@@ -27,7 +28,7 @@ const (
 // toolRun 一次导出工具的执行：第一次读取时启动，标准输出直接作为导出文件的内容
 type toolRun struct {
 	s     *Session
-	tool  *toolInfo
+	tool  *probe.Tool
 	args  []string
 	env   []string
 	check func(head, tail []byte) error
@@ -45,7 +46,7 @@ type toolRun struct {
 }
 
 // addTool 登记一个由导出工具产生的文件；wrap 不为 nil 时用它包装工具输出
-func (s *Session) addTool(name string, t *toolInfo, args, env []string, check func(head, tail []byte) error, wrap func(io.Reader) io.Reader) {
+func (s *Session) addTool(name string, t *probe.Tool, args, env []string, check func(head, tail []byte) error, wrap func(io.Reader) io.Reader) {
 	r := &toolRun{s: s, tool: t, args: args, env: env, check: check}
 	s.runs = append(s.runs, r)
 	var src io.Reader = r
@@ -87,7 +88,7 @@ func (r *toolRun) start() error {
 	if err != nil {
 		return err
 	}
-	cmd := exec.CommandContext(r.s.ctx, r.tool.path, r.args...) //nolint:gosec // 工具路径来自 PATH / tools.dir 查找，参数不含秘密
+	cmd := exec.CommandContext(r.s.ctx, r.tool.Path, r.args...) //nolint:gosec // 工具路径来自 PATH / tools.dir 查找，参数不含秘密
 	cmd.Env = r.env
 	cmd.Dir = r.s.dir
 	cmd.Stdout = pw
@@ -98,7 +99,7 @@ func (r *toolRun) start() error {
 	_ = pw.Close()
 	if err != nil {
 		_ = pr.Close()
-		return l10n.Errorf(code.DumpStartTool, r.tool.name, err)
+		return l10n.Errorf(code.DumpStartTool, r.tool.Name, err)
 	}
 	r.cmd, r.stdout = cmd, pr
 	return nil
@@ -130,7 +131,7 @@ func (r *toolRun) finish(readErr error) error {
 		return errClosed
 	}
 	if !eof {
-		return l10n.Errorf(code.DumpReadOutput, r.tool.name, readErr)
+		return l10n.Errorf(code.DumpReadOutput, r.tool.Name, readErr)
 	}
 	if werr != nil {
 		return r.failure(werr)
@@ -141,10 +142,10 @@ func (r *toolRun) finish(readErr error) error {
 	omitted, tail := r.stderr.tail()
 	if msg := strings.TrimSpace(r.s.scrub(tail)); msg != "" {
 		if omitted > 0 {
-			r.s.logm(l10n.New(code.WrapColon, r.tool.name, l10n.New(code.DumpStderrOmitted, omitted)))
+			r.s.logm(l10n.New(code.WrapColon, r.tool.Name, l10n.New(code.DumpStderrOmitted, omitted)))
 		}
 		for _, line := range strings.Split(msg, "\n") {
-			r.s.logm(l10n.Plain(r.tool.name + ": " + line))
+			r.s.logm(l10n.Plain(r.tool.Name + ": " + line))
 		}
 	}
 	return io.EOF
@@ -153,7 +154,7 @@ func (r *toolRun) finish(readErr error) error {
 // failure 把工具的失败退出转换为 *ToolError；缺少权限时同时包装 ErrPrivilege
 func (r *toolRun) failure(werr error) error {
 	omitted, tail := r.stderr.tail()
-	te := &ToolError{Tool: r.tool.name, ExitCode: -1, Stderr: strings.TrimSpace(r.s.scrub(tail)), Err: r.s.fwd.lastErr()}
+	te := &ToolError{Tool: r.tool.Name, ExitCode: -1, Stderr: strings.TrimSpace(r.s.scrub(tail)), Err: r.s.fwd.lastErr()}
 	if te.Stderr != "" {
 		te.StderrOmitted = omitted
 	}

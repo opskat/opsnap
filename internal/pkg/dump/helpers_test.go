@@ -56,14 +56,28 @@ func newFakeEnv(t *testing.T) *fakeEnv {
 // tool 写一个假工具：--version 时打印 version；否则记录 argv、环境变量与运行临时目录（连同权限）后执行 body
 func (e *fakeEnv) tool(name, version, body string) {
 	e.t.Helper()
+	e.toolAt(filepath.Join(e.bin, name), name, version, body)
+}
+
+// versionedTool 在 tools.dir 的版本子目录 sub 的 bin/ 下写一个假工具，调用记录在 runs(sub + "-" + name) 中
+func (e *fakeEnv) versionedTool(toolsDir, sub, name, version, body string) {
+	e.t.Helper()
+	bin := filepath.Join(toolsDir, sub, "bin")
+	require.NoError(e.t, os.MkdirAll(bin, 0o755)) //nolint:gosec // 测试临时目录
+	e.toolAt(filepath.Join(bin, name), sub+"-"+name, version, body)
+}
+
+// toolAt 在 path 写假工具，调用记录以 rec 为前缀
+func (e *fakeEnv) toolAt(path, rec, version, body string) {
+	e.t.Helper()
 	script := "#!/bin/sh\nPATH=/usr/bin:/bin\n" +
 		"if [ \"$1\" = \"--version\" ]; then printf '%s\\n' '" + version + "'; exit 0; fi\n" +
-		"r=" + e.rec + "/" + name + ".$$\n" +
+		"r=" + e.rec + "/" + rec + ".$$\n" +
 		"printf '%s\\n' \"$@\" > \"$r.argv\"\n" +
 		"env > \"$r.env\"\n" +
 		"d=\"$HOME\"; [ -d \"$d\" ] && cp -Rp \"$d\" \"$r.dir\"\n" +
 		body + "\n"
-	require.NoError(e.t, os.WriteFile(filepath.Join(e.bin, name), []byte(script), 0o755)) //nolint:gosec // 测试用假可执行文件
+	require.NoError(e.t, os.WriteFile(path, []byte(script), 0o755)) //nolint:gosec // 测试用假可执行文件
 }
 
 // fakeRun 假工具的一次调用记录

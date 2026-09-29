@@ -176,7 +176,7 @@ var zhCN = map[int]string{ //nolint:gosec // 错误文案中的“密码”字�
 	RunStorageNotOK:             "存储“%s”的状态不是“正常”（%s），请先测试存储连接",
 	RunDataSourceMissing:        "数据源不存在",
 	RunHostKeyChanged:           "数据源“%s”链路上的主机密钥已变化，请先在数据源页面确认新的主机密钥",
-	RunLogToolPath:              "导出工具 %s：%s",
+	RunLogToolPath:              "导出工具 %s：%s（%s）",
 	RunOpenStorageFailed:        "打开存储“%s”失败: %s",
 	RunLogStorageOpened:         "已打开存储“%s”",
 	RunLogConnecting:            "沿网络通道连接数据源“%s”（%s:%d）",

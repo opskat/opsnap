@@ -176,7 +176,7 @@ var en = map[int]string{ //nolint:gosec // 错误文案中的 “token”“pass
 	RunStorageNotOK:             "The status of storage \"%s\" is not \"OK\" (%s). Test the storage connection first",
 	RunDataSourceMissing:        "The data source does not exist",
 	RunHostKeyChanged:           "A host key on the network path of data source \"%s\" has changed. Confirm the new host key on the Data Sources page first",
-	RunLogToolPath:              "Export tool %s: %s",
+	RunLogToolPath:              "Export tool %s: %s (%s)",
 	RunOpenStorageFailed:        "Failed to open storage \"%s\": %s",
 	RunLogStorageOpened:         "Opened storage \"%s\"",
 	RunLogConnecting:            "Connecting to data source \"%s\" (%s:%d) through the network channel",

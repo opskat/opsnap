@@ -27,7 +27,6 @@ import (
 	"github.com/opskat/opsnap/internal/pkg/kopiarepo"
 	"github.com/opskat/opsnap/internal/pkg/l10n"
 	"github.com/opskat/opsnap/internal/pkg/netchain"
-	"github.com/opskat/opsnap/internal/pkg/probe"
 	"github.com/opskat/opsnap/internal/pkg/retention"
 	"github.com/opskat/opsnap/internal/repository/datasource_repo"
 	"github.com/opskat/opsnap/internal/repository/job_repo"
@@ -514,18 +513,6 @@ func (x *execution) close(ctx context.Context) {
 	}
 }
 
-// requiredTools 任务需要的导出工具
-func requiredTools(j *job_entity.Job, kind string) []string {
-	if kind == datasource_entity.KindMySQL {
-		return []string{"mysqldump"}
-	}
-	tools := []string{"pg_dump"}
-	if j.OptGlobals {
-		tools = append(tools, "pg_dumpall")
-	}
-	return tools
-}
-
 // prepare 检查存储状态为正常、数据源状态不是主机密钥已变化、导出工具可用，并打开存储；不连接数据源
 func (x *execution) prepare(ctx context.Context) error {
 	const step = job_entity.StepPrepare
@@ -555,11 +542,6 @@ func (x *execution) prepare(ctx context.Context) error {
 	if err := dump.CheckTools(ctx, dsconn.Type(x.ds.Kind), dsconn.TLSMode(x.ds.TLSMode), x.ds.Version,
 		dump.Options{Globals: x.job.OptGlobals && x.ds.Kind == datasource_entity.KindPostgreSQL}); err != nil {
 		return &stepError{step: step, err: err}
-	}
-	for _, name := range requiredTools(x.job, x.ds.Kind) {
-		if path, ok := probe.ToolPath(name); ok {
-			x.log.add(l10n.New(code.RunLogToolPath, name, path))
-		}
 	}
 	if x.writer, err = storage_svc.Storage().OpenWriter(ctx, x.st.ID); err != nil {
 		return failAt(step, code.RunOpenStorageFailed, x.st.Name, err)
@@ -613,6 +595,10 @@ func (x *execution) connect(ctx context.Context) error {
 	}
 	x.sess = sess
 	x.ar.sess.Store(sess)
+	// 连接后按实际读到的服务端版本选用的导出工具
+	for _, t := range sess.Tools() {
+		x.log.add(l10n.New(code.RunLogToolPath, t.Name, t.Path, t.Version))
+	}
 	x.log.add(l10n.New(code.RunLogForwarding))
 	return nil
 }

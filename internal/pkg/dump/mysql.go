@@ -22,24 +22,24 @@ import (
 type mysqlPlan struct {
 	src  Source
 	opts Options
-	tool *toolInfo
+	tool *probe.Tool
 	// mariadb 主控端的 mysqldump 来自 MariaDB：TLS 选项写法不同，也没有 --set-gtid-purged
 	mariadb bool
 }
 
 func (p *mysqlPlan) tools(ctx context.Context, s *Session) error {
-	t, err := findTool(ctx, "mysqldump", l10n.New(code.DumpPkgMySQL))
+	t, err := s.findTool(ctx, "mysqldump", p.src.ServerVersion, l10n.New(code.DumpPkgMySQL))
 	if err != nil {
 		return err
 	}
 	p.tool = t
-	p.mariadb = strings.Contains(t.raw, "MariaDB")
+	p.mariadb = strings.Contains(t.Raw, "MariaDB")
 	mode := p.src.Config.TLS.Mode
 	if p.mariadb && mode != "" && mode != dsconn.TLSPrefer && mode != dsconn.TLSDisable {
-		return l10n.Errorf(code.DumpMariaDBTLS, ErrUnsupportedTLS, t.raw, mode)
+		return l10n.Errorf(code.DumpMariaDBTLS, ErrUnsupportedTLS, t.Raw, mode)
 	}
-	if smaj, smin, ok := probe.ParseMajorMinor(p.src.ServerVersion); ok && (t.major < smaj || t.major == smaj && t.minor < smin) {
-		s.logm(l10n.New(code.DumpMySQLDumpOlder, t.major, t.minor, smaj, smin))
+	if smaj, smin, ok := probe.ParseMajorMinor(p.src.ServerVersion); ok && (t.Major < smaj || t.Major == smaj && t.Minor < smin) {
+		s.logm(l10n.New(code.DumpMySQLDumpOlder, t.Major, t.Minor, smaj, smin))
 	}
 	return nil
 }
