@@ -1,0 +1,188 @@
+name: Nightly
+
+# nightly 分支是 main 的每日快照：定时把 main 合进来，跑一遍 CI 同款的 Go 与前端检查，
+# 通过后推 ghcr.io/opskat/opsnap:nightly 与 :nightly-<UTC 日期>（spec「Docker 镜像」→
+# 「nightly 构建」）。
+#
+# 它不是发版：不碰 latest，也不建 GitHub Release。按版本号发布正式镜像留到 v1
+# （spec「不在本期范围」）。
+#
+# 两个别忘了的前提，见 docs/develop.md#nightly-镜像：
+#   1. nightly 分支要先存在：`git push origin main:nightly`。它不存在时 sync 作业的
+#      checkout 会直接失败——比「安静地不构建」好，但仍然不会自己把分支建出来。这一推
+#      本身会触发下面的 push 触发器，正好完成 spec 决策 11 要求的「合并后手动触发一次
+#      确认」。
+#   2. 仓库连续 60 天没有活动时，GitHub 会静默停掉定时任务，镜像停更不会报任何错，
+#      只会不再更新。发现的办法只有去 Actions 页面看 Nightly 是不是 disabled。
+on:
+  # 手动跑一次：想马上验证某个提交，或触发上面第 1 条的一次性确认时用得上。
+  workflow_dispatch:
+  schedule:
+    # cron 一律按 UTC 算：18:00 UTC = 北京时间凌晨 2:00（spec「nightly 构建」）。
+    - cron: "0 18 * * *"
+  # 有人手动往 nightly 推东西时也构建一次。Actions 用它自己的 GITHUB_TOKEN 推的分支
+  # 不会产生新的工作流运行（防自激），所以下面 sync 作业推的那次不会再触发这里。
+  push:
+    branches: [nightly]
+
+permissions:
+  contents: read
+
+concurrency:
+  # 定时、手动与 push 可能撞在一起，取消旧的而不是排队：三者跑的是同一份东西，
+  # 晚开始的那次手上的提交更新。
+  group: nightly
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    name: Merge main into nightly
+    # 只有定时与手动触发才需要合并；push 触发的那次是「nightly 刚被人推过」，
+    # 再合并一次没有意义。
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      changed: ${{ steps.merge.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: nightly
+          # fetch-depth: 0 同时把远端分支取下来，下面的 origin/main 才有得合。
+          fetch-depth: 0
+      - name: Merge main
+        id: merge
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          before=$(git rev-parse HEAD)
+          # 冲突就停在这里：nightly 保持原样，工作流报错，等人来看
+          # （spec「nightly 构建」：合并冲突时停下，nightly 保持原样）。不替人挑版本，
+          # 也不推一个半合起来的树上去。
+          #
+          # 显式判失败而不是靠 Actions 默认的 bash -e：那个默认值一改（或者哪天有人给
+          # 这一步加了 shell:）就会变成「冲突后什么都没推，却报 changed=false 然后跳过
+          # 构建」，一次安静的假成功。
+          if ! git merge origin/main --no-edit; then
+            echo "::error::nightly 与 main 冲突，nightly 保持原样，需要人工解决"
+            exit 1
+          fi
+          after=$(git rev-parse HEAD)
+
+          if [ "$before" = "$after" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "main 没有新提交，跳过本次构建。" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            git push
+          fi
+
+  prepare:
+    name: Compute version
+    needs: [sync]
+    # push 触发时 sync 被跳过，而那种情况恰恰要构建，所以这里不能因为依赖被跳过就
+    # 跟着跳过。
+    if: ${{ always() && !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      commit: ${{ steps.ver.outputs.commit }}
+      skip: ${{ steps.ver.outputs.skip }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: nightly
+          fetch-depth: 0
+      - name: Compute version
+        id: ver
+        env:
+          CHANGED: ${{ needs.sync.outputs.changed }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          # 界面显示的版本号为 nightly-<UTC 日期>，commit 为构建出的 nightly 提交的
+          # 短号（spec「Docker 镜像」→「运行」）。
+          commit=$(git rev-parse --short=7 HEAD)
+          echo "version=nightly-$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+          echo "commit=${commit}" >> "$GITHUB_OUTPUT"
+
+          # 定时/手动触发，且 sync 说 main 没有新东西：整条流水线短路，不重复构建
+          # 一份一样的镜像（spec「nightly 构建」：main 没有新提交时跳过）。
+          if [ "$EVENT" != "push" ] && [ "$CHANGED" != "true" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "nightly 上没有新提交，跳过本次构建。" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # 推送前先跑测试，失败则不推送（spec「nightly 构建」）。这两个作业照抄 ci.yml 的
+  # go 与 frontend 任务的步骤，只是把 checkout 换成 nightly 这个 ref：nightly 与 main
+  # 内容可能不同（沿用 main 上现有的门禁，构建出的镜像也是这份代码，不是再验一次 main）。
+  test-go:
+    name: Go lint & test (nightly)
+    needs: [prepare]
+    if: needs.prepare.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: nightly
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.12.2
+      - run: go test ./...
+
+  test-frontend:
+    name: Frontend lint & test (nightly)
+    needs: [prepare]
+    if: needs.prepare.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: nightly
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: |
+            frontend/pnpm-lock.yaml
+            e2e/pnpm-lock.yaml
+      - run: pnpm -C frontend install --frozen-lockfile
+      - run: pnpm -C frontend lint
+      - run: pnpm -C frontend test
+      - run: pnpm -C e2e install --frozen-lockfile
+      - run: pnpm -C e2e lint
+
+  publish:
+    name: Publish the image
+    needs: [prepare, test-go, test-frontend]
+    # test-go/test-frontend 在 skip=true 时不会运行（skipped），默认的 needs 语义会让
+    # 这里也跟着 skipped；显式写 always() + !failure() + !cancelled() 是为了在它们
+    # 真的失败（推送前的测试没过）时明确不发布，而不是依赖隐式传播。
+    if: ${{ always() && !failure() && !cancelled() && needs.prepare.outputs.skip != 'true' }}
+    # 按架构原生构建、合成 manifest list 的细节都在被调用的工作流里；以后要加「按版本号
+    # 发布正式镜像」时调的是同一个，nightly 与正式镜像的结构不会各走各的。
+    uses: ./.github/workflows/docker-publish.yml
+    permissions:
+      contents: read
+      packages: write
+    with:
+      ref: nightly
+      version: ${{ needs.prepare.outputs.version }}
+      commit: ${{ needs.prepare.outputs.commit }}
+      # 两个标签各有各的用处：
+      #   nightly             跟着走的那个，每天换一份内容。
+      #   nightly-<UTC 日期>  钉住某一天的，回看与回滚时用得上；日期与 cron 同一个
+      #                       时区，免得「凌晨那次算哪天」变成一个要查的问题。
+      # 不打 latest，也不建 GitHub Release（spec「nightly 构建」）。
+      tags: |
+        type=raw,value=nightly
+        type=raw,value=${{ needs.prepare.outputs.version }}

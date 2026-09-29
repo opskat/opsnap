@@ -1,0 +1,190 @@
+name: Publish image
+
+# nightly.yml 复用的镜像发布流程：抽成可复用工作流，是为了以后需要按版本号发布正式镜像
+# 时（v1，见 spec「不在本期范围」）能直接复用同一套“按架构原生构建 + 合成清单”的逻辑，
+# 不必维护两份构建脚本各自漂移。
+
+# 双架构做法是「各自原生构建 + 合成 manifest list」，不用 QEMU：
+#   1. amd64 与 arm64 分别在自己架构的 runner 上并发构建。
+#   2. 两边都不打 tag，只按 digest 推送——此时仓库里躺着两份无名的 manifest。
+#   3. 每个架构在推送后立刻按 digest 拉回本地跑一次冒烟检查（scripts/docker-smoke.sh），
+#      不通过就让这个 job 失败，digest 也就进不了下一步。
+#      冒烟检查放在推送之后而不是之前：buildx 的 push-by-digest 输出一次只能选一种
+#      落地方式，不能同时把镜像加载进本地 daemon；要“先测后推”就得为同一份内容多构建
+#      一次（--load 一次、按 digest 推送再一次），nightly 每天多花一倍构建时间换不来
+#      更多保证。构建与冒烟用的是同一个 runner（原生架构，没有 QEMU），刚推上去的
+#      digest 与本地构建产物字节一致，拉回来验证等价于本地验证；冒烟失败时该 job 失败，
+#      后面 export digest 的步骤不会执行，merge 作业拿不到这个架构的 digest 也会失败，
+#      未通过冒烟检查的镜像不会被合进任何打了标签的 manifest list。
+#   4. merge 作业把两个 digest 合成一个 manifest list，把 tag 打在这个列表上。
+# 于是同一个 tag 下挂着两份 manifest，客户端 pull 时由 registry 按 Accept 头里的架构
+# 挑一份，不需要使用者区分 -amd64 / -arm64 后缀。
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: 要构建的 git ref
+        type: string
+        required: true
+      version:
+        description: 写入镜像构建参数 VERSION（健康接口 /api/v1/system/health 会返回）
+        type: string
+        required: true
+      commit:
+        description: 写入镜像构建参数 COMMIT（健康接口会返回）
+        type: string
+        required: true
+      tags:
+        description: docker/metadata-action 的 tags 输入，决定 manifest list 上打哪些标签
+        type: string
+        required: true
+    outputs:
+      image:
+        description: 发布出去的镜像名（不含 tag）
+        value: ${{ jobs.merge.outputs.image }}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.arch }}
+    strategy:
+      # 一个架构挂了也让另一个跑完：知道「只有 arm64 坏了」比知道「有东西坏了」更有用，
+      # merge 作业反正会因为缺 digest 而失败。
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            # 只对公开仓库免费，见 ci.yml 的 docker 任务与 docs/develop.md#ci
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Resolve the image name
+        id: image
+        run: |
+          # ghcr 的镜像路径必须全小写，而 github.repository 会保留仓库的大小写，
+          # 直接拼上去可能被 ghcr 拒绝，用 bash 的 ${VAR,,} 统一转小写。
+          echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # 这一步只取 labels（写进镜像 config，ghcr 靠 org.opencontainers.image.source
+      # 把包挂到仓库下面）。算出的 tags 不用来给单架构 manifest 打标签：这里推送的是
+      # 没有名字的 digest，标签统一由 merge 作业打在 manifest list 上；给单架构 manifest
+      # 也打上 tag 的话，两个架构会轮流把同一个 tag 覆盖成自己，最后推的那个赢——
+      # 那正是 manifest list 要解决的问题。
+      # tags 输入仍然要给：metadata-action 的 org.opencontainers.image.version 这个
+      # label 是从第一个 tag 推出来的，不给就会退回默认规则，算出与 manifest list 上
+      # 那个对不上的版本号。
+      - name: Generate labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: ${{ inputs.tags }}
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/docker/Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ inputs.version }}
+            COMMIT=${{ inputs.commit }}
+          # scope 与 ci.yml 的 docker 任务共用同一命名（docker-<arch>）：Dockerfile 与
+          # apt/官方包下载层不受 VERSION/COMMIT 影响，PR 构建与 nightly 构建互相预热缓存。
+          # scope 必须按架构分开，否则两个并发 job 会互相冲掉对方的缓存，下次两边都是冷的。
+          cache-from: type=gha,scope=docker-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=docker-${{ matrix.arch }}
+          outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
+      - name: Pull the pushed digest for the smoke test
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: docker pull "${IMAGE}@${DIGEST}"
+      - name: Smoke test the pushed digest
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: scripts/docker-smoke.sh "${IMAGE}@${DIGEST}"
+      - name: Export the digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p /tmp/digests
+          # 文件名就是内容：merge 作业只需要 digest 本身，不需要文件里有东西。
+          touch "/tmp/digests/${DIGEST#sha256:}"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: digest-${{ matrix.arch }}
+          path: /tmp/digests/*
+          # 默认是 warn。digest 丢了而这里只是警告的话，merge 会拿着一个架构去合
+          # manifest list，推出去一份悄悄缺了一个架构的镜像。
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    name: Merge into a manifest list
+    needs: build
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.image.outputs.name }}
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          path: /tmp/digests
+          pattern: digest-*
+          merge-multiple: true
+      - name: Resolve the image name
+        id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Generate tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: ${{ inputs.tags }}
+      - name: Create the manifest list
+        working-directory: /tmp/digests
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+        run: |
+          # 逐行读进数组再展开，而不是把 tag 拼成一行命令：标签里可能有特殊字符，
+          # 拼字符串会在那里裂开。
+          args=()
+          while IFS= read -r tag; do args+=(--tag "$tag"); done \
+            < <(jq -r '.tags[]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+
+          # 目录里每个文件名都是一个架构的 digest。数量对不上就停：合出一个只有
+          # 单架构的 manifest list 不会报错，只会让另一半用户 pull 下来跑不了。
+          count=$(find . -type f | wc -l)
+          if [ "$count" -ne 2 ]; then
+            echo "::error::expected 2 per-arch digests, got $count"
+            exit 1
+          fi
+          for digest in *; do args+=("${IMAGE}@sha256:${digest}"); done
+
+          docker buildx imagetools create "${args[@]}"
+      - name: Inspect the manifest list
+        run: |
+          tag=$(jq -r '.tags[0]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          docker buildx imagetools inspect "$tag"
