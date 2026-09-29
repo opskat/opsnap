@@ -351,7 +351,7 @@ describe("任务列表页", () => {
     expect(await screen.findByText("有 2 份快照未能删除，可以用 kopia 命令行手动处理")).toBeInTheDocument();
   });
 
-  it("存储无法打开、快照未能删除时，任务照常删除并提示原因", async () => {
+  it("存储无法打开、快照未能删除时，任务照常删除并按确认框里的份数提示", async () => {
     respond(ok({ items: [ordersProd] }));
     renderPage();
     await userEvent.click(await screen.findByRole("button", { name: "orders-prod 全量备份 的更多操作" }));
@@ -359,8 +359,9 @@ describe("任务列表页", () => {
     const dialog = await screen.findByRole("dialog");
     await userEvent.click(within(dialog).getByRole("checkbox", { name: "同时删除该任务的 12 份快照" }));
 
-    const message = "任务已删除，但无法打开存储，它的快照未能删除，可以用 kopia 命令行手动处理";
-    respond(ok({ snapshots_deleted: 0, snapshots_failed: 0, snapshots_message: message }));
+    // 后端取任务记录的快照数，即确认框中的 12 份
+    const message = "任务已删除，但无法打开存储，它的 12 份快照未能删除，可以用 kopia 命令行手动处理";
+    respond(ok({ snapshots_deleted: 0, snapshots_failed: 12, snapshots_message: message }));
     await userEvent.click(within(dialog).getByRole("button", { name: "删除" }));
     expect(await screen.findByText(message)).toBeInTheDocument();
   });
