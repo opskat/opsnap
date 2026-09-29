@@ -21,7 +21,7 @@ const JOB_IDLE_POLL_INTERVAL_MS = 30000;
 const isActive = (job: JobItem) => isRunActive(job.last_run);
 
 export function JobsPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [state, setState] = useState<Loadable<JobItem[]>>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState<Record<number, JobRowBusy>>({});
@@ -101,6 +101,15 @@ export function JobsPage() {
         // 下一次自动刷新会再试
       });
   };
+
+  // 切换界面语言后重新读取：最近一次运行的原因中 OpsNap 的文字由服务端按请求的语言给出
+  const language = i18n.language;
+  const shownLanguage = useRef(language);
+  useEffect(() => {
+    if (shownLanguage.current === language) return;
+    shownLanguage.current = language;
+    reload();
+  }, [language]);
 
   const withBusy = async (
     job: JobItem,

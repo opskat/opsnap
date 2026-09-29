@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/dsconn"
 )
 
@@ -261,8 +262,8 @@ func decideMySQLDump(serverVersion string, tool toolStatus) Item {
 	sMajor, sMinor, _ := ParseMajorMinor(serverVersion)
 	if tool.Err != nil {
 		return Item{Key: "mysql.mysqldump", Title: itemTitles["mysql.mysqldump"], Tier: TierWarn, Detail: Text{
-			ZhCN: fmt.Sprintf("找到 mysqldump，但无法确定其版本：%s", tool.Err),
-			En:   fmt.Sprintf("Found mysqldump, but could not determine its version: %s", tool.Err),
+			ZhCN: fmt.Sprintf("找到 mysqldump，但无法确定其版本：%s", errText(code.LangZhCN, tool.Err)),
+			En:   fmt.Sprintf("Found mysqldump, but could not determine its version: %s", errText(code.LangEn, tool.Err)),
 		}, Fix: mysqlDumpFix}
 	}
 	if tool.Major < sMajor || (tool.Major == sMajor && tool.Minor < sMinor) {

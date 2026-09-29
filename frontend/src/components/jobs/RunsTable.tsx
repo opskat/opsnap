@@ -39,7 +39,7 @@ export function RunsTable({
   onPageChange: (page: number) => void;
   onRetry: () => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [expandedId, setExpandedId] = useState<number>();
   const [logs, setLogs] = useState<Record<number, Loadable<RunLogLine[]>>>({});
   // 读取日志时运行的状态：运行中的记录或状态已变化的记录，在列表刷新时重新读取日志
@@ -70,6 +70,22 @@ export function RunsTable({
     if (isRunActive(run) || logStatus.current[run.id] !== run.status) fetchLog(run);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在列表数据刷新时检查，展开/收起由 toggle 处理
   }, [state]);
+
+  // 切换界面语言后，日志中 OpsNap 的文字按新语言重新读取：丢弃已读到的日志（再次展开时重新读取），展开中的立即重新读取
+  const language = i18n.language;
+  const shownLanguage = useRef(language);
+  useEffect(() => {
+    if (shownLanguage.current === language) return;
+    shownLanguage.current = language;
+    const run =
+      state.status === "ready" && expandedId !== undefined
+        ? state.data.items.find((r) => r.id === expandedId)
+        : undefined;
+    logStatus.current = {};
+    setLogs((l) => (run && l[run.id] ? { [run.id]: l[run.id] } : {}));
+    if (run) fetchLog(run);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在语言变化时重新读取
+  }, [language]);
 
   const toggle = (run: Run) => {
     if (expandedId === run.id) {

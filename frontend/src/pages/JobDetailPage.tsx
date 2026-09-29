@@ -121,7 +121,8 @@ export function JobDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在任务首次就绪时取一次，任务对象之后的刷新不需要重新计算预览
   }, [jobId]);
 
-  // 运行记录：按页拉取
+  // 运行记录：按页拉取；切换界面语言后重新拉取（失败原因中 OpsNap 的文字由服务端按请求的语言给出）
+  const language = i18n.language;
   useEffect(() => {
     if (!jobId) return;
     let cancelled = false;
@@ -131,7 +132,7 @@ export function JobDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [jobId, page, runsAttempt]);
+  }, [jobId, page, runsAttempt, language]);
 
   // 自动刷新任务与运行记录：运行中或排队中时每 3 秒，其余时候低频刷新（计划触发的运行开始后也能看到）；
   // 有运行结束（包括在两次低频刷新之间开始又结束的运行）时同时刷新统计（快照数、占用、最近成功与成功率）
@@ -175,7 +176,8 @@ export function JobDetailPage() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [jobId, active, page]);
+    // 切换语言时重新开始轮询：丢弃按原来的语言发出、尚未返回的请求
+  }, [jobId, active, page, language]);
 
   const retryJob = () => {
     setJob({ status: "loading" });

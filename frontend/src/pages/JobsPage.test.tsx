@@ -387,6 +387,33 @@ describe("任务列表页", () => {
     }
   });
 
+  it("切换界面语言后重新读取列表：最近一次运行的失败原因按新语言显示", async () => {
+    const failed: Run = { ...successRun, status: "failed", snapshot_id: "", failed_step: "connect" };
+    // 服务端按请求的 Accept-Language 给出原因
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const lang = (init?.headers as Record<string, string> | undefined)?.["Accept-Language"];
+      const reason = lang === "en" ? "Failed to connect to the data source: timeout" : "连接数据源失败: timeout";
+      return Promise.resolve(
+        url === "/api/v1/jobs"
+          ? ok({ items: [{ ...ordersProd, last_run: { ...failed, reason } }] })
+          : fail(404, url, 404)
+      );
+    });
+    try {
+      renderPage();
+      expect(await screen.findByText(/连接数据源失败: timeout/)).toBeInTheDocument();
+      await act(async () => {
+        await i18n.changeLanguage("en");
+      });
+      expect(await screen.findByText(/Failed to connect to the data source: timeout/)).toBeInTheDocument();
+      expect(screen.queryByText(/连接数据源失败/)).not.toBeInTheDocument();
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage("zh-CN");
+      });
+    }
+  });
+
   it("没有运行中的任务时也低频刷新：计划触发的运行开始后无需手动刷新", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {

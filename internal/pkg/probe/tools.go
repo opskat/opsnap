@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/cago-frame/cago/pkg/i18n"
+
 	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/l10n"
 )
@@ -104,4 +106,9 @@ func ToolVersion(ctx context.Context, path string) (major, minor int, raw string
 		return 0, 0, raw, l10n.Errorf(code.ProbeVersionUnrecognized, raw)
 	}
 	return major, minor, raw, nil
+}
+
+// errText 探测项中某种语言（code.LangZhCN、code.LangEn）的错误文字：OpsNap 的文字按该语言显示，工具输出等原文不变
+func errText(lang string, err error) string {
+	return l10n.Text(i18n.WithLanguage(context.Background(), lang), err)
 }

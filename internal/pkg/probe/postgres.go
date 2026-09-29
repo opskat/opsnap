@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/dsconn"
 )
 
@@ -162,8 +163,8 @@ func decidePgDump(serverVersion string, tool toolStatus) Item {
 	sMajor, _, _ := ParseMajorMinor(serverVersion)
 	if tool.Err != nil {
 		return Item{Key: "postgres.pg_dump", Title: itemTitles["postgres.pg_dump"], Tier: TierFail, Detail: Text{
-			ZhCN: fmt.Sprintf("找到 pg_dump，但无法确定其版本：%s", tool.Err),
-			En:   fmt.Sprintf("Found pg_dump, but could not determine its version: %s", tool.Err),
+			ZhCN: fmt.Sprintf("找到 pg_dump，但无法确定其版本：%s", errText(code.LangZhCN, tool.Err)),
+			En:   fmt.Sprintf("Found pg_dump, but could not determine its version: %s", errText(code.LangEn, tool.Err)),
 		}, Fix: pgDumpFix}
 	}
 	if tool.Major < sMajor {

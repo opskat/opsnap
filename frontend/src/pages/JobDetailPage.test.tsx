@@ -393,6 +393,56 @@ describe("任务详情页", () => {
     }
   });
 
+  it("切换界面语言后重新读取运行记录与展开的日志：OpsNap 的文字按新语言显示", async () => {
+    // 服务端按请求的 Accept-Language 给出原因与日志
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const en = (init?.headers as Record<string, string> | undefined)?.["Accept-Language"] === "en";
+      const reason = en ? "The export is incomplete" : "导出内容不完整";
+      const routes: Record<string, unknown> = {
+        "/api/v1/jobs/1": { item: baseJob },
+        "/api/v1/jobs/1/stats": stats,
+        "/api/v1/storages": { items: [storageItem] },
+        "/api/v1/jobs/schedule-preview": previewResponse,
+        "/api/v1/jobs/1/runs?page=1": { items: [successRun, { ...failedRun, reason }], total: 2 },
+        "/api/v1/jobs/1/runs/100/log": {
+          lines: [
+            { time: Date.UTC(2026, 8, 28, 1, 30, 0), step: "prepare", message: en ? "Checking storage" : "检查存储" },
+          ],
+        },
+        "/api/v1/jobs/1/runs/101/log": { lines: [] },
+      };
+      return Promise.resolve(url in routes ? ok(routes[url]) : fail(404, `unexpected ${url}`, 404));
+    });
+    try {
+      renderPage();
+      const rows = await screen.findAllByRole("row");
+      await userEvent.click(rows.find((r) => within(r).queryByText("失败"))!);
+      expect(await screen.findByText("失败在「校验」：导出内容不完整")).toBeInTheDocument();
+      expect(await screen.findByText(/检查存储/)).toBeInTheDocument();
+      // 先展开再收起成功的运行：它的日志已读到（空），切换语言后再次展开时按新语言重新读取
+      const successRow = rows.find((r) => within(r).queryByText("成功"))!;
+      await userEvent.click(successRow);
+      await userEvent.click(successRow);
+      await userEvent.click(rows.find((r) => within(r).queryByText("失败"))!);
+      expect(await screen.findByText(/检查存储/)).toBeInTheDocument();
+
+      await act(async () => {
+        await i18n.changeLanguage("en");
+      });
+      expect(await screen.findByText('Failed at "Verify": The export is incomplete')).toBeInTheDocument();
+      expect(await screen.findByText(/Checking storage/)).toBeInTheDocument();
+      expect(screen.queryByText(/检查存储|导出内容不完整/)).not.toBeInTheDocument();
+      const logCalls = () => fetchMock.mock.calls.filter(([u]) => u === "/api/v1/jobs/1/runs/101/log").length;
+      const before = logCalls();
+      await userEvent.click(screen.getAllByRole("row").find((r) => within(r).queryByText("Success"))!);
+      await waitFor(() => expect(logCalls()).toBe(before + 1));
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage("zh-CN");
+      });
+    }
+  });
+
   it("统计中的数字与时间用等宽字体", async () => {
     respondInitialLoad();
     await renderLoaded();

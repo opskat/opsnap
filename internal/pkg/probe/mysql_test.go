@@ -5,6 +5,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/opskat/opsnap/internal/pkg/code"
+	"github.com/opskat/opsnap/internal/pkg/l10n"
 )
 
 var errBoom = errors.New("boom")
@@ -126,5 +129,11 @@ func TestDecideMySQLDump(t *testing.T) {
 	t.Run("找到但无法识别版本视为风险", func(t *testing.T) {
 		item := decideMySQLDump("8.0.36", toolStatus{Found: true, Err: errBoom})
 		assert.Equal(t, TierWarn, item.Tier)
+	})
+	t.Run("无法识别版本的原因按两种语言给出，工具输出原样保留", func(t *testing.T) {
+		item := decideMySQLDump("8.0.36", toolStatus{Found: true, Err: l10n.Errorf(code.ProbeVersionUnrecognized, "garbage")})
+		assert.Equal(t, `找到 mysqldump，但无法确定其版本：无法从 "garbage" 中识别版本号`, item.Detail.ZhCN)
+		assert.Equal(t, `Found mysqldump, but could not determine its version: Could not recognize a version number in "garbage"`,
+			item.Detail.En)
 	})
 }
