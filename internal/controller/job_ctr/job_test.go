@@ -535,15 +535,17 @@ func TestJobDelete(t *testing.T) {
 		})
 
 		convey.Convey("无法打开存储时任务仍然删除，并按确认框里的份数提示快照未能删除", func() {
-			// 两个任务各有 2 份快照；查看统计后，任务列表（确认框的份数来源）记录的快照数为 2
+			// 两个任务分别有 2 份、1 份快照；查看统计后，任务列表（确认框的份数来源）记录这两个份数
 			zh := e.create(t, e.validCreate("存储出错", "broken/store"))
 			en := e.create(t, e.validCreate("storage broken", "broken/en"))
 			for _, j := range []struct {
 				id     int64
 				prefix string
-			}{{zh.ID, "broken/store"}, {en.ID, "broken/en"}} {
-				e.writeSnapshot(t, e.primary, j.id, j.prefix)
-				e.writeSnapshot(t, e.primary, j.id, j.prefix)
+				n      int
+			}{{zh.ID, "broken/store", 2}, {en.ID, "broken/en", 1}} {
+				for range j.n {
+					e.writeSnapshot(t, e.primary, j.id, j.prefix)
+				}
 				require.NoError(t, e.do(&api.StatsRequest{ID: j.id}, &api.StatsResponse{}))
 			}
 			// 从未读取过仓库的任务没有记录的份数
@@ -555,7 +557,7 @@ func TestJobDelete(t *testing.T) {
 				counts[it.ID] = it.SnapshotCount
 			}
 			require.Equal(t, 2, counts[zh.ID])
-			require.Equal(t, 2, counts[en.ID])
+			require.Equal(t, 1, counts[en.ID])
 			require.Equal(t, 0, counts[never.ID])
 
 			st, err := storage_repo.Storage().Find(e.ctx, e.primary)
@@ -581,8 +583,9 @@ func TestJobDelete(t *testing.T) {
 
 			resp = &api.DeleteResponse{}
 			require.NoError(t, e.doLang("en", &api.DeleteRequest{ID: en.ID, DeleteSnapshots: true}, resp))
-			assert.Equal(t, api.DeleteResponse{SnapshotsFailed: 2,
-				SnapshotsMessage: "Job deleted, but its storage could not be opened, so its 2 snapshots were not deleted. " +
+			// 只有 1 份时英文也不能写成 “1 snapshots”
+			assert.Equal(t, api.DeleteResponse{SnapshotsFailed: 1,
+				SnapshotsMessage: "Job deleted, but its storage could not be opened, so its snapshots were not deleted (1 recorded). " +
 					"Remove them with the kopia CLI"}, *resp)
 			assert.Equal(t, code.JobNotFound, errCode(e.do(&api.GetRequest{ID: en.ID}, &api.GetResponse{})))
 
@@ -594,7 +597,7 @@ func TestJobDelete(t *testing.T) {
 
 			restore()
 			assert.Equal(t, 2, e.countSnapshots(t, e.primary, zh.ID, "broken/store"), "无法打开存储时不动任何快照")
-			assert.Equal(t, 2, e.countSnapshots(t, e.primary, en.ID, "broken/en"), "无法打开存储时不动任何快照")
+			assert.Equal(t, 1, e.countSnapshots(t, e.primary, en.ID, "broken/en"), "无法打开存储时不动任何快照")
 		})
 
 		convey.Convey("任务正在运行或排队时不能删除", func() {
