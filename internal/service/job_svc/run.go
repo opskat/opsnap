@@ -85,6 +85,8 @@ const (
 	cancelWait = 30 * time.Second
 	// retentionTimeout 应用保留策略（含快速维护）的上限；它在快照已确认之后执行，不受取消与超时影响
 	retentionTimeout = 30 * time.Minute
+	// usageTimeout 运行结束时读取存储用量的上限
+	usageTimeout = 10 * time.Minute
 	// reasonHead、reasonTail 失败原因过长时保留的开头与结尾字符数，完整内容在日志中
 	reasonHead = 600
 	reasonTail = 1200
@@ -495,7 +497,8 @@ func (x *execution) do(ctx context.Context) (res *kopiarepo.SnapshotResult, err 
 	return res, nil
 }
 
-// close 终止导出工具、关闭本机端口与链路、删除运行临时目录，最后关闭存储写入会话
+// close 终止导出工具、关闭本机端口与链路、删除运行临时目录；运行没有被取消、超时或中断时记录存储用量，
+// 最后关闭存储写入会话
 func (x *execution) close(ctx context.Context) {
 	cctx := context.WithoutCancel(ctx)
 	if x.sess != nil {
@@ -505,6 +508,12 @@ func (x *execution) close(ctx context.Context) {
 	}
 	if x.tunnel != nil {
 		_ = x.tunnel.Close()
+	}
+	if x.writer != nil && ctx.Err() == nil {
+		// 读取用量不是运行的一部分：随运行取消与超时一起停止，停止时不记录
+		uctx, cancel := context.WithTimeout(ctx, usageTimeout)
+		storage_svc.Storage().RecordUsage(uctx, x.st.ID, x.writer)
+		cancel()
 	}
 	if x.writer != nil {
 		if err := x.writer.Close(cctx); err != nil {
@@ -544,6 +553,7 @@ func (x *execution) prepare(ctx context.Context) error {
 		return &stepError{step: step, err: err}
 	}
 	if x.writer, err = storage_svc.Storage().OpenWriter(ctx, x.st.ID); err != nil {
+		storage_svc.Storage().RecordUsageError(ctx, x.st.ID, err)
 		return failAt(step, code.RunOpenStorageFailed, x.st.Name, err)
 	}
 	x.log.add(l10n.New(code.RunLogStorageOpened, x.st.Name))

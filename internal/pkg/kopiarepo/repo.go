@@ -16,7 +16,6 @@ import (
 	"github.com/kopia/kopia/repo/blob/s3"
 	"github.com/kopia/kopia/repo/encryption"
 	"github.com/kopia/kopia/repo/format"
-	"github.com/kopia/kopia/snapshot"
 
 	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/l10n"
@@ -130,18 +129,19 @@ func Create(ctx context.Context, loc Location, password string) error {
 	return nil
 }
 
-// Verify 用密钥以只读方式连接并打开仓库，返回其中的快照数。仓库本身不做任何改动。
+// Verify 用密钥以只读方式连接并打开仓库，返回其中的快照数与全部快照的用量（见 RepoStats）。仓库本身不做任何改动。
+// 连接或列出快照失败时返回错误；只是统计用量失败时仍返回快照数，原因在 RepoStats.UsageErr。
 // id 为存储 ID，连接配置临时放在该存储的目录下、校验结束即删除，同一存储的校验依次进行；
 // id 为 0 时用一次性目录，用完即删（新建存储尚未保存时）。
-func (m *Manager) Verify(ctx context.Context, id int64, loc Location, password string) (int, error) {
+func (m *Manager) Verify(ctx context.Context, id int64, loc Location, password string) (*RepoStats, error) {
 	var dir string
 	if id == 0 {
 		if err := os.MkdirAll(m.root, 0o700); err != nil {
-			return 0, err
+			return nil, err
 		}
 		tmp, err := os.MkdirTemp(m.root, tmpVerifyPrefix)
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
 		defer func() { _ = os.RemoveAll(tmp) }()
 		dir = tmp
@@ -149,27 +149,23 @@ func (m *Manager) Verify(ctx context.Context, id int64, loc Location, password s
 		defer m.lock(id)()
 		dir = m.dir(id)
 		if err := os.MkdirAll(dir, 0o700); err != nil {
-			return 0, err
+			return nil, err
 		}
 	}
 	cfg := filepath.Join(dir, configName)
 	// 每次都按当前参数与密钥重新连接，避免沿用旧位置或旧密钥
 	if err := os.Remove(cfg); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return 0, err
+		return nil, err
 	}
 	// 连接配置里有明文的存储凭据（如 S3 Secret Key），用完即删，不留在磁盘上
 	defer func() { _ = os.Remove(cfg) }()
 
 	r, err := connectAndOpen(ctx, cfg, loc, password, true)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	defer func() { _ = r.Close(ctx) }()
-	ids, err := snapshot.ListSnapshotManifests(ctx, r, nil, nil)
-	if err != nil {
-		return 0, l10n.Errorf(code.KopiaListSnapshots, err)
-	}
-	return len(ids), nil
+	return repoStats(ctx, r)
 }
 
 // connectAndOpen 把连接配置写到 cfg 并打开仓库。cfg 中有明文的存储凭据，由调用方在用完后删除。

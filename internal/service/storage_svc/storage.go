@@ -53,7 +53,14 @@ type StorageSvc interface {
 	// OpenWriter 用保存的位置与托管密钥打开存储的 kopia 写入会话，供备份任务写快照、删除快照与维护。
 	// 存储不存在时返回 StorageNotFound；状态不是“正常”时返回 ErrNotReady，不连接。调用方负责 Close
 	OpenWriter(ctx context.Context, id int64) (*kopiarepo.Writer, error)
+	// RecordUsage 在运行或完整维护之后用已打开的写入会话读取并记录仓库用量；读取失败时记录原因
+	RecordUsage(ctx context.Context, id int64, w *kopiarepo.Writer)
+	// RecordUsageError 运行或完整维护打不开存储时记录原因（状态不是正常时不记录，原因由状态给出）
+	RecordUsageError(ctx context.Context, id int64, err error)
 }
+
+// emptyRepo 刚建好的空仓库：没有快照，用量为 0
+var emptyRepo = &kopiarepo.RepoStats{Usage: &kopiarepo.Usage{}}
 
 // ErrNotReady 存储状态不是“正常”（密钥不正确或无法连接），不能打开写入会话
 var ErrNotReady error = l10n.Errorf(code.StorageErrNotReady)
@@ -225,15 +232,8 @@ func (s *storageSvc) toItem(ctx context.Context, st *storage_entity.Storage) (*a
 		Status:        st.Status,
 		CheckedAt:     st.Checktime,
 		CreatedAt:     st.Createtime,
-		StatusMessage: "",
+		StatusMessage: statusMessage(ctx, st),
 		UsedBy:        used,
-	}
-	if st.StatusCode != 0 {
-		if detailCodes[st.StatusCode] {
-			item.StatusMessage = i18n.T(ctx, st.StatusCode, st.StatusDetail)
-		} else {
-			item.StatusMessage = i18n.T(ctx, st.StatusCode)
-		}
 	}
 	return item, nil
 }
@@ -309,8 +309,8 @@ func (s *storageSvc) probe(ctx context.Context, loc kopiarepo.Location) (*kopiar
 	return res, nil
 }
 
-// verify 用密钥打开仓库并返回快照数；连接配置只在校验期间存在，结束即删除
-func (s *storageSvc) verify(ctx context.Context, id int64, loc kopiarepo.Location, key string) (int, error) {
+// verify 用密钥打开仓库并返回快照数与用量；连接配置只在校验期间存在，结束即删除
+func (s *storageSvc) verify(ctx context.Context, id int64, loc kopiarepo.Location, key string) (*kopiarepo.RepoStats, error) {
 	ctx, cancel := context.WithTimeout(ctx, opTimeout)
 	defer cancel()
 	return s.manager().Verify(ctx, id, loc, key)
@@ -436,7 +436,7 @@ func (s *storageSvc) Create(ctx context.Context, req *api.CreateRequest) (*api.C
 	if err != nil {
 		return nil, err
 	}
-	snapshots := 0
+	stats := emptyRepo
 	switch res.State {
 	case kopiarepo.StateNotEmpty:
 		return nil, i18n.NewError(ctx, code.StorageLocationNotEmpty)
@@ -451,7 +451,7 @@ func (s *storageSvc) Create(ctx context.Context, req *api.CreateRequest) (*api.C
 		if key == "" {
 			return nil, i18n.NewError(ctx, code.StorageKeyRequired)
 		}
-		if snapshots, err = s.verify(ctx, 0, loc, key); err != nil {
+		if stats, err = s.verify(ctx, 0, loc, key); err != nil {
 			return nil, repoError(ctx, err)
 		}
 	}
@@ -463,11 +463,12 @@ func (s *storageSvc) Create(ctx context.Context, req *api.CreateRequest) (*api.C
 	if err := storage_repo.Storage().Create(ctx, st); err != nil {
 		return nil, err
 	}
+	s.recordStats(ctx, st.ID, stats)
 	item, err := s.toItem(ctx, st)
 	if err != nil {
 		return nil, err
 	}
-	return &api.CreateResponse{Item: item, Snapshots: snapshots}, nil
+	return &api.CreateResponse{Item: item, Snapshots: stats.Snapshots}, nil
 }
 
 // checkNewKey 在空位置建库前校验密钥与确认勾选
@@ -520,14 +521,14 @@ func (s *storageSvc) Update(ctx context.Context, req *api.UpdateRequest) (*api.U
 		return nil, err
 	}
 
-	snapshots, newKey := 0, ""
+	stats, newKey := emptyRepo, ""
 	switch {
 	case !changed:
 		// 位置没变：托管密钥必须仍能打开同一个仓库
 		if res.State != kopiarepo.StateRepository {
 			return nil, i18n.NewError(ctx, code.StorageNotRepository)
 		}
-		snapshots, err = s.verify(ctx, st.ID, loc, managedKey)
+		stats, err = s.verify(ctx, st.ID, loc, managedKey)
 		if errors.Is(err, kopiarepo.ErrInvalidPassword) {
 			return nil, i18n.NewError(ctx, code.StorageManagedKeyInvalid)
 		}
@@ -547,7 +548,7 @@ func (s *storageSvc) Update(ctx context.Context, req *api.UpdateRequest) (*api.U
 		if newKey == "" {
 			return nil, i18n.NewError(ctx, code.StorageKeyRequired)
 		}
-		if snapshots, err = s.verify(ctx, st.ID, loc, newKey); err != nil {
+		if stats, err = s.verify(ctx, st.ID, loc, newKey); err != nil {
 			return nil, repoError(ctx, err)
 		}
 	}
@@ -558,11 +559,12 @@ func (s *storageSvc) Update(ctx context.Context, req *api.UpdateRequest) (*api.U
 	if err := s.save(ctx, st); err != nil {
 		return nil, err
 	}
+	s.recordStats(ctx, st.ID, stats)
 	item, err := s.toItem(ctx, st)
 	if err != nil {
 		return nil, err
 	}
-	return &api.UpdateResponse{Item: item, Snapshots: snapshots}, nil
+	return &api.UpdateResponse{Item: item, Snapshots: stats.Snapshots}, nil
 }
 
 func (s *storageSvc) Test(ctx context.Context, req *api.TestRequest) (*api.TestResponse, error) {
@@ -579,7 +581,8 @@ func (s *storageSvc) Test(ctx context.Context, req *api.TestRequest) (*api.TestR
 		return nil, err
 	}
 
-	snapshots, status, statusCode, detail := 0, storage_entity.StatusOK, 0, ""
+	var stats *kopiarepo.RepoStats
+	status, statusCode, detail := storage_entity.StatusOK, 0, ""
 	probeCtx, cancel := context.WithTimeout(ctx, opTimeout)
 	res, err := kopiarepo.Probe(probeCtx, loc)
 	cancel()
@@ -590,7 +593,7 @@ func (s *storageSvc) Test(ctx context.Context, req *api.TestRequest) (*api.TestR
 	case res.State != kopiarepo.StateRepository:
 		status, statusCode = storage_entity.StatusUnreachable, code.StorageNotRepository
 	default:
-		snapshots, err = s.verify(ctx, st.ID, loc, managedKey)
+		stats, err = s.verify(ctx, st.ID, loc, managedKey)
 		switch {
 		case errors.Is(err, kopiarepo.ErrInvalidPassword):
 			status, statusCode = storage_entity.StatusWrongKey, code.StorageManagedKeyInvalid
@@ -611,11 +614,18 @@ func (s *storageSvc) Test(ctx context.Context, req *api.TestRequest) (*api.TestR
 	if err := s.save(ctx, st); err != nil {
 		return nil, err
 	}
+	if stats != nil && status == storage_entity.StatusOK {
+		s.recordStats(ctx, st.ID, stats)
+	}
 	item, err := s.toItem(ctx, st)
 	if err != nil {
 		return nil, err
 	}
-	return &api.TestResponse{Item: item, Snapshots: snapshots}, nil
+	resp := &api.TestResponse{Item: item}
+	if stats != nil {
+		resp.Snapshots = stats.Snapshots
+	}
+	return resp, nil
 }
 
 func (s *storageSvc) Unlock(ctx context.Context, req *api.UnlockRequest) (*api.UnlockResponse, error) {
@@ -638,7 +648,7 @@ func (s *storageSvc) Unlock(ctx context.Context, req *api.UnlockRequest) (*api.U
 	if res.State != kopiarepo.StateRepository {
 		return nil, i18n.NewError(ctx, code.StorageNotRepository)
 	}
-	snapshots, err := s.verify(ctx, st.ID, loc, key)
+	stats, err := s.verify(ctx, st.ID, loc, key)
 	if err != nil {
 		return nil, repoError(ctx, err)
 	}
@@ -648,11 +658,12 @@ func (s *storageSvc) Unlock(ctx context.Context, req *api.UnlockRequest) (*api.U
 	if err := s.save(ctx, st); err != nil {
 		return nil, err
 	}
+	s.recordStats(ctx, st.ID, stats)
 	item, err := s.toItem(ctx, st)
 	if err != nil {
 		return nil, err
 	}
-	return &api.UnlockResponse{Item: item, Snapshots: snapshots}, nil
+	return &api.UnlockResponse{Item: item, Snapshots: stats.Snapshots}, nil
 }
 
 func (s *storageSvc) Delete(ctx context.Context, req *api.DeleteRequest) (*api.DeleteResponse, error) {

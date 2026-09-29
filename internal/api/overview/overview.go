@@ -27,7 +27,61 @@ type GetResponse struct {
 	Daily []*DayRuns `json:"daily"`
 	// Counts 空状态引导所需的数量
 	Counts Counts `json:"counts"`
-	// 存储占用与各存储目标的用量由存储侧的任务在这里补充
+	// StorageUsage “存储占用”统计：各存储最近一次记录的仓库用量之和
+	StorageUsage StorageUsage `json:"storage_usage"`
+	// Storages 每个存储一行，按存储的创建顺序
+	Storages []*Storage `json:"storages"`
+}
+
+// StorageUsage 所有能读到用量的存储之和；状态不是正常或读不到用量的存储不计入，只计入 Unreadable
+type StorageUsage struct {
+	// PackedBytes 仓库实际占用之和（全部快照引用的数据去重、压缩之后）
+	PackedBytes int64 `json:"packed_bytes"`
+	// OriginalBytes 仓库中全部快照的原始总大小之和
+	OriginalBytes int64 `json:"original_bytes"`
+	// Savings 节省比例 1 - PackedBytes/OriginalBytes（0–1），原始总大小为 0 时为 0
+	Savings float64 `json:"savings"`
+	// Unreadable 无法读取用量的存储数（“有 N 个存储无法读取”）
+	Unreadable int `json:"unreadable"`
+}
+
+// Storage 一个存储目标。仓库用量是最近一次运行、完整维护或测试连接之后记录的值，读取概览本身不打开仓库；
+// 本地目录所在磁盘的用量在每次请求时读取
+type Storage struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+	// Kind local / s3
+	Kind string `json:"kind"`
+	// Location 显示用的位置，与存储列表相同（本地为路径，S3 为 Endpoint/Bucket/前缀）
+	Location string `json:"location"`
+	// Path 本地目录的路径；S3 为空
+	Path string `json:"path"`
+	// Status 存储状态：ok / wrong_key / unreachable
+	Status string `json:"status"`
+	// Readable 状态为正常且最近一次读取用量成功；为 false 时下面三项用量为 0，界面显示“—”与 Reason
+	Readable bool `json:"readable"`
+	// Reason 状态不是正常或读不到用量的原因，按界面语言；Readable 时为空
+	Reason string `json:"reason"`
+	// PackedBytes 仓库实际占用（全部快照引用的数据去重、压缩之后）
+	PackedBytes int64 `json:"packed_bytes"`
+	// OriginalBytes 仓库中全部快照的原始总大小
+	OriginalBytes int64 `json:"original_bytes"`
+	// Snapshots 仓库中的快照数（含其他任务与非 OpsNap 产生的快照）
+	Snapshots int `json:"snapshots"`
+	// UsageRecordedAt 最近一次读取用量的时间（秒，含读取失败），从未读取为 0
+	UsageRecordedAt int64 `json:"usage_recorded_at"`
+	// Disk 本地目录所在磁盘的用量；S3 或读取失败时为 null
+	Disk *Disk `json:"disk"`
+}
+
+// Disk 本地目录所在磁盘的用量（字节）
+type Disk struct {
+	// UsedBytes 已用
+	UsedBytes int64 `json:"used_bytes"`
+	// TotalBytes 总量
+	TotalBytes int64 `json:"total_bytes"`
+	// FreeBytes 剩余（OpsNap 进程可用的空间，不含文件系统为 root 保留的部分）
+	FreeBytes int64 `json:"free_bytes"`
 }
 
 // Protected 受保护的数据源：至少被一个已启用的任务引用，且该任务至少成功过一次、有可恢复的快照

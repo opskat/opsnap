@@ -210,6 +210,9 @@ func TestOverviewAuthAndEmpty(t *testing.T) {
 			for _, d := range resp.Daily {
 				assert.Zero(t, d.Success+d.Failed, d.Date)
 			}
+			assert.NotNil(t, resp.Storages)
+			assert.Empty(t, resp.Storages)
+			assert.Equal(t, api.StorageUsage{}, resp.StorageUsage, "没有存储时占用为 0")
 		})
 	})
 }

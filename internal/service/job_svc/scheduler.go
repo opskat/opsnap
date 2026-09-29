@@ -497,10 +497,11 @@ func (s *Scheduler) saveMaintenance(ctx context.Context, storageID int64, t time
 	}
 }
 
-// fullMaintenance 对存储做一次完整维护，回收已删除快照不再引用的数据
+// fullMaintenance 对存储做一次完整维护，回收已删除快照不再引用的数据；之后记录存储用量（维护失败也记录）
 func fullMaintenance(ctx context.Context, storageID int64) error {
 	w, err := storage_svc.Storage().OpenWriter(ctx, storageID)
 	if err != nil {
+		storage_svc.Storage().RecordUsageError(ctx, storageID, err)
 		return err
 	}
 	defer func() {
@@ -508,5 +509,7 @@ func fullMaintenance(ctx context.Context, storageID int64) error {
 			logger.Ctx(ctx).Warn("关闭存储写入会话失败", zap.Int64("storage_id", storageID), zap.Error(err))
 		}
 	}()
-	return w.Maintain(ctx, kopiarepo.MaintenanceFull)
+	err = w.Maintain(ctx, kopiarepo.MaintenanceFull)
+	storage_svc.Storage().RecordUsage(ctx, storageID, w)
+	return err
 }

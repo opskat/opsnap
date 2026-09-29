@@ -64,6 +64,8 @@ var zhCN = map[int]string{ //nolint:gosec // 错误文案中的“密码”字�
 	StorageDirCreateFailed:       "新建文件夹失败：%s",
 	StorageInUse:                 "存储仍被任务引用，不能删除：%s",
 	StorageLocationLocked:        "存储仍被任务引用，不能更改位置：%s",
+	StorageUsageNotRead:          "还没有读取过用量，测试连接后显示",
+	StorageUsageUnreadable:       "无法读取用量：%s",
 
 	ChannelNotFound:             "通道不存在",
 	ChannelNameInvalid:          "名称须为 1–64 个字符",

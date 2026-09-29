@@ -142,3 +142,31 @@ func (mr *MockStorageRepoMockRecorder) Save(ctx, s any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Save", reflect.TypeOf((*MockStorageRepo)(nil).Save), ctx, s)
 }
+
+// SetUsage mocks base method.
+func (m *MockStorageRepo) SetUsage(ctx context.Context, id int64, u storage_entity.Usage) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetUsage", ctx, id, u)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetUsage indicates an expected call of SetUsage.
+func (mr *MockStorageRepoMockRecorder) SetUsage(ctx, id, u any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUsage", reflect.TypeOf((*MockStorageRepo)(nil).SetUsage), ctx, id, u)
+}
+
+// SetUsageError mocks base method.
+func (m *MockStorageRepo) SetUsageError(ctx context.Context, id int64, reason, reasonEn string, checktime int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetUsageError", ctx, id, reason, reasonEn, checktime)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetUsageError indicates an expected call of SetUsageError.
+func (mr *MockStorageRepoMockRecorder) SetUsageError(ctx, id, reason, reasonEn, checktime any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUsageError", reflect.TypeOf((*MockStorageRepo)(nil).SetUsageError), ctx, id, reason, reasonEn, checktime)
+}

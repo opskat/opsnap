@@ -34,6 +34,23 @@ type Storage struct {
 	Checktime    int64  `gorm:"column:checktime"`
 	Createtime   int64  `gorm:"column:createtime"`
 	Updatetime   int64  `gorm:"column:updatetime"`
+	// Usage 仓库用量，只由 storage_repo 的 SetUsage / SetUsageError 写入，Save 不改动
+	Usage Usage `gorm:"embedded"`
+}
+
+// Usage 仓库用量：最近一次运行、完整维护或测试连接之后读取（docs/specs/2026-09-29-overview-docker.md「存储目标」）
+type Usage struct {
+	// Snapshots 仓库中的快照数（含其他任务与非 OpsNap 产生的快照）
+	Snapshots int `gorm:"column:usage_snapshots"`
+	// PackedBytes 全部快照引用的数据去重、压缩后在仓库中的大小
+	PackedBytes int64 `gorm:"column:usage_packed_bytes"`
+	// OriginalBytes 全部快照的原始总大小
+	OriginalBytes int64 `gorm:"column:usage_original_bytes"`
+	// Error、ErrorEn 最近一次读取失败的原因（中文、英文），成功时为空；失败时保留上一次读到的数字
+	Error   string `gorm:"column:usage_error"`
+	ErrorEn string `gorm:"column:usage_error_en"`
+	// Checktime 最近一次读取（含失败）的时间（秒），从未读取为 0
+	Checktime int64 `gorm:"column:usage_checktime"`
 }
 
 func (Storage) TableName() string { return "storages" }

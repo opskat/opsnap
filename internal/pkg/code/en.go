@@ -64,6 +64,8 @@ var en = map[int]string{ //nolint:gosec // 错误文案中的 “token”“pass
 	StorageDirCreateFailed:       "Could not create the folder: %s",
 	StorageInUse:                 "The storage is still referenced by jobs and cannot be deleted: %s",
 	StorageLocationLocked:        "The storage is still referenced by jobs and its location cannot be changed: %s",
+	StorageUsageNotRead:          "Usage has not been read yet. Test the connection to read it",
+	StorageUsageUnreadable:       "Could not read usage: %s",
 
 	ChannelNotFound:             "Channel not found",
 	ChannelNameInvalid:          "Name must be 1–64 characters",

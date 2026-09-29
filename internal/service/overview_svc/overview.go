@@ -30,7 +30,7 @@ const (
 var finishedStatuses = []string{job_entity.RunSuccess, job_entity.RunFailed}
 
 type OverviewSvc interface {
-	// Get 四个统计（存储占用除外）、最近运行、14 天运行（按 req.TZ 分天）与引导所需的数量
+	// Get 四个统计、最近运行、14 天运行（按 req.TZ 分天）、存储目标与引导所需的数量
 	Get(ctx context.Context, req *api.GetRequest) (*api.GetResponse, error)
 }
 
@@ -101,6 +101,7 @@ func (s *overviewSvc) Get(ctx context.Context, req *api.GetRequest) (*api.GetRes
 		NextRun:  nextRun(jobs, now),
 		Counts:   api.Counts{DataSources: len(dsList), Storages: len(stList), Jobs: len(jobs)},
 	}
+	resp.Storages, resp.StorageUsage = storages(ctx, stList)
 	if resp.Protected, err = protected(ctx, jobs, dss); err != nil {
 		return nil, err
 	}
