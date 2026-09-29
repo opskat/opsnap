@@ -8,6 +8,7 @@ import (
 	"github.com/cago-frame/cago/pkg/i18n"
 
 	"github.com/opskat/opsnap/internal/pkg/code"
+	"github.com/opskat/opsnap/internal/pkg/l10n"
 )
 
 // 运行状态（docs/specs/2026-09-27-backup-jobs.md「运行记录」）
@@ -91,12 +92,7 @@ type LogLine struct {
 }
 
 // Text 按 ctx 的界面语言显示这一行
-func (l LogLine) Text(ctx context.Context) string {
-	if l.MessageEn != "" && code.Lang(ctx) == code.LangEn {
-		return l.MessageEn
-	}
-	return l.Message
-}
+func (l LogLine) Text(ctx context.Context) string { return l10n.Pick(ctx, l.Message, l.MessageEn) }
 
 // LogLines 解析保存的执行日志
 func (r *Run) LogLines() []LogLine { return decodeList[LogLine](r.Log) }
@@ -156,10 +152,7 @@ func (r *Run) DisplayReason(ctx context.Context) string {
 	if text, ok := ReasonText(ctx, r.ReasonCode); ok {
 		return text
 	}
-	if r.ReasonEn != "" && code.Lang(ctx) == code.LangEn {
-		return r.ReasonEn
-	}
-	return r.Reason
+	return l10n.Pick(ctx, r.Reason, r.ReasonEn)
 }
 
 // formatDuration 时长（分钟）的描述，如“2 小时 30 分钟”“2 h 30 min”

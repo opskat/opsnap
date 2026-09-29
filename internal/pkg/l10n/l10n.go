@@ -16,6 +16,20 @@ import (
 	"github.com/opskat/opsnap/internal/pkg/code"
 )
 
+// ZhCN、En 两种界面语言的 ctx：需要同时保存两种语言的文字（如运行记录）时，分别用它们显示
+var (
+	ZhCN = i18n.WithLanguage(context.Background(), code.LangZhCN)
+	En   = i18n.WithLanguage(context.Background(), code.LangEn)
+)
+
+// Pick 按 ctx 的语言在保存的中文与英文之间选择；英文为空（与中文相同，或更早的记录没有英文）时为中文
+func Pick(ctx context.Context, zh, en string) string {
+	if en != "" && code.Lang(ctx) == code.LangEn {
+		return en
+	}
+	return zh
+}
+
 // Localizer 能按 ctx 的界面语言显示的文字
 type Localizer interface {
 	Localize(ctx context.Context) string
@@ -129,8 +143,8 @@ func embedded(ctx context.Context, err error, text string) string {
 
 // codeText 接口错误的文案不带参数（原文与某种语言的文案完全相同）时，按 ctx 的语言给出
 func codeText(ctx context.Context, e *httputils.Error) (string, bool) {
-	for _, lang := range []string{code.LangZhCN, code.LangEn} {
-		if i18n.T(i18n.WithLanguage(context.Background(), lang), e.Code) == e.Msg {
+	for _, lang := range []context.Context{ZhCN, En} {
+		if i18n.T(lang, e.Code) == e.Msg {
 			return i18n.T(ctx, e.Code), true
 		}
 	}

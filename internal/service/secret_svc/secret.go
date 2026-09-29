@@ -9,11 +9,10 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/opskat/opsnap/internal/pkg/secret"
-	"github.com/opskat/opsnap/internal/repository/setting_repo"
-
 	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/l10n"
+	"github.com/opskat/opsnap/internal/pkg/secret"
+	"github.com/opskat/opsnap/internal/repository/setting_repo"
 )
 
 // checkSettingKey 保存一段用主密钥加密的固定文本，启动时解密它来确认主密钥没有换

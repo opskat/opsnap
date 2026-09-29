@@ -443,6 +443,86 @@ describe("任务详情页", () => {
     }
   });
 
+  it("切换语言前发出、之后才返回的日志不留作缓存：再次展开时按新语言重新读取", async () => {
+    // 成功运行的日志：第一次（中文）请求挂起，由测试决定何时返回
+    let releaseZhLog: (() => void) | undefined;
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const en = (init?.headers as Record<string, string> | undefined)?.["Accept-Language"] === "en";
+      const routes: Record<string, unknown> = {
+        "/api/v1/jobs/1": { item: baseJob },
+        "/api/v1/jobs/1/stats": stats,
+        "/api/v1/storages": { items: [storageItem] },
+        "/api/v1/jobs/schedule-preview": previewResponse,
+        "/api/v1/jobs/1/runs?page=1": runsPage1,
+      };
+      if (url === "/api/v1/jobs/1/runs/101/log") {
+        const body = ok({
+          lines: [
+            { time: Date.UTC(2026, 8, 28, 1, 30, 0), step: "prepare", message: en ? "Checking storage" : "检查存储" },
+          ],
+        });
+        if (en) return Promise.resolve(body);
+        return new Promise<Response>((resolve) => {
+          releaseZhLog = () => resolve(body);
+        });
+      }
+      return Promise.resolve(url in routes ? ok(routes[url]) : fail(404, `unexpected ${url}`, 404));
+    });
+    try {
+      renderPage();
+      const rows = await screen.findAllByRole("row");
+      const successRow = rows.find((r) => within(r).queryByText("成功"))!;
+      // 展开后立即收起：中文日志的请求仍未返回
+      await userEvent.click(successRow);
+      await userEvent.click(successRow);
+      await waitFor(() => expect(releaseZhLog).toBeDefined());
+
+      await act(async () => {
+        await i18n.changeLanguage("en");
+      });
+      await act(async () => {
+        releaseZhLog!();
+      });
+      await userEvent.click(screen.getAllByRole("row").find((r) => within(r).queryByText("Success"))!);
+      expect(await screen.findByText(/Checking storage/)).toBeInTheDocument();
+      expect(screen.queryByText(/检查存储/)).not.toBeInTheDocument();
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage("zh-CN");
+      });
+    }
+  });
+
+  it("切换界面语言后重新读取统计：无法读取存储的提示按新语言显示", async () => {
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const en = (init?.headers as Record<string, string> | undefined)?.["Accept-Language"] === "en";
+      const routes: Record<string, unknown> = {
+        "/api/v1/jobs/1": { item: baseJob },
+        "/api/v1/jobs/1/stats": {
+          ...stats,
+          storage_error: en ? "Could not read the snapshots in the storage" : "无法读取存储中的快照",
+        },
+        "/api/v1/storages": { items: [storageItem] },
+        "/api/v1/jobs/schedule-preview": previewResponse,
+        "/api/v1/jobs/1/runs?page=1": runsPage1,
+      };
+      return Promise.resolve(url in routes ? ok(routes[url]) : fail(404, `unexpected ${url}`, 404));
+    });
+    try {
+      renderPage();
+      expect(await screen.findByText(/无法读取存储中的快照/)).toBeInTheDocument();
+      await act(async () => {
+        await i18n.changeLanguage("en");
+      });
+      expect(await screen.findByText(/Could not read the snapshots in the storage/)).toBeInTheDocument();
+      expect(screen.queryByText(/无法读取存储中的快照/)).not.toBeInTheDocument();
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage("zh-CN");
+      });
+    }
+  });
+
   it("统计中的数字与时间用等宽字体", async () => {
     respondInitialLoad();
     await renderLoaded();

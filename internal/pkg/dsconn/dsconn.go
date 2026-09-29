@@ -13,10 +13,9 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/opskat/opsnap/internal/pkg/netchain"
-
 	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/l10n"
+	"github.com/opskat/opsnap/internal/pkg/netchain"
 )
 
 // Type 数据源类型

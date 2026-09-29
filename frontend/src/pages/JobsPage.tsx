@@ -35,9 +35,12 @@ export function JobsPage() {
 
   useEffect(() => {
     let cancelled = false;
+    // 读取期间重新读取过（切换了语言）时，以重新读取的结果为准
+    const seq = mutations.current;
+    const current = () => !cancelled && seq === mutations.current;
     listJobs()
-      .then((r) => !cancelled && setState({ status: "ready", data: r.items }))
-      .catch((err: unknown) => !cancelled && setState({ status: "error", message: errorMessage(err) }));
+      .then((r) => current() && setState({ status: "ready", data: r.items }))
+      .catch((err: unknown) => current() && setState({ status: "error", message: errorMessage(err) }));
     return () => {
       cancelled = true;
     };
@@ -92,17 +95,20 @@ export function JobsPage() {
     mutations.current++;
     setState((s) => (s.status === "ready" ? { ...s, data: s.data.filter((j) => j.id !== id) } : s));
   };
-  /** 立即重新读取列表（操作被拒绝时，界面上的状态已经过时） */
+  /** 立即重新读取列表（操作被拒绝、切换了语言时，界面上的内容已经过时） */
   const reload = () => {
     const seq = ++mutations.current;
     listJobs()
       .then((r) => seq === mutations.current && setState({ status: "ready", data: r.items }))
-      .catch(() => {
-        // 下一次自动刷新会再试
+      .catch((err: unknown) => {
+        // 列表已显示时由下一次自动刷新再试；还没有列表（首次读取被这次读取取代）时显示错误，可以重试
+        if (seq === mutations.current)
+          setState((s) => (s.status === "ready" ? s : { status: "error", message: errorMessage(err) }));
       });
   };
 
-  // 切换界面语言后重新读取：最近一次运行的原因中 OpsNap 的文字由服务端按请求的语言给出
+  // 切换界面语言后重新读取：最近一次运行的原因中 OpsNap 的文字由服务端按请求的语言给出；
+  // 按原来的语言发出、尚未返回的请求（包括首次读取）的结果被丢弃
   const language = i18n.language;
   const shownLanguage = useRef(language);
   useEffect(() => {

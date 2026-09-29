@@ -765,8 +765,8 @@ func (x *execution) finish(ctx context.Context, res *kopiarepo.SnapshotResult, e
 		run.Status, run.FailedStep = job_entity.RunFailed, step
 		// OpsNap 自己的文字按语言显示，导出工具与数据库的原文原样保留；两种语言都去掉秘密
 		reason := l10n.Func(func(ctx context.Context) string { return l10n.Text(ctx, err) })
-		zh, en := x.log.scrub(reason.Localize(zhCtx)), x.log.scrub(reason.Localize(enCtx))
-		run.SetReason(limitReason(zhCtx, zh), limitReason(enCtx, en))
+		zh, en := x.log.scrub(reason.Localize(l10n.ZhCN)), x.log.scrub(reason.Localize(l10n.En))
+		run.SetReason(limitReason(l10n.ZhCN, zh), limitReason(l10n.En, en))
 		x.log.setStep(step)
 		x.log.add(reason)
 	}
@@ -780,12 +780,6 @@ func limitReason(ctx context.Context, s string) string {
 	}
 	return string(r[:reasonHead]) + "\n" + i18n.T(ctx, code.RunReasonEllipsis) + "\n" + string(r[len(r)-reasonTail:])
 }
-
-// 运行记录保存两种语言的文字：中文（Reason、LogLine.Message）与英文（ReasonEn、LogLine.MessageEn）
-var (
-	zhCtx = i18n.WithLanguage(context.Background(), code.LangZhCN)
-	enCtx = i18n.WithLanguage(context.Background(), code.LangEn)
-)
 
 // runLog 一次运行的执行日志：每行带时间和步骤名，写入前去掉秘密；超过 MaxLogLines 行时保留开头与结尾，
 // 中间用一行省略标记注明省略了多少行
@@ -838,7 +832,7 @@ func (l *runLog) scrubLocked(text string) string {
 
 // add 按当前步骤追加日志：保存中文与英文，都去掉秘密；多行文本拆成多行
 func (l *runLog) add(msg l10n.Localizer) {
-	zh, en := msg.Localize(zhCtx), msg.Localize(enCtx)
+	zh, en := msg.Localize(l10n.ZhCN), msg.Localize(l10n.En)
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	zhLines := splitLines(l.scrubLocked(zh))

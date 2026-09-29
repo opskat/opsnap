@@ -71,7 +71,8 @@ export function RunsTable({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在列表数据刷新时检查，展开/收起由 toggle 处理
   }, [state]);
 
-  // 切换界面语言后，日志中 OpsNap 的文字按新语言重新读取：丢弃已读到的日志（再次展开时重新读取），展开中的立即重新读取
+  // 切换界面语言后，日志中 OpsNap 的文字按新语言重新读取：丢弃已读到的日志与按原来的语言发出、尚未返回的请求
+  // （再次展开时重新读取），展开中的立即重新读取
   const language = i18n.language;
   const shownLanguage = useRef(language);
   useEffect(() => {
@@ -82,6 +83,7 @@ export function RunsTable({
         ? state.data.items.find((r) => r.id === expandedId)
         : undefined;
     logStatus.current = {};
+    for (const id of Object.keys(logSeq.current)) logSeq.current[Number(id)]++;
     setLogs((l) => (run && l[run.id] ? { [run.id]: l[run.id] } : {}));
     if (run) fetchLog(run);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 只在语言变化时重新读取

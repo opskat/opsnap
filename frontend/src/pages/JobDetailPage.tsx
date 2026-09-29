@@ -89,7 +89,9 @@ export function JobDetailPage() {
     };
   }, [numericId, validId, jobAttempt]);
 
-  // 统计、存储（用于加密指纹）与计划预览：任务加载成功后各自拉取一次
+  // 统计、存储（用于加密指纹）与计划预览：任务加载成功后各自拉取一次；
+  // 统计在切换界面语言后重新拉取（无法读取存储的提示由服务端按请求的语言给出）
+  const language = i18n.language;
   useEffect(() => {
     if (!jobId) return;
     let cancelled = false;
@@ -99,7 +101,7 @@ export function JobDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [jobId, statsAttempt]);
+  }, [jobId, statsAttempt, language]);
 
   useEffect(() => {
     if (job.status !== "ready") return;
@@ -122,7 +124,6 @@ export function JobDetailPage() {
   }, [jobId]);
 
   // 运行记录：按页拉取；切换界面语言后重新拉取（失败原因中 OpsNap 的文字由服务端按请求的语言给出）
-  const language = i18n.language;
   useEffect(() => {
     if (!jobId) return;
     let cancelled = false;

@@ -414,6 +414,38 @@ describe("任务列表页", () => {
     }
   });
 
+  it("首次读取列表时切换语言：按原来的语言发出、之后才返回的结果不覆盖新语言的结果", async () => {
+    const failed: Run = { ...successRun, status: "failed", snapshot_id: "", failed_step: "connect" };
+    let releaseZh: (() => void) | undefined;
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      const en = (init?.headers as Record<string, string> | undefined)?.["Accept-Language"] === "en";
+      if (url !== "/api/v1/jobs") return Promise.resolve(fail(404, url, 404));
+      const reason = en ? "Failed to connect to the data source: timeout" : "连接数据源失败: timeout";
+      const body = ok({ items: [{ ...ordersProd, last_run: { ...failed, reason } }] });
+      if (en) return Promise.resolve(body);
+      return new Promise<Response>((resolve) => {
+        releaseZh = () => resolve(body);
+      });
+    });
+    try {
+      renderPage();
+      await vi.waitFor(() => expect(releaseZh).toBeDefined());
+      await act(async () => {
+        await i18n.changeLanguage("en");
+      });
+      expect(await screen.findByText(/Failed to connect to the data source: timeout/)).toBeInTheDocument();
+      await act(async () => {
+        releaseZh!();
+      });
+      expect(screen.queryByText(/连接数据源失败/)).not.toBeInTheDocument();
+      expect(screen.getByText(/Failed to connect to the data source: timeout/)).toBeInTheDocument();
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage("zh-CN");
+      });
+    }
+  });
+
   it("没有运行中的任务时也低频刷新：计划触发的运行开始后无需手动刷新", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {

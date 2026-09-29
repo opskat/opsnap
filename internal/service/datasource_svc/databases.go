@@ -5,9 +5,8 @@ import (
 	"database/sql"
 
 	api "github.com/opskat/opsnap/internal/api/datasource"
-	"github.com/opskat/opsnap/internal/pkg/dsconn"
-
 	"github.com/opskat/opsnap/internal/pkg/code"
+	"github.com/opskat/opsnap/internal/pkg/dsconn"
 	"github.com/opskat/opsnap/internal/pkg/l10n"
 )
 

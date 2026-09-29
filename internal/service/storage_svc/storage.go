@@ -23,11 +23,10 @@ import (
 	"github.com/opskat/opsnap/internal/pkg/authctx"
 	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/kopiarepo"
+	"github.com/opskat/opsnap/internal/pkg/l10n"
 	"github.com/opskat/opsnap/internal/repository/storage_repo"
 	"github.com/opskat/opsnap/internal/service/auth_svc"
 	"github.com/opskat/opsnap/internal/service/secret_svc"
-
-	"github.com/opskat/opsnap/internal/pkg/l10n"
 )
 
 const (

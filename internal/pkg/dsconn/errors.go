@@ -8,14 +8,12 @@ import (
 	"net"
 	"strings"
 
-	"github.com/cago-frame/cago/pkg/i18n"
 	"github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/opskat/opsnap/internal/pkg/netchain"
-
 	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/l10n"
+	"github.com/opskat/opsnap/internal/pkg/netchain"
 )
 
 // Reason 数据源本身连接失败的原因，供上层映射为状态与提示
@@ -49,12 +47,7 @@ type Error struct {
 func (e *Error) Error() string { return e.Msg }
 
 // Localize 按 ctx 的语言显示
-func (e *Error) Localize(ctx context.Context) string {
-	if e.MsgEn != "" && code.Lang(ctx) == code.LangEn {
-		return e.MsgEn
-	}
-	return e.Msg
-}
+func (e *Error) Localize(ctx context.Context) string { return l10n.Pick(ctx, e.Msg, e.MsgEn) }
 
 // FieldError 某个字段的内容无法使用，Field 为 "ca"、"client_cert" 或 "client_key"
 type FieldError struct {
@@ -98,8 +91,7 @@ func wrapError(ctx context.Context, err error, secrets ...string) error {
 	case ReasonCanceled:
 		msg = l10n.New(code.NetCanceled, msg)
 	}
-	de := &Error{Reason: reason, Msg: msg.Localize(i18n.WithLanguage(context.Background(), code.LangZhCN)),
-		MsgEn: msg.Localize(i18n.WithLanguage(context.Background(), code.LangEn))}
+	de := &Error{Reason: reason, Msg: msg.Localize(l10n.ZhCN), MsgEn: msg.Localize(l10n.En)}
 	if de.MsgEn == de.Msg {
 		de.MsgEn = ""
 	}
