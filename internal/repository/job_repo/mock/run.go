@@ -159,6 +159,36 @@ func (mr *MockRunRepoMockRecorder) ListActive(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListActive", reflect.TypeOf((*MockRunRepo)(nil).ListActive), ctx)
 }
 
+// ListRecent mocks base method.
+func (m *MockRunRepo) ListRecent(ctx context.Context, status string, limit int) ([]*job_entity.Run, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListRecent", ctx, status, limit)
+	ret0, _ := ret[0].([]*job_entity.Run)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListRecent indicates an expected call of ListRecent.
+func (mr *MockRunRepoMockRecorder) ListRecent(ctx, status, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRecent", reflect.TypeOf((*MockRunRepo)(nil).ListRecent), ctx, status, limit)
+}
+
+// ListStartedSince mocks base method.
+func (m *MockRunRepo) ListStartedSince(ctx context.Context, since int64, statuses []string) ([]*job_entity.Run, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListStartedSince", ctx, since, statuses)
+	ret0, _ := ret[0].([]*job_entity.Run)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListStartedSince indicates an expected call of ListStartedSince.
+func (mr *MockRunRepoMockRecorder) ListStartedSince(ctx, since, statuses any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListStartedSince", reflect.TypeOf((*MockRunRepo)(nil).ListStartedSince), ctx, since, statuses)
+}
+
 // Page mocks base method.
 func (m *MockRunRepo) Page(ctx context.Context, jobID int64, offset, limit int) ([]*job_entity.Run, int64, error) {
 	m.ctrl.T.Helper()
@@ -203,6 +233,21 @@ func (m *MockRunRepo) SaveIf(ctx context.Context, r *job_entity.Run, from string
 func (mr *MockRunRepoMockRecorder) SaveIf(ctx, r, from any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SaveIf", reflect.TypeOf((*MockRunRepo)(nil).SaveIf), ctx, r, from)
+}
+
+// SucceededJobs mocks base method.
+func (m *MockRunRepo) SucceededJobs(ctx context.Context) (map[int64]bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SucceededJobs", ctx)
+	ret0, _ := ret[0].(map[int64]bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// SucceededJobs indicates an expected call of SucceededJobs.
+func (mr *MockRunRepoMockRecorder) SucceededJobs(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SucceededJobs", reflect.TypeOf((*MockRunRepo)(nil).SucceededJobs), ctx)
 }
 
 // Trim mocks base method.
