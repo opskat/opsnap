@@ -3,7 +3,6 @@ package kopiarepo
 import (
 	"cmp"
 	"context"
-	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -176,7 +175,7 @@ func (w *Writer) Usage(ctx context.Context, ids []string) (*Usage, error) {
 		seen[id] = true
 		m, err := snapshot.LoadSnapshot(ctx, w.rep, manifest.ID(id))
 		if err != nil {
-			return nil, fmt.Errorf("读取快照 %s: %w", id, err)
+			return nil, l10n.Errorf(code.KopiaReadSnapshot, id, err)
 		}
 		mans = append(mans, m)
 	}
@@ -194,7 +193,7 @@ func (w *Writer) Usage(ctx context.Context, ids []string) (*Usage, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("统计快照占用: %w", err)
+		return nil, l10n.Errorf(code.KopiaUsage, err)
 	}
 	return u, nil
 }

@@ -11,6 +11,9 @@ import (
 	"strings"
 
 	"github.com/cago-frame/cago/pkg/i18n"
+	"github.com/cago-frame/cago/pkg/utils/httputils"
+
+	"github.com/opskat/opsnap/internal/pkg/code"
 )
 
 // Localizer 能按 ctx 的界面语言显示的文字
@@ -18,8 +21,8 @@ type Localizer interface {
 	Localize(ctx context.Context) string
 }
 
-// Message 文案编号与参数。参数中的 Localizer（包括 *Error）按同一语言显示，其余（字符串、数字、
-// 其他 error）按文案中的格式原样代入
+// Message 文案编号与参数。参数中的 Localizer（包括 *Error）与 error 按同一语言显示（见 Text），
+// 其余（字符串、数字）按文案中的格式原样代入
 type Message struct {
 	Code int
 	Args []any
@@ -39,8 +42,11 @@ func (m Message) String() string { return m.Localize(context.Background()) }
 func localizeArgs(ctx context.Context, args []any) []any {
 	out := make([]any, len(args))
 	for i, a := range args {
-		if l, ok := a.(Localizer); ok {
-			a = l.Localize(ctx)
+		switch v := a.(type) {
+		case Localizer:
+			a = v.Localize(ctx)
+		case error:
+			a = Text(ctx, v)
 		}
 		out[i] = a
 	}
@@ -78,12 +84,57 @@ func (e *Error) Unwrap() []error {
 	return errs
 }
 
-// Text 按 ctx 的语言显示 v：Localizer 用它自己的文案，其余（如不是本包的 error）用 fmt 的 %v
+// Text 按 ctx 的语言显示 v：Localizer 用它自己的文案；业务层按错误码给出的接口错误（*httputils.Error）
+// 在文案不带参数时按 ctx 的语言重新给出；其余 error（如驱动与库包装过的错误）显示原文，
+// 其中包装的本包文字（见 embedded）换成 ctx 的语言；其他值用 fmt 的 %v
 func Text(ctx context.Context, v any) string {
-	if l, ok := v.(Localizer); ok {
-		return l.Localize(ctx)
+	switch e := v.(type) {
+	case Localizer:
+		return e.Localize(ctx)
+	case *httputils.Error:
+		if text, ok := codeText(ctx, e); ok {
+			return text
+		}
+		return e.Error()
+	case error:
+		return embedded(ctx, e, e.Error())
 	}
 	return fmt.Sprint(v)
+}
+
+// embedded 把 text（err 的原文）中出现的、err 包装链上的 Localizer 错误的默认语言文字，换成 ctx 的语言；
+// 外层（如驱动）加上的原文不变
+func embedded(ctx context.Context, err error, text string) string {
+	var inner []error
+	switch u := err.(type) { //nolint:errorlint // 逐层展开包装链，只看这一层自己的 Unwrap
+	case interface{ Unwrap() error }:
+		inner = []error{u.Unwrap()}
+	case interface{ Unwrap() []error }:
+		inner = u.Unwrap()
+	}
+	for _, e := range inner {
+		if e == nil {
+			continue
+		}
+		if l, ok := e.(Localizer); ok {
+			if def := e.Error(); def != "" {
+				text = strings.Replace(text, def, l.Localize(ctx), 1)
+			}
+			continue
+		}
+		text = embedded(ctx, e, text)
+	}
+	return text
+}
+
+// codeText 接口错误的文案不带参数（原文与某种语言的文案完全相同）时，按 ctx 的语言给出
+func codeText(ctx context.Context, e *httputils.Error) (string, bool) {
+	for _, lang := range []string{code.LangZhCN, code.LangEn} {
+		if i18n.T(i18n.WithLanguage(context.Background(), lang), e.Code) == e.Msg {
+			return i18n.T(ctx, e.Code), true
+		}
+	}
+	return "", false
 }
 
 // Join 按 ctx 的语言用 sep 文案（如顿号与逗号）连接各项

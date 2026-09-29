@@ -1,13 +1,15 @@
 package kopiarepo
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/opskat/opsnap/internal/pkg/code"
+	"github.com/opskat/opsnap/internal/pkg/l10n"
 )
 
 // DirStatus 目录浏览中每个子目录的状态
@@ -29,7 +31,7 @@ type Dir struct {
 }
 
 // ErrInvalidDirName 新建文件夹的名称为空、含 / 或为 . / ..
-var ErrInvalidDirName = errors.New("文件夹名称不能为空，也不能包含 /")
+var ErrInvalidDirName error = l10n.Errorf(code.KopiaErrInvalidDirName)
 
 // ListDirs 列出 path 下的子目录（含指向目录的符号链接），不列文件，按名称排序。
 func ListDirs(path string) ([]Dir, error) {

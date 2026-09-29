@@ -4,9 +4,11 @@
 package kopiarepo
 
 import (
-	"errors"
 	"path/filepath"
 	"strings"
+
+	"github.com/opskat/opsnap/internal/pkg/code"
+	"github.com/opskat/opsnap/internal/pkg/l10n"
 )
 
 // Kind 存储类型
@@ -18,9 +20,9 @@ const (
 )
 
 var (
-	ErrRelativePath   = errors.New("本地目录必须是绝对路径")
-	ErrEndpointScheme = errors.New("endpoint 不含协议（去掉 http:// 或 https://）")
-	ErrUnknownKind    = errors.New("未知的存储类型")
+	ErrRelativePath   error = l10n.Errorf(code.KopiaErrRelativePath)
+	ErrEndpointScheme error = l10n.Errorf(code.KopiaErrEndpointScheme)
+	ErrUnknownKind    error = l10n.Errorf(code.KopiaErrUnknownKind)
 )
 
 // Location 一个存储位置及访问它所需的全部参数

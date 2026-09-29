@@ -11,6 +11,9 @@ import (
 
 	"github.com/opskat/opsnap/internal/pkg/secret"
 	"github.com/opskat/opsnap/internal/repository/setting_repo"
+
+	"github.com/opskat/opsnap/internal/pkg/code"
+	"github.com/opskat/opsnap/internal/pkg/l10n"
 )
 
 // checkSettingKey 保存一段用主密钥加密的固定文本，启动时解密它来确认主密钥没有换
@@ -26,9 +29,9 @@ const (
 )
 
 var (
-	ErrKeyMissing     = errors.New("主密钥缺失")
-	ErrKeyMismatch    = errors.New("主密钥与数据库不匹配")
-	ErrNotInitialized = errors.New("主密钥尚未初始化")
+	ErrKeyMissing     error = l10n.Errorf(code.SecretErrKeyMissing)
+	ErrKeyMismatch    error = l10n.Errorf(code.SecretErrKeyMismatch)
+	ErrNotInitialized error = l10n.Errorf(code.SecretErrNotInitialized)
 )
 
 type InitOptions struct {

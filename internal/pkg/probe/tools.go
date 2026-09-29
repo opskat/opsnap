@@ -2,7 +2,6 @@ package probe
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +9,9 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+
+	"github.com/opskat/opsnap/internal/pkg/code"
+	"github.com/opskat/opsnap/internal/pkg/l10n"
 )
 
 // toolsDirValue 配置项 tools.dir 的当前值，通过 SetToolsDir 设置；未配置时为空，只在 PATH 中查找
@@ -99,7 +101,7 @@ func ToolVersion(ctx context.Context, path string) (major, minor int, raw string
 	raw = strings.TrimSpace(string(out))
 	major, minor, ok := ParseMajorMinor(raw)
 	if !ok {
-		return 0, 0, raw, fmt.Errorf("无法从 %q 中识别版本号", raw)
+		return 0, 0, raw, l10n.Errorf(code.ProbeVersionUnrecognized, raw)
 	}
 	return major, minor, raw, nil
 }

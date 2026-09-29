@@ -3,10 +3,12 @@ package datasource_svc
 import (
 	"context"
 	"database/sql"
-	"fmt"
 
 	api "github.com/opskat/opsnap/internal/api/datasource"
 	"github.com/opskat/opsnap/internal/pkg/dsconn"
+
+	"github.com/opskat/opsnap/internal/pkg/code"
+	"github.com/opskat/opsnap/internal/pkg/l10n"
 )
 
 // DatabaseLister 对已打开的连接实时列出数据库名与数据量；可替换为测试用的假实现（SetDatabaseLister），
@@ -23,7 +25,7 @@ func ListDatabases(ctx context.Context, typ dsconn.Type, conn *dsconn.Conn) ([]a
 	case dsconn.TypePostgreSQL:
 		return listPostgresDatabases(ctx, conn.DB)
 	default:
-		return nil, fmt.Errorf("不支持读取数据库列表的数据源类型 %q", typ)
+		return nil, l10n.Errorf(code.DataSourceListUnsupported, typ)
 	}
 }
 

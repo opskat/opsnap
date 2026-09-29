@@ -5,7 +5,6 @@ package storage_svc
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -27,6 +26,8 @@ import (
 	"github.com/opskat/opsnap/internal/repository/storage_repo"
 	"github.com/opskat/opsnap/internal/service/auth_svc"
 	"github.com/opskat/opsnap/internal/service/secret_svc"
+
+	"github.com/opskat/opsnap/internal/pkg/l10n"
 )
 
 const (
@@ -56,7 +57,7 @@ type StorageSvc interface {
 }
 
 // ErrNotReady 存储状态不是“正常”（密钥不正确或无法连接），不能打开写入会话
-var ErrNotReady = errors.New("存储状态不是正常")
+var ErrNotReady error = l10n.Errorf(code.StorageErrNotReady)
 
 // JobReferrer 返回使用该存储的任务，由 job_svc 注册，供列表的引用计数与删除、位置更改保护；
 // nil 表示任务模块尚未注册（如未涉及任务的测试）
@@ -769,7 +770,7 @@ func (s *storageSvc) OpenWriter(ctx context.Context, id int64) (*kopiarepo.Write
 		return nil, err
 	}
 	if st.Status != storage_entity.StatusOK {
-		return nil, fmt.Errorf("%w（%s）", ErrNotReady, st.Status)
+		return nil, l10n.Errorf(code.WrapParen, ErrNotReady, st.Status)
 	}
 	loc, err := s.savedLocation(ctx, st)
 	if err != nil {

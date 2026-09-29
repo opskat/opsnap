@@ -1,6 +1,7 @@
 package job_svc
 
 import (
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -18,6 +19,7 @@ import (
 	"github.com/opskat/opsnap/internal/repository/channel_repo"
 	"github.com/opskat/opsnap/internal/repository/datasource_repo"
 	"github.com/opskat/opsnap/internal/repository/job_repo"
+	"github.com/opskat/opsnap/internal/repository/storage_repo"
 	"github.com/opskat/opsnap/internal/service/secret_svc"
 )
 
@@ -79,6 +81,30 @@ func TestRunMessagesFollowViewerLanguage(t *testing.T) {
 			zhContains: "导出工具无法按数据源的 TLS 设置连接：主控端的 mysqldump 来自 MariaDB（mysqldump  Ver 10.19 Distrib 10.11.14-MariaDB",
 			// 工具的版本原文原样保留
 			enContains: []string{"mysqldump  Ver 10.19 Distrib 10.11.14-MariaDB, for debian-linux-gnu (x86_64)", `"require"`, "Fix:"}},
+		{name: "prepare_storage_open_failed", step: job_entity.StepPrepare,
+			setup: func(e *runEnv) {
+				st, err := storage_repo.Storage().Find(e.ctx, e.storage)
+				require.NoError(e.t, err)
+				require.NoError(e.t, os.RemoveAll(st.Path), "仓库目录不见了，存储状态仍为正常")
+			},
+			zhReason:   "打开存储“primary”失败: 目标位置不是 kopia 仓库",
+			enContains: []string{`"primary"`}},
+		{name: "prepare_tool_version_unknown", step: job_entity.StepPrepare,
+			setup:      func(e *runEnv) { e.tool("pg_dump", "garbage-version", pgDumpOK) },
+			zhContains: `的版本: 无法从 "garbage-version" 中识别版本号`,
+			// 工具输出的原文原样保留
+			enContains: []string{`"garbage-version"`, "pg_dump"}},
+		{name: "connect_secret_undecryptable", step: job_entity.StepConnect,
+			setup: func(e *runEnv) {
+				e.ds.Password = "v1:not-a-valid-ciphertext"
+				require.NoError(e.t, datasource_repo.DataSource().Save(e.ctx, e.ds))
+			},
+			zhReason: "连接数据源失败: 解密失败：密文损坏或主密钥不匹配"},
+		{name: "connect_channel_missing", step: job_entity.StepConnect,
+			setup: func(e *runEnv) {
+				require.NoError(e.t, channel_repo.Channel().Delete(e.ctx, e.ds.ChannelID))
+			},
+			zhReason: "连接数据源失败: 通道不存在"},
 		{name: "connect_hop_auth_failed", step: job_entity.StepConnect,
 			setup: func(e *runEnv) {
 				ch, err := channel_repo.Channel().Find(e.ctx, e.ds.ChannelID)

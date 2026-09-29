@@ -20,6 +20,9 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"golang.org/x/sys/unix"
+
+	"github.com/opskat/opsnap/internal/pkg/code"
+	"github.com/opskat/opsnap/internal/pkg/l10n"
 )
 
 // State 目标位置的情况
@@ -56,11 +59,14 @@ type LocationError struct {
 	Err    error
 }
 
-func (e *LocationError) Error() string {
+func (e *LocationError) Error() string { return e.Localize(context.Background()) }
+
+// Localize 按 ctx 的语言显示；存储后端的原文原样保留
+func (e *LocationError) Localize(ctx context.Context) string {
 	if e.Err == nil {
 		return string(e.Reason)
 	}
-	return e.Err.Error()
+	return l10n.Text(ctx, e.Err)
 }
 
 func (e *LocationError) Unwrap() error { return e.Err }
@@ -99,7 +105,7 @@ func probeLocal(path string) (*ProbeResult, error) {
 	case err != nil:
 		return nil, locErr(ReasonUnreachable, err)
 	case !fi.IsDir():
-		return nil, locErr(ReasonNotDirectory, fmt.Errorf("%s 不是目录", path))
+		return nil, locErr(ReasonNotDirectory, l10n.Errorf(code.KopiaNotDirectory, path))
 	}
 
 	entries, err := os.ReadDir(path)
@@ -140,7 +146,7 @@ func checkCreatable(path string) error {
 			return locErr(ReasonNoAccess, err)
 		}
 		if !fi.IsDir() {
-			return locErr(ReasonNotDirectory, fmt.Errorf("%s 不是目录", dir))
+			return locErr(ReasonNotDirectory, l10n.Errorf(code.KopiaNotDirectory, dir))
 		}
 		if err := unix.Access(dir, unix.W_OK); err != nil {
 			return locErr(ReasonNotWritable, fmt.Errorf("%s: %w", dir, err))

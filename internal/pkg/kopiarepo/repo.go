@@ -3,7 +3,6 @@ package kopiarepo
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -18,17 +17,20 @@ import (
 	"github.com/kopia/kopia/repo/encryption"
 	"github.com/kopia/kopia/repo/format"
 	"github.com/kopia/kopia/snapshot"
+
+	"github.com/opskat/opsnap/internal/pkg/code"
+	"github.com/opskat/opsnap/internal/pkg/l10n"
 )
 
 var (
 	// ErrInvalidPassword 密钥打不开仓库
-	ErrInvalidPassword = errors.New("密钥不正确，无法解开这个仓库")
+	ErrInvalidPassword error = l10n.Errorf(code.KopiaErrInvalidPassword)
 	// ErrNotEmpty 建库时目标位置不为空，也不是 kopia 仓库
-	ErrNotEmpty = errors.New("目标位置不为空，且不是 kopia 仓库")
+	ErrNotEmpty error = l10n.Errorf(code.KopiaErrNotEmpty)
 	// ErrAlreadyRepository 建库时目标位置已是 kopia 仓库
-	ErrAlreadyRepository = errors.New("目标位置已是 kopia 仓库")
+	ErrAlreadyRepository error = l10n.Errorf(code.KopiaErrAlreadyRepository)
 	// ErrNotRepository 连接时目标位置不是 kopia 仓库
-	ErrNotRepository = errors.New("目标位置不是 kopia 仓库")
+	ErrNotRepository error = l10n.Errorf(code.KopiaErrNotRepository)
 )
 
 // Encryption 新建仓库使用的加密算法
@@ -123,7 +125,7 @@ func Create(ctx context.Context, loc Location, password string) error {
 		return ErrAlreadyRepository
 	}
 	if err != nil {
-		return fmt.Errorf("创建 kopia 仓库: %w", err)
+		return l10n.Errorf(code.KopiaCreate, err)
 	}
 	return nil
 }
@@ -165,7 +167,7 @@ func (m *Manager) Verify(ctx context.Context, id int64, loc Location, password s
 	defer func() { _ = r.Close(ctx) }()
 	ids, err := snapshot.ListSnapshotManifests(ctx, r, nil, nil)
 	if err != nil {
-		return 0, fmt.Errorf("读取快照列表: %w", err)
+		return 0, l10n.Errorf(code.KopiaListSnapshots, err)
 	}
 	return len(ids), nil
 }
@@ -210,7 +212,7 @@ func connectError(err error) error {
 	case errors.Is(err, blob.ErrInvalidCredentials):
 		return locErr(ReasonAccessDenied, err)
 	}
-	return fmt.Errorf("连接 kopia 仓库: %w", err)
+	return l10n.Errorf(code.KopiaConnect, err)
 }
 
 // openStorage 按位置得到 kopia 存储后端
@@ -225,7 +227,7 @@ func openStorage(ctx context.Context, loc Location, isCreate bool) (blob.Storage
 			return nil, locErr(ReasonNoAccess, err)
 		}
 		if !fi.IsDir() {
-			return nil, locErr(ReasonNotDirectory, fmt.Errorf("%s 不是目录", loc.Path))
+			return nil, locErr(ReasonNotDirectory, l10n.Errorf(code.KopiaNotDirectory, loc.Path))
 		}
 		// kopia 的 filesystem 后端一经访问就会写入 .shards，连接前先确认确实是仓库，避免改动非仓库目录
 		if _, ok := localRepository(loc.Path); !ok && !isCreate {

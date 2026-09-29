@@ -391,6 +391,38 @@ const (
 	ConnCertMissing
 	ConnKeyMissing
 	ConnNoPeerCert
+	// WrapParen “原因（详情）”
+	WrapParen
+	// Kopia* 仓库包的其余错误（打开、建库、位置）
+	KopiaErrInvalidPassword
+	KopiaErrNotEmpty
+	KopiaErrAlreadyRepository
+	KopiaErrNotRepository
+	KopiaCreate
+	KopiaConnect
+	KopiaNotDirectory
+	KopiaErrRelativePath
+	KopiaErrEndpointScheme
+	KopiaErrUnknownKind
+	KopiaGenerateKey
+	KopiaErrInvalidDirName
+	KopiaReadSnapshot
+	KopiaUsage
+	// StorageErrNotReady 存储服务打开写入会话时状态不是正常
+	StorageErrNotReady
+	// Secret* 主密钥与加解密（internal/pkg/secret、secret_svc）的错误
+	SecretErrInvalidKey
+	SecretErrDecrypt
+	SecretGenerateKey
+	SecretInitCipher
+	SecretRandom
+	SecretErrKeyMissing
+	SecretErrKeyMismatch
+	SecretErrNotInitialized
+	// ProbeVersionUnrecognized 导出工具 --version 的输出中找不到版本号
+	ProbeVersionUnrecognized
+	// DataSourceListUnsupported 读取数据库列表时数据源类型不支持
+	DataSourceListUnsupported
 )
 
 func init() {
