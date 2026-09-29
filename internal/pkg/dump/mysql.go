@@ -101,6 +101,13 @@ func (p *mysqlPlan) args(cnfPath string) []string {
 	}
 	if !p.mariadb {
 		args = append(args, "--set-gtid-purged=OFF")
+		if p.tool.Major >= 8 {
+			// Oracle mysqldump 8.0 起默认会额外查询 information_schema.COLUMN_STATISTICS 生成直方图统计；
+			// 这张表 8.0 之前的服务端没有，8.0 客户端对 5.7 服务端不加这个参数会报 1109 导致整个备份失败。
+			// 直方图不是恢复数据必须的内容：不区分服务端版本、一律关闭更简单，也不用信赖服务端版本号的格式；
+			// MariaDB 客户端不认识这个参数，因此仅对 Oracle 客户端生效（外层 !p.mariadb 已排除）
+			args = append(args, "--column-statistics=0")
+		}
 	}
 	for _, ex := range p.opts.ExcludeTables {
 		args = append(args, "--ignore-table="+ex)

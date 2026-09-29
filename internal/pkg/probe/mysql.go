@@ -42,11 +42,10 @@ func mysqlItems(ctx context.Context, conn *dsconn.Conn) []Item {
 		items = append(items, decideMySQLGTID(gtidMode))
 	}
 
-	var retention int64
-	if err := scanOne(ctx, conn.DB, "SELECT @@GLOBAL.binlog_expire_logs_seconds", &retention); err != nil {
+	if item, err := mysqlBinlogRetentionItem(ctx, conn); err != nil {
 		items = append(items, queryErrorItem("mysql.binlog_retention", err))
 	} else {
-		items = append(items, decideMySQLBinlogRetention(retention))
+		items = append(items, item)
 	}
 
 	if item, err := mysqlReplicationPrivilegesItem(ctx, conn.DB); err != nil {
@@ -68,6 +67,23 @@ func mysqlItems(ctx context.Context, conn *dsconn.Conn) []Item {
 // scanOne 执行只返回一行一列的只读查询
 func scanOne(ctx context.Context, db *sql.DB, query string, dest any) error {
 	return db.QueryRowContext(ctx, query).Scan(dest)
+}
+
+// mysqlBinlogRetentionItem 读取 binlog 保留时长：binlog_expire_logs_seconds 是 8.0 才引入的变量，
+// 5.7 及更早的服务端上不存在，只能读按天计的 expire_logs_days（换算成秒后按同一规则判定）
+func mysqlBinlogRetentionItem(ctx context.Context, conn *dsconn.Conn) (Item, error) {
+	if major, _, ok := ParseMajorMinor(conn.Info.Version); ok && major < 8 {
+		var days int64
+		if err := scanOne(ctx, conn.DB, "SELECT @@GLOBAL.expire_logs_days", &days); err != nil {
+			return Item{}, err
+		}
+		return decideMySQLBinlogRetention(days * 24 * 3600), nil
+	}
+	var seconds int64
+	if err := scanOne(ctx, conn.DB, "SELECT @@GLOBAL.binlog_expire_logs_seconds", &seconds); err != nil {
+		return Item{}, err
+	}
+	return decideMySQLBinlogRetention(seconds), nil
 }
 
 // mysqlCurrentUser 读取 CURRENT_USER()，拆成用户名与允许来源的主机，用于把修复方法中的账号换成实际值

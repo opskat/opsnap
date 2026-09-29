@@ -31,6 +31,8 @@ import (
 // 经本包导出、写进临时目录中的真实 kopia 仓库，再从快照读出文件，用官方客户端导入目标库并比对数据；
 // 无论成功与否都删除这两个库。不读写其他库，也不导入账号与全局对象（会改动共享实例上的账号）。
 // 未在 e2e/.env 配置或主控端缺少客户端工具时跳过。
+// TestRealMySQL57ExportRestore 额外针对一台临时起的 MySQL 5.7（不是 opsnap-test 常驻的 8.0），
+// 验证用 8.0 的 mysqldump 备份 5.7 服务端这一组合，同样未配置 TEST_ENV_MYSQL57_PORT 时跳过。
 
 const realRepoKey = "opsnap-it-repo-key"
 
@@ -240,6 +242,56 @@ func TestRealMySQLExportRestore(t *testing.T) {
 	assert.Equal(t, 1, count("SELECT COUNT(*) FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = ? AND ROUTINE_NAME = 'p_count'"))
 	assert.Equal(t, 1, count("SELECT COUNT(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = ? AND TRIGGER_NAME = 'trg'"))
 	assert.Equal(t, 1, count("SELECT COUNT(*) FROM information_schema.EVENTS WHERE EVENT_SCHEMA = ? AND EVENT_NAME = 'ev'"))
+}
+
+// TestRealMySQL57ExportRestore 验证「MySQL 5.7 服务端用 8.0 的 mysqldump」这一组合本身能跑通：导出不因
+// information_schema.COLUMN_STATISTICS 在 5.7 上不存在而报 1109 失败，导出内容能导入一个空库并与源数据一致。
+// 这是一台临时起的 MySQL 5.7（不是 opsnap-test 里常驻的 8.0），未在 e2e/.env 配置 TEST_ENV_MYSQL57_PORT 时跳过
+func TestRealMySQL57ExportRestore(t *testing.T) {
+	svc := testenv.MySQL57(t)
+	requireTools(t, "mysqldump", "mysql")
+	ctx := context.Background()
+	tun := directTunnel(t)
+	cfg := dsconn.Config{Type: dsconn.TypeMySQL, Host: svc.Host, Port: svc.Port, User: svc.User, Password: svc.Password}
+	admin := openReal(t, tun, cfg)
+	require.True(t, strings.HasPrefix(admin.Info.Version, "5.7"), "配置的 TEST_ENV_MYSQL57_PORT 应指向 MySQL 5.7，读到的版本是 %s", admin.Info.Version)
+	base := testenv.TempDBName(t)
+	src, dst := base+"_src", base+"_dst"
+	t.Cleanup(func() {
+		for _, d := range []string{src, dst} {
+			_, err := admin.DB.ExecContext(context.Background(), "DROP DATABASE IF EXISTS `"+d+"`")
+			assert.NoError(t, err, "删除临时库 %s", d)
+		}
+	})
+	mustExec(t, admin.DB,
+		"CREATE DATABASE `"+src+"` CHARACTER SET utf8mb4",
+		"CREATE DATABASE `"+dst+"` CHARACTER SET utf8mb4", // 导入目标必须是空库
+		"CREATE TABLE `"+src+"`.items (id INT PRIMARY KEY, name VARCHAR(50), data VARBINARY(16), price DECIMAL(10,2), at DATETIME) ENGINE=InnoDB",
+		"INSERT INTO `"+src+"`.items VALUES (1, '苹果 🍎', 0x00FF10, 1.50, '2026-09-28 10:00:00'), (2, 'it''s \"q\" \\\\ x', NULL, 0, NULL)",
+	)
+
+	var lg logs
+	s, err := Start(ctx, t.TempDir(), Source{Dialer: tun, Config: cfg, ServerVersion: admin.Info.Version}, Options{
+		Databases: []string{src}, Log: lg.add,
+	})
+	require.NoError(t, err)
+	defer func() { _ = s.Close() }()
+	files := snapshotRoundTrip(t, s, "mysql57")
+	require.NoError(t, s.Close())
+	assert.NotContains(t, lg.text(), svc.Password)
+
+	dump := files[MySQLDatabasesFile]
+	require.NotEmpty(t, dump, "导出必须成功产出内容：5.7 服务端上 8.0 的 mysqldump 不能因 COLUMN_STATISTICS 报错而失败")
+	// 目标库与源库在同一实例上：把库名换成目标库后再导入
+	dump = bytes.ReplaceAll(dump, []byte("`"+src+"`"), []byte("`"+dst+"`"))
+	cnf := filepath.Join(t.TempDir(), "client.cnf")
+	require.NoError(t, os.WriteFile(cnf, []byte(fmt.Sprintf("[client]\nuser=%s\npassword=%s\nhost=%s\nport=%d\nprotocol=TCP\nloose-ssl\n",
+		svc.User, optionQuote(svc.Password), svc.Host, svc.Port)), 0o600))
+	runClient(t, nil, dump, "mysql", "--defaults-file="+cnf)
+
+	want := rowsOf(t, admin.DB, fmt.Sprintf("SELECT * FROM `%s`.items ORDER BY id", src))
+	assert.NotEmpty(t, want)
+	assert.Equal(t, want, rowsOf(t, admin.DB, fmt.Sprintf("SELECT * FROM `%s`.items ORDER BY id", dst)), "导入空库后的数据须与源库一致")
 }
 
 func TestRealPostgresExportRestore(t *testing.T) {

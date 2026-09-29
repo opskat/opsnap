@@ -25,6 +25,9 @@ const (
 	VarPassword = "OPSNAP_TEST_PASSWORD" //nolint:gosec // 这是变量名，不是密码
 	// VarMySQLPort MySQL 8.0 对外端口
 	VarMySQLPort = "TEST_ENV_MYSQL_PORT"
+	// VarMySQL57Port 临时 MySQL 5.7 对外端口：不是 opsnap-test 常驻服务，仅用于「8.0 的 mysqldump 备份 5.7 服务端」
+	// 的集成测试，按需在别处起停（见 e2e/.env.example、docs/verification.md）
+	VarMySQL57Port = "TEST_ENV_MYSQL57_PORT"
 	// VarPGPort PostgreSQL 16 对外端口
 	VarPGPort = "TEST_ENV_PG_PORT"
 )
@@ -120,6 +123,9 @@ func (e *Env) Get(key string) string {
 // MySQL docker.lan 上的 MySQL 8.0（用户 root）；未配置时错误中列出缺少的变量
 func (e *Env) MySQL() (Service, error) { return e.service("MySQL 8.0", VarMySQLPort, "root") }
 
+// MySQL57 临时起的 MySQL 5.7（用户 root）；未配置时错误中列出缺少的变量
+func (e *Env) MySQL57() (Service, error) { return e.service("MySQL 5.7", VarMySQL57Port, "root") }
+
 // Postgres docker.lan 上的 PostgreSQL 16（用户 postgres）；未配置时错误中列出缺少的变量
 func (e *Env) Postgres() (Service, error) { return e.service("PostgreSQL 16", VarPGPort, "postgres") }
 
@@ -144,6 +150,12 @@ func (e *Env) service(name, portVar, user string) (Service, error) {
 func MySQL(t testing.TB) Service {
 	t.Helper()
 	return skipUnless(t, Load().MySQL)
+}
+
+// MySQL57 返回临时起的 MySQL 5.7；未配置时跳过 t 并注明原因
+func MySQL57(t testing.TB) Service {
+	t.Helper()
+	return skipUnless(t, Load().MySQL57)
 }
 
 // Postgres 返回 docker.lan 上的 PostgreSQL 16；未配置时跳过 t 并注明原因
