@@ -195,10 +195,10 @@ type DeleteRequest struct {
 type DeleteResponse struct {
 	// SnapshotsDeleted 已删除的快照份数
 	SnapshotsDeleted int `json:"snapshots_deleted"`
-	// SnapshotsFailed 找到但未能删除的快照份数
+	// SnapshotsFailed 未能删除的快照份数；无法读取仓库时取任务上记录的快照数（即删除确认框中的份数）
 	SnapshotsFailed int `json:"snapshots_failed"`
 	// SnapshotsMessage 快照未能全部删除时的提示（按请求语言），全部删除或未要求删除时为空；
-	// 无法打开存储时份数未知，SnapshotsFailed 为 0，只有这条提示
+	// 无法读取仓库且任务没有记录的快照数时份数未知，SnapshotsFailed 为 0，只有这条提示
 	SnapshotsMessage string `json:"snapshots_message"`
 }
 

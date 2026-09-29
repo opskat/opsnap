@@ -165,6 +165,8 @@ var en = map[int]string{ //nolint:gosec // 错误文案中的 “token”“pass
 	JobDurationHours:          "%d h",
 	JobDurationHoursMinutes:   "%d h %d min",
 
+	JobSnapshotsUnreachableCount: "Job deleted, but its storage could not be opened, so its %d snapshots were not deleted. Remove them with the kopia CLI",
+
 	Language:                    "en",
 	ListSep:                     ", ",
 	WrapColon:                   "%s: %s",

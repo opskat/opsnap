@@ -165,6 +165,8 @@ var zhCN = map[int]string{ //nolint:gosec // 错误文案中的“密码”字�
 	JobDurationHours:          "%d 小时",
 	JobDurationHoursMinutes:   "%d 小时 %d 分钟",
 
+	JobSnapshotsUnreachableCount: "任务已删除，但无法打开存储，它的 %d 份快照未能删除，可以用 kopia 命令行手动处理",
+
 	Language:                    "zh-cn",
 	ListSep:                     "、",
 	WrapColon:                   "%s: %s",

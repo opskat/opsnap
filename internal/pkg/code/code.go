@@ -215,6 +215,8 @@ const (
 	JobDurationMinutes
 	JobDurationHours
 	JobDurationHoursMinutes
+	// JobSnapshotsUnreachableCount 只用于删除任务响应中的快照提示：无法打开存储，份数取任务上记录的快照数
+	JobSnapshotsUnreachableCount
 )
 
 // 运行记录（失败原因、执行日志）中由 OpsNap 生成的文字，只用于显示：由 internal/pkg/l10n 在显示时按查看者的

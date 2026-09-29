@@ -457,7 +457,7 @@ func (s *jobSvc) deleteSnapshots(ctx context.Context, j *job_entity.Job, resp *a
 	w, err := storage_svc.Storage().OpenWriter(ctx, j.StorageID)
 	if err != nil {
 		log.Warn("删除任务时无法打开存储，快照未删除", zap.Error(err))
-		resp.SnapshotsMessage = i18n.T(ctx, code.JobSnapshotsUnreachable)
+		snapshotsUnreachable(ctx, j, resp)
 		return
 	}
 	defer func() {
@@ -474,9 +474,20 @@ func (s *jobSvc) deleteSnapshots(ctx context.Context, j *job_entity.Job, resp *a
 	if res.Failed > 0 {
 		resp.SnapshotsMessage = i18n.T(ctx, code.JobSnapshotsNotDeleted, res.Failed)
 	} else {
-		// 读取快照列表就失败了，不知道份数
-		resp.SnapshotsMessage = i18n.T(ctx, code.JobSnapshotsUnreachable)
+		// 读取快照列表就失败了，一份也没有动
+		snapshotsUnreachable(ctx, j, resp)
 	}
+}
+
+// snapshotsUnreachable 无法读取仓库、一份快照也没有删除时的结果。份数取任务上记录的快照数，
+// 与删除确认框中“同时删除该任务的 N 份快照”一致；没有记录（从未读取到快照）时不给份数
+func snapshotsUnreachable(ctx context.Context, j *job_entity.Job, resp *api.DeleteResponse) {
+	if j.SnapshotCount > 0 {
+		resp.SnapshotsFailed = j.SnapshotCount
+		resp.SnapshotsMessage = i18n.T(ctx, code.JobSnapshotsUnreachableCount, j.SnapshotCount)
+		return
+	}
+	resp.SnapshotsMessage = i18n.T(ctx, code.JobSnapshotsUnreachable)
 }
 
 func (s *jobSvc) SchedulePreview(ctx context.Context, req *api.SchedulePreviewRequest) (*api.SchedulePreviewResponse, error) {

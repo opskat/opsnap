@@ -534,22 +534,67 @@ func TestJobDelete(t *testing.T) {
 			assert.Equal(t, 1, e.countSnapshots(t, e.primary, other.ID, "drop/other"), "其他任务的快照不受影响")
 		})
 
-		convey.Convey("无法打开存储时任务仍然删除，并提示快照未能删除", func() {
-			item := e.create(t, e.validCreate("存储出错", "broken/store"))
+		convey.Convey("无法打开存储时任务仍然删除，并按确认框里的份数提示快照未能删除", func() {
+			// 两个任务各有 2 份快照；查看统计后，任务列表（确认框的份数来源）记录的快照数为 2
+			zh := e.create(t, e.validCreate("存储出错", "broken/store"))
+			en := e.create(t, e.validCreate("storage broken", "broken/en"))
+			for _, j := range []struct {
+				id     int64
+				prefix string
+			}{{zh.ID, "broken/store"}, {en.ID, "broken/en"}} {
+				e.writeSnapshot(t, e.primary, j.id, j.prefix)
+				e.writeSnapshot(t, e.primary, j.id, j.prefix)
+				require.NoError(t, e.do(&api.StatsRequest{ID: j.id}, &api.StatsResponse{}))
+			}
+			// 从未读取过仓库的任务没有记录的份数
+			never := e.create(t, e.validCreate("没有记录", "broken/never"))
+			list := &api.ListResponse{}
+			require.NoError(t, e.do(&api.ListRequest{}, list))
+			counts := map[int64]int{}
+			for _, it := range list.Items {
+				counts[it.ID] = it.SnapshotCount
+			}
+			require.Equal(t, 2, counts[zh.ID])
+			require.Equal(t, 2, counts[en.ID])
+			require.Equal(t, 0, counts[never.ID])
+
 			st, err := storage_repo.Storage().Find(e.ctx, e.primary)
 			require.NoError(t, err)
 			st.Status = storage_entity.StatusUnreachable
 			require.NoError(t, storage_repo.Storage().Save(e.ctx, st))
-			defer func() {
+			restored := false
+			restore := func() {
+				if restored {
+					return
+				}
+				restored = true
 				st.Status = storage_entity.StatusOK
 				require.NoError(t, storage_repo.Storage().Save(e.ctx, st))
-			}()
+			}
+			defer restore()
 
 			resp := &api.DeleteResponse{}
-			require.NoError(t, e.do(&api.DeleteRequest{ID: item.ID, DeleteSnapshots: true}, resp))
-			assert.Equal(t, i18n.T(e.ctx, code.JobSnapshotsUnreachable), resp.SnapshotsMessage)
-			assert.Zero(t, resp.SnapshotsDeleted)
-			assert.Equal(t, code.JobNotFound, errCode(e.do(&api.GetRequest{ID: item.ID}, &api.GetResponse{})))
+			require.NoError(t, e.doLang("zh-CN", &api.DeleteRequest{ID: zh.ID, DeleteSnapshots: true}, resp))
+			assert.Equal(t, api.DeleteResponse{SnapshotsFailed: 2,
+				SnapshotsMessage: "任务已删除，但无法打开存储，它的 2 份快照未能删除，可以用 kopia 命令行手动处理"}, *resp)
+			assert.Equal(t, code.JobNotFound, errCode(e.do(&api.GetRequest{ID: zh.ID}, &api.GetResponse{})))
+
+			resp = &api.DeleteResponse{}
+			require.NoError(t, e.doLang("en", &api.DeleteRequest{ID: en.ID, DeleteSnapshots: true}, resp))
+			assert.Equal(t, api.DeleteResponse{SnapshotsFailed: 2,
+				SnapshotsMessage: "Job deleted, but its storage could not be opened, so its 2 snapshots were not deleted. " +
+					"Remove them with the kopia CLI"}, *resp)
+			assert.Equal(t, code.JobNotFound, errCode(e.do(&api.GetRequest{ID: en.ID}, &api.GetResponse{})))
+
+			// 没有记录的份数时不编造数字
+			resp = &api.DeleteResponse{}
+			require.NoError(t, e.do(&api.DeleteRequest{ID: never.ID, DeleteSnapshots: true}, resp))
+			assert.Equal(t, api.DeleteResponse{SnapshotsMessage: i18n.T(e.ctx, code.JobSnapshotsUnreachable)}, *resp)
+			assert.Equal(t, code.JobNotFound, errCode(e.do(&api.GetRequest{ID: never.ID}, &api.GetResponse{})))
+
+			restore()
+			assert.Equal(t, 2, e.countSnapshots(t, e.primary, zh.ID, "broken/store"), "无法打开存储时不动任何快照")
+			assert.Equal(t, 2, e.countSnapshots(t, e.primary, en.ID, "broken/en"), "无法打开存储时不动任何快照")
 		})
 
 		convey.Convey("任务正在运行或排队时不能删除", func() {
