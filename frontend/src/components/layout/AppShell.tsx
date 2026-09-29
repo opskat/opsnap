@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 
 import { mainNav, systemNav, type NavItem } from "./nav";
 import { PreferenceToggles } from "./PreferenceToggles";
+import { ServiceStatus } from "./ServiceStatus";
 function NavEntry({ item }: { item: NavItem }) {
   const { t } = useTranslation();
   const Icon = item.icon;
@@ -52,7 +53,10 @@ export function AppShell() {
             <NavEntry key={item.path} item={item} />
           ))}
         </nav>
-        <div className="mt-auto flex flex-col gap-2 border-t pt-3">
+        <div className="mt-auto pt-3 pb-3">
+          <ServiceStatus />
+        </div>
+        <div className="flex flex-col gap-2 border-t pt-3">
           <div className="flex items-center gap-2.5 px-1">
             <span className="flex size-6.5 items-center justify-center rounded-full bg-accent text-muted-foreground">
               <User className="size-3.5" />

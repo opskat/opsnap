@@ -34,13 +34,98 @@
     "hoursAgo": "{{count}} 小时前"
   },
   "overview": {
-    "subtitle": "所有备份与同步任务的运行状态",
-    "systemStatus": "系统状态",
-    "version": "版本",
-    "database": "元数据库",
-    "databaseOk": "正常",
-    "databaseError": "不可用",
-    "loadFailed": "无法获取系统状态：{{message}}"
+    "subtitle": "所有备份任务 · 最近 24 小时",
+    "searchPlaceholder": "搜索 · 后续版本支持",
+    "comingSoon": "后续版本支持",
+    "restore": "恢复数据",
+    "loadFailedTitle": "概览加载失败",
+    "refreshFailed": "刷新失败：{{message}}",
+    "stats": {
+      "protected": "受保护数据源",
+      "protectedNone": "还没有被任务备份的数据源",
+      "successRate": "24h 成功率",
+      "runs": "{{count}} 次运行",
+      "runs_one": "{{count}} 次运行",
+      "runs_other": "{{count}} 次运行",
+      "failedRuns": "{{count}} 次失败",
+      "failedRuns_one": "{{count}} 次失败",
+      "failedRuns_other": "{{count}} 次失败",
+      "noRuns": "最近 24 小时没有运行",
+      "storageUsed": "存储占用",
+      "savings": "去重压缩后 · 节省 {{percent}}%",
+      "unreadable": "有 {{count}} 个存储无法读取",
+      "unreadable_one": "有 {{count}} 个存储无法读取",
+      "unreadable_other": "有 {{count}} 个存储无法读取",
+      "noStorage": "还没有存储",
+      "nextRun": "下一次运行",
+      "noEnabledJobs": "还没有启用的任务",
+      "inMinutes": "{{count}} 分钟后",
+      "inMinutes_one": "{{count}} 分钟后",
+      "inMinutes_other": "{{count}} 分钟后",
+      "inHours": "{{count}} 小时后",
+      "inHours_one": "{{count}} 小时后",
+      "inHours_other": "{{count}} 小时后",
+      "tomorrow": "明天",
+      "inDays": "{{count}} 天后",
+      "inDays_one": "{{count}} 天后",
+      "inDays_other": "{{count}} 天后"
+    },
+    "recent": {
+      "title": "最近运行",
+      "filterLabel": "筛选最近运行",
+      "all": "全部",
+      "backup": "备份",
+      "sync": "同步",
+      "failed": "失败 {{count}}",
+      "columns": {
+        "job": "任务",
+        "type": "类型",
+        "status": "状态",
+        "duration": "耗时",
+        "size": "大小",
+        "time": "时间"
+      },
+      "type": {
+        "backup": "备份",
+        "sync": "同步"
+      },
+      "status": {
+        "queued": "等待中",
+        "running": "运行中",
+        "success": "成功",
+        "failed": "失败",
+        "canceled": "已取消",
+        "skipped": "已跳过"
+      },
+      "empty": "还没有运行记录",
+      "emptyFailed": "没有失败的运行"
+    },
+    "daily": {
+      "title": "14 天运行",
+      "legendSuccess": "成功",
+      "legendFailed": "失败",
+      "success": "成功 {{count}}",
+      "failed": "失败 {{count}}",
+      "bar": "{{date}} · 成功 {{success}} · 失败 {{failed}}",
+      "today": "今天",
+      "empty": "最近 14 天没有运行"
+    },
+    "storage": {
+      "title": "存储目标",
+      "usage": "{{size}} · {{count}} 份快照",
+      "usage_one": "{{size}} · {{count}} 份快照",
+      "usage_other": "{{size}} · {{count}} 份快照",
+      "disk": "磁盘已用 {{used}} / {{total}} · 剩余 {{free}}",
+      "diskUsed": "磁盘已用",
+      "empty": "还没有存储",
+      "add": "添加存储"
+    }
+  },
+  "service": {
+    "running": "服务运行中",
+    "databaseError": "元数据库不可用",
+    "unreachable": "无法获取服务状态",
+    "selfHosted": "自托管"
   },
   "form": {
     "required": "必填",
