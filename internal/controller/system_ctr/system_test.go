@@ -15,6 +15,7 @@ import (
 	api "github.com/opskat/opsnap/internal/api/system"
 	"github.com/opskat/opsnap/internal/repository/system_repo"
 	mock_system_repo "github.com/opskat/opsnap/internal/repository/system_repo/mock"
+	"github.com/opskat/opsnap/internal/service/system_svc"
 )
 
 func setupSystemTest(t *testing.T) (context.Context, *mock_system_repo.MockSystemRepo, *muxtest.TestMux) {
@@ -38,6 +39,16 @@ func TestSystemHealth(t *testing.T) {
 			assert.NoError(t, err)
 			assert.Equal(t, configs.Version, resp.Version)
 			assert.Equal(t, api.DatabaseOK, resp.Database)
+		})
+		convey.Convey("返回构建时写入的提交短号", func() {
+			old := system_svc.Commit
+			system_svc.Commit = "4a9a9c0"
+			defer func() { system_svc.Commit = old }()
+			mockSystemRepo.EXPECT().Ping(gomock.Any()).Return(nil)
+			resp := &api.HealthResponse{}
+			err := testMux.Do(ctx, &api.HealthRequest{}, resp)
+			assert.NoError(t, err)
+			assert.Equal(t, "4a9a9c0", resp.Commit)
 		})
 		convey.Convey("元数据库不可用时仍返回响应，但状态为 error", func() {
 			mockSystemRepo.EXPECT().Ping(gomock.Any()).Return(errors.New("database is locked"))

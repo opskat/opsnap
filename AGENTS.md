@@ -24,7 +24,7 @@ OpsNap — a self-hosted web console for backing up and syncing servers, shipped
 - Frontend: React 19, TypeScript, Vite 6, Tailwind CSS v4, shadcn/ui (new-york), i18next (zh-CN, en)
 - Package managers: Go modules; pnpm 10 for `frontend/` and `e2e/` (pinned by `packageManager`, CI installs with `--frozen-lockfile`)
 - Module: `github.com/opskat/opsnap`
-- Output: `bin/opsnap` (`make build`)
+- Output: `bin/opsnap` (`make build`); Docker image from `deploy/docker/Dockerfile` (`make docker-build`, checked by `make docker-smoke`)
 - Requirements: [`docs/specs/2026-09-23-opsnap-v1.md`](docs/specs/2026-09-23-opsnap-v1.md)
 
 ## Language conventions

@@ -16,6 +16,8 @@ make test           # Go tests + frontend Vitest (guard tests included)
 make test-cover     # Go coverage summary
 make e2e            # build, then run the Playwright smoke suite
 make verify         # lint + test + e2e: the full pre-PR check
+make docker-build   # build the Docker image (deploy/docker/Dockerfile) for this machine's architecture, tag opsnap:local (IMAGE=...)
+make docker-smoke   # start the built image, wait for its health check, run every tool under /opt/opsnap/tools with --version
 ```
 
 Targeted runs:
@@ -47,8 +49,9 @@ frontend/              React app (the @ alias points to src/)
   eslint-rules/        project ESLint plugin (design-system rules)
   scripts/             check-i18n.mjs
 e2e/                   Playwright smoke tests and scratch verification
+deploy/docker/         Dockerfile, built-in config.yaml, install-mysqldump.sh and pinned MySQL / PGDG signing keys for the image
 deploy/test/           docker-compose.yaml for the docker.internal test services
-scripts/               repository scripts (test-env.sh)
+scripts/               repository scripts (test-env.sh, docker-smoke.sh)
 docs/                  contributor docs and specs
 ```
 
@@ -120,8 +123,11 @@ A PR description states what changed and why, the commands run and their results
 - `go`: golangci-lint v2.12.2 + `go test ./...`
 - `frontend`: `pnpm lint` and `pnpm test` in `frontend/`, `pnpm lint` in `e2e/`
 - `e2e`: `make e2e`
+- `docker` (pull requests only): builds the image for amd64 on `ubuntu-latest` and arm64 on `ubuntu-24.04-arm` (native runners, no QEMU; free only while the repository is public), without pushing, and runs `scripts/docker-smoke.sh` on each. `VERSION` is `pr-<number>`, `COMMIT` the PR head's short hash.
 
-**These checks do not block merging yet.** A repository admin has to enable branch protection on `main` and mark the three jobs as required. Until then they are advisory.
+**These checks do not block merging yet.** A repository admin has to enable branch protection on `main` and mark the jobs as required. Until then they are advisory.
+
+The Docker image takes two build arguments, `VERSION` and `COMMIT`; `make build-server` writes them into the binary through `LDFLAGS` (`configs.Version` and `system_svc.Commit`), and `/api/v1/system/health` returns both. Outside Docker they default to `git describe` and `git rev-parse --short HEAD`.
 
 ## Related
 
