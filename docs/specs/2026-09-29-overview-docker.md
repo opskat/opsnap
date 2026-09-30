@@ -153,6 +153,7 @@
   - 服务端是 MariaDB（服务端版本文本中含 MariaDB）时，使用 `mariadb` 子目录。没有这个子目录时，按 MySQL 的规则选。
 - **没有版本子目录时**：行为与现在相同，先在 PATH 中找，再到 `tools.dir` 中找。
 - **MySQL 5.7 服务端**：用 8.0 的 `mysqldump` 必须能成功备份，导出内容能导入空库并与源数据一致。
+  - 数据源为“优先加密”时，TLS 握手失败（如官方 `mysql:5.7` 镜像只提供 OpsNap 不支持的 DHE 密码套件）改用不加密连接重试一次，与 PostgreSQL 一致；连接测试与探测照实显示未加密。其余四档不变，“必须加密”及以上握手失败仍报错；`mysqldump` 的 `--ssl-mode` 不变〔用户决定〕
 - 能力探测的“主控端工具”项和运行日志的“导出工具”行，都写出实际选用的工具路径与版本，例如“导出工具 mysqldump：/opt/opsnap/tools/mysql-8.4/bin/mysqldump（8.4.6）”。
 
 ## Docker 镜像

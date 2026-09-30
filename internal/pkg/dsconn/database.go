@@ -4,8 +4,11 @@ import (
 	"context"
 	"crypto/tls"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
+	"net"
 	"net/url"
+	"strings"
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgx/v5"
@@ -53,7 +56,53 @@ func mysqlDB(d Dialer, c Config, tlsCfg *tls.Config) (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	if tlsCfg != nil && c.TLS.Mode.prefer() {
+		// 驱动只在服务端不声明支持 TLS 时退回不加密；声明支持但握手谈不拢（如 5.7 只给出 Go 不支持的密码套件）时，
+		// 与 PostgreSQL 的 Fallbacks 一样改用不加密的连接重试一次
+		plainCfg := mc.Clone()
+		plainCfg.TLS = nil
+		plain, err := mysql.NewConnector(plainCfg)
+		if err != nil {
+			return nil, err
+		}
+		connector = preferConnector{Connector: connector, plain: plain}
+	}
 	return sql.OpenDB(connector), nil
+}
+
+// preferConnector 优先加密：每条新连接先按 TLS 连接，TLS 握手失败时改用不加密的连接
+type preferConnector struct {
+	driver.Connector
+	plain driver.Connector
+}
+
+func (p preferConnector) Connect(ctx context.Context) (driver.Conn, error) {
+	conn, err := p.Connector.Connect(ctx)
+	if err != nil && ctx.Err() == nil && tlsHandshakeFailed(err) {
+		return p.plain.Connect(ctx)
+	}
+	return conn, err
+}
+
+// tlsHandshakeFailed 是否为双方谈不拢 TLS：任一方以告警中止握手、服务端的应答不是 TLS 记录，
+// 或客户端不接受服务端选定的版本、套件（crypto/tls 以 "tls: " 开头的普通错误）。
+// 证书校验失败、认证失败、超时、取消与读写中断都不算
+func tlsHandshakeFailed(err error) bool {
+	var (
+		op     *net.OpError
+		record tls.RecordHeaderError
+		verify *tls.CertificateVerificationError
+	)
+	switch {
+	case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.As(err, &verify):
+		return false
+	case errors.As(err, &op):
+		// crypto/tls 把收到与发出的告警分别包装为 "remote error" 与 "local error"
+		return op.Op == "remote error" || op.Op == "local error"
+	case errors.As(err, &record):
+		return true
+	}
+	return strings.HasPrefix(err.Error(), "tls: ")
 }
 
 func postgresDB(d Dialer, c Config, tlsCfg *tls.Config) (*sql.DB, error) {
