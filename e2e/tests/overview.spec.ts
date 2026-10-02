@@ -360,7 +360,7 @@ test.describe("概览 · 立即执行后数字随之变化", () => {
 
   test("英文界面与深色主题；侧栏底部显示服务状态", async ({ page }, testInfo) => {
     await page.goto("/");
-    await page.getByRole("button", { name: "EN" }).click();
+    await page.getByRole("button", { name: "EN", exact: true }).click();
     await page.getByRole("button", { name: /深色|Dark/ }).click();
     await expect(page.locator("html")).toHaveClass(/dark/);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Overview");

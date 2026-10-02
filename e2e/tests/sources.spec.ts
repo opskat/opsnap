@@ -158,7 +158,7 @@ test.describe("数据源 · 网络通道与服务器文件", () => {
 
   test("英文界面与深色主题下的数据源页", async ({ page }) => {
     await dataSourcesTab(page);
-    await page.getByRole("button", { name: "EN" }).click();
+    await page.getByRole("button", { name: "EN", exact: true }).click();
     await page.getByRole("button", { name: /深色|Dark/ }).click();
     await expect(page.locator("html")).toHaveClass(/dark/);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Sources");

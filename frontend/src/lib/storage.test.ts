@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  downloadText,
   emptyLocation,
   keyFileContent,
   keyFileName,
@@ -59,5 +60,37 @@ describe("S3 位置", () => {
       "kopia repository connect s3 --endpoint minio.lan:9000 --bucket opsnap --prefix prod/ --access-key AK --secret-access-key <Secret Key> --disable-tls --disable-tls-verification"
     );
     expect(cmd).not.toContain("real-secret");
+  });
+});
+
+describe("downloadText", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("点击后不同步 revokeObjectURL（否则 Chromium 偶发丢失下载文件名），稍后再释放", () => {
+    vi.useFakeTimers();
+    const fakeUrl = "blob:fake-url";
+    const createObjectURL = vi.spyOn(URL, "createObjectURL").mockReturnValue(fakeUrl);
+    const revokeObjectURL = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const clickSpy = vi.fn();
+    const realCreateElement = document.createElement.bind(document);
+    vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+      const el = realCreateElement(tag);
+      if (tag === "a") el.click = clickSpy;
+      return el;
+    });
+
+    downloadText("opsnap-e2e-本地-key.txt", "content");
+
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    // click 处理下载时还没有释放对象 URL，否则文件名可能丢失
+    expect(revokeObjectURL).not.toHaveBeenCalled();
+
+    vi.runAllTimers();
+    expect(revokeObjectURL).toHaveBeenCalledTimes(1);
+    expect(revokeObjectURL).toHaveBeenCalledWith(fakeUrl);
   });
 });

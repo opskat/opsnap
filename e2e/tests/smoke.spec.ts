@@ -48,7 +48,7 @@ test.describe("主题与语言", () => {
 
   test("切换到英文后界面文案随之变化", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("button", { name: "EN" }).click();
+    await page.getByRole("button", { name: "EN", exact: true }).click();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Overview");
     await expect(page.locator("html")).toHaveAttribute("lang", "en");
     await page.getByRole("button", { name: "中文" }).click();

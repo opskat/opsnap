@@ -43,7 +43,7 @@ test.describe("认证边界", () => {
     const login = await context.newPage();
     await login.goto("/login");
     await login.getByRole("button", { name: "深色" }).click();
-    await login.getByRole("button", { name: "EN" }).click();
+    await login.getByRole("button", { name: "EN", exact: true }).click();
     await expect(login.locator("html")).toHaveClass(/dark/);
     await expect(login.locator("html")).toHaveAttribute("lang", "en");
     await expect(login.getByRole("heading", { level: 1 })).toHaveText("Sign in");
@@ -53,7 +53,7 @@ test.describe("认证边界", () => {
 
     await page.goto("/settings");
     await page.getByRole("button", { name: "深色" }).click();
-    await page.getByRole("button", { name: "EN" }).click();
+    await page.getByRole("button", { name: "EN", exact: true }).click();
     await expect(page.locator("html")).toHaveClass(/dark/);
     for (const name of ["Account", "Sign-in methods", "API tokens"]) {
       await expect(page.getByRole("region", { name })).toBeVisible();

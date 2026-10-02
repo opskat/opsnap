@@ -306,7 +306,7 @@ test.describe("备份任务 · PostgreSQL 全量到本地目录", () => {
 
   test("英文界面与深色主题下的任务列表与详情", async ({ page }, testInfo) => {
     await page.goto("/jobs");
-    await page.getByRole("button", { name: "EN" }).click();
+    await page.getByRole("button", { name: "EN", exact: true }).click();
     await page.getByRole("button", { name: /深色|Dark/ }).click();
     await expect(page.locator("html")).toHaveClass(/dark/);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Jobs");

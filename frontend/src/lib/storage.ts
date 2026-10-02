@@ -237,5 +237,7 @@ export function downloadText(filename: string, content: string) {
   a.href = url;
   a.download = filename;
   a.click();
-  URL.revokeObjectURL(url);
+  // 在 click() 之后同步 revoke 会在负载较高的 Chromium 下偶发丢失下载文件名（文件被存成
+  // "download"），延后释放让浏览器先处理完这次下载
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }

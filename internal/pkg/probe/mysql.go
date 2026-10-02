@@ -77,7 +77,7 @@ func mysqlBinlogRetentionItem(ctx context.Context, conn *dsconn.Conn) (Item, err
 		if err := scanOne(ctx, conn.DB, "SELECT @@GLOBAL.expire_logs_days", &days); err != nil {
 			return Item{}, err
 		}
-		return decideMySQLBinlogRetention(days * 24 * 3600), nil
+		return decideMySQLBinlogRetentionLegacy(days), nil
 	}
 	var seconds int64
 	if err := scanOne(ctx, conn.DB, "SELECT @@GLOBAL.binlog_expire_logs_seconds", &seconds); err != nil {
@@ -234,6 +234,32 @@ func decideMySQLBinlogRetention(seconds int64) Item {
 	}, Fix: Text{
 		ZhCN: "SET PERSIST binlog_expire_logs_seconds = 604800;",
 		En:   "SET PERSIST binlog_expire_logs_seconds = 604800;",
+	}}
+}
+
+// decideMySQLBinlogRetentionLegacy 5.7 及更早版本上 binlog 保留时长的判定：实际读到的变量是
+// expire_logs_days（按天计），8.0 才有的 SET PERSIST / binlog_expire_logs_seconds 在这些服务端上不存在，
+// 说明与修复建议须用 5.7 实际存在的变量
+func decideMySQLBinlogRetentionLegacy(days int64) Item {
+	seconds := days * 24 * 3600
+	if seconds == 0 || seconds >= mysqlBinlogRetentionThreshold {
+		var detail, detailEn string
+		if seconds == 0 {
+			detail = "binlog 永不过期（expire_logs_days = 0）"
+			detailEn = "Binlog never expires (expire_logs_days = 0)."
+		} else {
+			detail = fmt.Sprintf("binlog 保留 %d 秒（约 %.1f 天，expire_logs_days = %d），不少于 7 天", seconds, float64(seconds)/86400, days)
+			detailEn = fmt.Sprintf("Binlog is kept for %d seconds (about %.1f days, expire_logs_days = %d), at least 7 days.", seconds, float64(seconds)/86400, days)
+		}
+		return Item{Key: "mysql.binlog_retention", Title: itemTitles["mysql.binlog_retention"], Tier: TierOK,
+			Detail: Text{ZhCN: detail, En: detailEn}}
+	}
+	return Item{Key: "mysql.binlog_retention", Title: itemTitles["mysql.binlog_retention"], Tier: TierWarn, Detail: Text{
+		ZhCN: fmt.Sprintf("binlog 只保留 %d 秒（约 %.1f 天，expire_logs_days = %d），少于 7 天，中断超过这个时长就无法续传", seconds, float64(seconds)/86400, days),
+		En:   fmt.Sprintf("Binlog is kept for only %d seconds (about %.1f days, expire_logs_days = %d), less than 7 days; a longer outage cannot resume.", seconds, float64(seconds)/86400, days),
+	}, Fix: Text{
+		ZhCN: "在 my.cnf 中设置 expire_logs_days=7（需重启），或执行 SET GLOBAL expire_logs_days = 7;",
+		En:   "Set expire_logs_days=7 in my.cnf (requires a restart), or run SET GLOBAL expire_logs_days = 7;",
 	}}
 }
 

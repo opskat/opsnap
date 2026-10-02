@@ -156,19 +156,52 @@ func TestMySQLBinlogRetentionItem(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, TierOK, item.Tier)
 		assert.Contains(t, item.Detail.ZhCN, "864000")
+		assertMentionsExpireLogsDaysNotSeconds(t, item)
 	})
 	t.Run("5.7 上 expire_logs_days 为 0 视为永不过期", func(t *testing.T) {
 		conn := fakeMySQLConn(t, "5.7.44", queryAnswer{"@@GLOBAL.expire_logs_days": int64(0)})
 		item, err := mysqlBinlogRetentionItem(context.Background(), conn)
 		require.NoError(t, err)
 		assert.Equal(t, TierOK, item.Tier)
+		assertMentionsExpireLogsDaysNotSeconds(t, item)
 	})
-	t.Run("5.7 上保留天数不足 7 天为风险", func(t *testing.T) {
+	t.Run("5.7 上保留天数不足 7 天为风险，说明与修复建议用 5.7 实际的 expire_logs_days", func(t *testing.T) {
 		conn := fakeMySQLConn(t, "5.7.44", queryAnswer{"@@GLOBAL.expire_logs_days": int64(3)})
 		item, err := mysqlBinlogRetentionItem(context.Background(), conn)
 		require.NoError(t, err)
 		assert.Equal(t, TierWarn, item.Tier)
+		assertMentionsExpireLogsDaysNotSeconds(t, item)
+		assert.Contains(t, item.Fix.ZhCN, "expire_logs_days")
+		assert.Contains(t, item.Fix.En, "expire_logs_days")
+		assert.NotContains(t, item.Fix.ZhCN, "SET PERSIST")
+		assert.NotContains(t, item.Fix.En, "SET PERSIST")
+		assert.NotContains(t, item.Fix.ZhCN, "binlog_expire_logs_seconds")
+		assert.NotContains(t, item.Fix.En, "binlog_expire_logs_seconds")
 	})
+	t.Run("8.0 的说明与修复建议不变", func(t *testing.T) {
+		conn := fakeMySQLConn(t, "8.0.40", queryAnswer{"@@GLOBAL.binlog_expire_logs_seconds": int64(3 * 24 * 3600)})
+		item, err := mysqlBinlogRetentionItem(context.Background(), conn)
+		require.NoError(t, err)
+		assert.Equal(t, TierWarn, item.Tier)
+		assert.Equal(t,
+			"binlog 只保留 259200 秒（约 3.0 天），少于 7 天，中断超过这个时长就无法续传",
+			item.Detail.ZhCN)
+		assert.Equal(t,
+			"Binlog is kept for only 259200 seconds (about 3.0 days), less than 7 days; a longer outage cannot resume.",
+			item.Detail.En)
+		assert.Equal(t, "SET PERSIST binlog_expire_logs_seconds = 604800;", item.Fix.ZhCN)
+		assert.Equal(t, "SET PERSIST binlog_expire_logs_seconds = 604800;", item.Fix.En)
+	})
+}
+
+// assertMentionsExpireLogsDaysNotSeconds 5.7 上 detail 文案（中英）须提到实际读到的 expire_logs_days，
+// 不能提到 8.0 才有的 binlog_expire_logs_seconds
+func assertMentionsExpireLogsDaysNotSeconds(t *testing.T, item Item) {
+	t.Helper()
+	assert.Contains(t, item.Detail.ZhCN, "expire_logs_days")
+	assert.Contains(t, item.Detail.En, "expire_logs_days")
+	assert.NotContains(t, item.Detail.ZhCN, "binlog_expire_logs_seconds")
+	assert.NotContains(t, item.Detail.En, "binlog_expire_logs_seconds")
 }
 
 func TestDecideMySQLReplicationPrivileges(t *testing.T) {
