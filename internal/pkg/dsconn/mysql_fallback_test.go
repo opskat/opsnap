@@ -24,8 +24,8 @@ import (
 // 没有共同密码套件的情形（官方 mysql:5.7 镜像只协商 DHE-RSA-AES256-GCM-SHA384）；不加密时接受任何账号，
 // 回答 SELECT VERSION() 与 Ssl_version 查询
 type fakeMySQL struct {
-	// authErr 为真时不加密的登录以 1045 拒绝
-	authErr bool
+	// loginErr 非空时不加密的登录以这个 ERR 包拒绝
+	loginErr []byte
 	// tlsAborted 中止的 TLS 握手次数，plain 不加密的登录次数
 	tlsAborted atomic.Int32
 	plain      atomic.Int32
@@ -98,8 +98,8 @@ func (s *fakeMySQL) serve(c net.Conn) error {
 		return err
 	}
 	s.plain.Add(1)
-	if s.authErr {
-		return writeMyPacket(c, 2, myErrPacket(1045, "28000", "Access denied for user 'root'@'127.0.0.1' (using password: YES)"))
+	if s.loginErr != nil {
+		return writeMyPacket(c, 2, s.loginErr)
 	}
 	if err := writeMyPacket(c, 2, myOKPacket()); err != nil {
 		return err
@@ -207,13 +207,26 @@ func TestMySQLPreferFallsBackWhenTLSHandshakeFails(t *testing.T) {
 	}
 
 	t.Run("优先加密退回后认证失败，报告认证失败且只重试一次", func(t *testing.T) {
-		s := &fakeMySQL{authErr: true}
+		s := &fakeMySQL{loginErr: myErrPacket(1045, "28000", "Access denied for user 'root'@'127.0.0.1' (using password: YES)")}
 		host, port := startFakeMySQL(t, s)
 		_, err := Test(context.Background(), directTunnel(t), cfgFor(host, port, TLSPrefer))
 		var e *Error
 		require.ErrorAs(t, err, &e)
 		assert.Equal(t, ReasonAuthFailed, e.Reason)
 		assert.NotContains(t, e.Error()+e.MsgEn, testPassword)
+		assert.Equal(t, int32(1), s.tlsAborted.Load())
+		assert.Equal(t, int32(1), s.plain.Load())
+	})
+
+	t.Run("优先加密退回后服务端拒绝不加密的连接，报告 TLS 握手失败与拒绝原文", func(t *testing.T) {
+		s := &fakeMySQL{loginErr: myErrPacket(3159, "HY000", "Connections using insecure transport are prohibited while --require_secure_transport=ON.")}
+		host, port := startFakeMySQL(t, s)
+		_, err := Test(context.Background(), directTunnel(t), cfgFor(host, port, TLSPrefer))
+		var e *Error
+		require.ErrorAs(t, err, &e)
+		assert.Equal(t, ReasonTLS, e.Reason, e.Msg)
+		assert.Contains(t, e.Error(), "handshake failure")
+		assert.Contains(t, e.Error(), "insecure transport are prohibited")
 		assert.Equal(t, int32(1), s.tlsAborted.Load())
 		assert.Equal(t, int32(1), s.plain.Load())
 	})
@@ -225,6 +238,7 @@ func TestMySQLPreferFallsBackWhenTLSHandshakeFails(t *testing.T) {
 			_, err := Test(context.Background(), directTunnel(t), cfgFor(host, port, mode))
 			var e *Error
 			require.ErrorAs(t, err, &e)
+			assert.Equal(t, ReasonTLS, e.Reason, e.Msg)
 			assert.Contains(t, e.Error(), "handshake failure")
 			assert.Equal(t, int32(0), s.plain.Load(), "不应尝试不加密的连接")
 		})

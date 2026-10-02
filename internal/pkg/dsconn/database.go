@@ -6,9 +6,8 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
-	"net"
+	"fmt"
 	"net/url"
-	"strings"
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgx/v5"
@@ -78,31 +77,15 @@ type preferConnector struct {
 
 func (p preferConnector) Connect(ctx context.Context) (driver.Conn, error) {
 	conn, err := p.Connector.Connect(ctx)
-	if err != nil && ctx.Err() == nil && tlsHandshakeFailed(err) {
-		return p.plain.Connect(ctx)
+	if err == nil || ctx.Err() != nil || !tlsHandshakeFailed(err) {
+		return conn, err
 	}
-	return conn, err
-}
-
-// tlsHandshakeFailed 是否为双方谈不拢 TLS：任一方以告警中止握手、服务端的应答不是 TLS 记录，
-// 或客户端不接受服务端选定的版本、套件（crypto/tls 以 "tls: " 开头的普通错误）。
-// 证书校验失败、认证失败、超时、取消与读写中断都不算
-func tlsHandshakeFailed(err error) bool {
-	var (
-		op     *net.OpError
-		record tls.RecordHeaderError
-		verify *tls.CertificateVerificationError
-	)
-	switch {
-	case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.As(err, &verify):
-		return false
-	case errors.As(err, &op):
-		// crypto/tls 把收到与发出的告警分别包装为 "remote error" 与 "local error"
-		return op.Op == "remote error" || op.Op == "local error"
-	case errors.As(err, &record):
-		return true
+	conn, plainErr := p.plain.Connect(ctx)
+	if plainErr != nil {
+		// 与 PostgreSQL 的 Fallbacks 一样报告两次尝试的错误：不加密也被拒绝时（如服务端要求加密传输），握手失败才是原因
+		return nil, fmt.Errorf("%w; %w", err, plainErr)
 	}
-	return strings.HasPrefix(err.Error(), "tls: ")
+	return conn, nil
 }
 
 func postgresDB(d Dialer, c Config, tlsCfg *tls.Config) (*sql.DB, error) {
