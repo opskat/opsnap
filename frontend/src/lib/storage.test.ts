@@ -69,24 +69,27 @@ describe("downloadText", () => {
     vi.restoreAllMocks();
   });
 
-  it("点击后不同步 revokeObjectURL（否则 Chromium 偶发丢失下载文件名），稍后再释放", () => {
+  it("点击时链接带着下载文件名，对象 URL 要等浏览器处理完下载（数十秒后）才释放", () => {
     vi.useFakeTimers();
     const fakeUrl = "blob:fake-url";
     const createObjectURL = vi.spyOn(URL, "createObjectURL").mockReturnValue(fakeUrl);
     const revokeObjectURL = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
-    const clickSpy = vi.fn();
+    const clicked: { href: string; download: string }[] = [];
     const realCreateElement = document.createElement.bind(document);
     vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
       const el = realCreateElement(tag);
-      if (tag === "a") el.click = clickSpy;
+      if (el instanceof HTMLAnchorElement) {
+        el.click = () => clicked.push({ href: el.href, download: el.download });
+      }
       return el;
     });
 
     downloadText("opsnap-e2e-本地-key.txt", "content");
 
     expect(createObjectURL).toHaveBeenCalledTimes(1);
-    expect(clickSpy).toHaveBeenCalledTimes(1);
-    // click 处理下载时还没有释放对象 URL，否则文件名可能丢失
+    expect(clicked).toEqual([{ href: fakeUrl, download: "opsnap-e2e-本地-key.txt" }]);
+    // 负载较高时浏览器可能晚于下一个任务才开始处理这次下载，过早释放会丢失文件名
+    vi.advanceTimersByTime(1000);
     expect(revokeObjectURL).not.toHaveBeenCalled();
 
     vi.runAllTimers();

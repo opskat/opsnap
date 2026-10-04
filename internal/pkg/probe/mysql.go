@@ -215,52 +215,47 @@ func decideMySQLGTID(mode string) Item {
 	}}
 }
 
+// decideMySQLBinlogRetention 8.0 起按 binlog_expire_logs_seconds 判定
 func decideMySQLBinlogRetention(seconds int64) Item {
-	if seconds == 0 || seconds >= mysqlBinlogRetentionThreshold {
-		var detail, detailEn string
-		if seconds == 0 {
-			detail = "binlog 永不过期（binlog_expire_logs_seconds = 0）"
-			detailEn = "Binlog never expires (binlog_expire_logs_seconds = 0)."
-		} else {
-			detail = fmt.Sprintf("binlog 保留 %d 秒（约 %.1f 天），不少于 7 天", seconds, float64(seconds)/86400)
-			detailEn = fmt.Sprintf("Binlog is kept for %d seconds (about %.1f days), at least 7 days.", seconds, float64(seconds)/86400)
-		}
-		return Item{Key: "mysql.binlog_retention", Title: itemTitles["mysql.binlog_retention"], Tier: TierOK,
-			Detail: Text{ZhCN: detail, En: detailEn}}
-	}
-	return Item{Key: "mysql.binlog_retention", Title: itemTitles["mysql.binlog_retention"], Tier: TierWarn, Detail: Text{
-		ZhCN: fmt.Sprintf("binlog 只保留 %d 秒（约 %.1f 天），少于 7 天，中断超过这个时长就无法续传", seconds, float64(seconds)/86400),
-		En:   fmt.Sprintf("Binlog is kept for only %d seconds (about %.1f days), less than 7 days; a longer outage cannot resume.", seconds, float64(seconds)/86400),
-	}, Fix: Text{
+	return decideBinlogRetention(seconds, "binlog_expire_logs_seconds = 0", Text{}, Text{
 		ZhCN: "SET PERSIST binlog_expire_logs_seconds = 604800;",
 		En:   "SET PERSIST binlog_expire_logs_seconds = 604800;",
-	}}
+	})
 }
 
 // decideMySQLBinlogRetentionLegacy 5.7 及更早版本上 binlog 保留时长的判定：实际读到的变量是
 // expire_logs_days（按天计），8.0 才有的 SET PERSIST / binlog_expire_logs_seconds 在这些服务端上不存在，
 // 说明与修复建议须用 5.7 实际存在的变量
 func decideMySQLBinlogRetentionLegacy(days int64) Item {
-	seconds := days * 24 * 3600
-	if seconds == 0 || seconds >= mysqlBinlogRetentionThreshold {
-		var detail, detailEn string
-		if seconds == 0 {
-			detail = "binlog 永不过期（expire_logs_days = 0）"
-			detailEn = "Binlog never expires (expire_logs_days = 0)."
-		} else {
-			detail = fmt.Sprintf("binlog 保留 %d 秒（约 %.1f 天，expire_logs_days = %d），不少于 7 天", seconds, float64(seconds)/86400, days)
-			detailEn = fmt.Sprintf("Binlog is kept for %d seconds (about %.1f days, expire_logs_days = %d), at least 7 days.", seconds, float64(seconds)/86400, days)
-		}
-		return Item{Key: "mysql.binlog_retention", Title: itemTitles["mysql.binlog_retention"], Tier: TierOK,
-			Detail: Text{ZhCN: detail, En: detailEn}}
-	}
-	return Item{Key: "mysql.binlog_retention", Title: itemTitles["mysql.binlog_retention"], Tier: TierWarn, Detail: Text{
-		ZhCN: fmt.Sprintf("binlog 只保留 %d 秒（约 %.1f 天，expire_logs_days = %d），少于 7 天，中断超过这个时长就无法续传", seconds, float64(seconds)/86400, days),
-		En:   fmt.Sprintf("Binlog is kept for only %d seconds (about %.1f days, expire_logs_days = %d), less than 7 days; a longer outage cannot resume.", seconds, float64(seconds)/86400, days),
-	}, Fix: Text{
+	return decideBinlogRetention(days*24*3600, "expire_logs_days = 0", Text{
+		ZhCN: fmt.Sprintf("，expire_logs_days = %d", days),
+		En:   fmt.Sprintf(", expire_logs_days = %d", days),
+	}, Text{
 		ZhCN: "在 my.cnf 中设置 expire_logs_days=7（需重启），或执行 SET GLOBAL expire_logs_days = 7;",
 		En:   "Set expire_logs_days=7 in my.cnf (requires a restart), or run SET GLOBAL expire_logs_days = 7;",
-	}}
+	})
+}
+
+// decideBinlogRetention 两个版本共用的阈值规则与文案：0 为永不过期，不少于 7 天为正常，否则为风险。
+// neverExpires 是保留变量为 0 时的写法，source 附在天数之后注明读到的变量（为空则不注明），fix 是该版本可用的修复方法
+func decideBinlogRetention(seconds int64, neverExpires string, source, fix Text) Item {
+	days := float64(seconds) / 86400
+	if seconds == 0 {
+		return Item{Key: "mysql.binlog_retention", Title: itemTitles["mysql.binlog_retention"], Tier: TierOK, Detail: Text{
+			ZhCN: fmt.Sprintf("binlog 永不过期（%s）", neverExpires),
+			En:   fmt.Sprintf("Binlog never expires (%s).", neverExpires),
+		}}
+	}
+	if seconds >= mysqlBinlogRetentionThreshold {
+		return Item{Key: "mysql.binlog_retention", Title: itemTitles["mysql.binlog_retention"], Tier: TierOK, Detail: Text{
+			ZhCN: fmt.Sprintf("binlog 保留 %d 秒（约 %.1f 天%s），不少于 7 天", seconds, days, source.ZhCN),
+			En:   fmt.Sprintf("Binlog is kept for %d seconds (about %.1f days%s), at least 7 days.", seconds, days, source.En),
+		}}
+	}
+	return Item{Key: "mysql.binlog_retention", Title: itemTitles["mysql.binlog_retention"], Tier: TierWarn, Detail: Text{
+		ZhCN: fmt.Sprintf("binlog 只保留 %d 秒（约 %.1f 天%s），少于 7 天，中断超过这个时长就无法续传", seconds, days, source.ZhCN),
+		En:   fmt.Sprintf("Binlog is kept for only %d seconds (about %.1f days%s), less than 7 days; a longer outage cannot resume.", seconds, days, source.En),
+	}, Fix: fix}
 }
 
 func decideMySQLReplicationPrivileges(hasSlave, hasClient bool, user, host string) Item {

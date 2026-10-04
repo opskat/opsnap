@@ -230,6 +230,13 @@ export function parseKeyFile(text: string) {
   return (line ? line.slice(KEY_LINE.length) : text).trim();
 }
 
+/**
+ * 下载后多久释放对象 URL：click() 只是发起下载，负载较高时浏览器可能在之后的若干任务里才读取它，
+ * 过早 revoke（包括 setTimeout 0）会偶发丢失下载文件名（文件被存成 "download"）。
+ * 沿用 FileSaver.js 的 40 秒；一个密钥文本占用的内存可以忽略
+ */
+const REVOKE_DOWNLOAD_URL_AFTER_MS = 40_000;
+
 /** 让浏览器下载一个文本文件 */
 export function downloadText(filename: string, content: string) {
   const url = URL.createObjectURL(new Blob([content], { type: "text/plain;charset=utf-8" }));
@@ -237,7 +244,5 @@ export function downloadText(filename: string, content: string) {
   a.href = url;
   a.download = filename;
   a.click();
-  // 在 click() 之后同步 revoke 会在负载较高的 Chromium 下偶发丢失下载文件名（文件被存成
-  // "download"），延后释放让浏览器先处理完这次下载
-  setTimeout(() => URL.revokeObjectURL(url), 0);
+  setTimeout(() => URL.revokeObjectURL(url), REVOKE_DOWNLOAD_URL_AFTER_MS);
 }
