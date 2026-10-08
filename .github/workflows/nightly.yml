@@ -236,6 +236,17 @@ jobs:
         env:
           SHA: ${{ needs.prepare.outputs.sha }}
         run: |
+          # 与 docker-publish.yml 推镜像标签前的检查同理：nightly 已经前进时不动书签。
+          # 典型情况是这个作业失败后，在新提交已经发布之后才被「重跑失败的作业」：不检查
+          # 的话书签会退回旧提交，下一次定时运行又把已发布的头部重复构建一遍。
+          # 不用管道：默认 shell 没有 pipefail，查询失败会被吞成空串。直接赋值时失败即
+          # 作业失败，书签同样不动，下一次运行补发。
+          head=$(git ls-remote --exit-code origin refs/heads/nightly)
+          head=${head%%[[:space:]]*}
+          if [ "$head" != "$SHA" ]; then
+            echo "已被新提交取代：本次发布的是 ${SHA}，远端 nightly 已指向 ${head}，nightly-published 保持不动。" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           # 轻量标签、强制移动：它只是一个「发布到哪了」的书签，不是版本号。
           git push --force origin "${SHA}:refs/tags/nightly-published"
           echo "nightly-published 已移到 ${SHA}。" >> "$GITHUB_STEP_SUMMARY"
