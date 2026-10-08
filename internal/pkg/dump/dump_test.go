@@ -182,6 +182,49 @@ func optionValue(t *testing.T, cnf, key string) string {
 	return ""
 }
 
+// TestMySQLColumnStatistics Oracle mysqldump 8.0 起一律加 --column-statistics=0：该参数只在 8.0 起的客户端上存在，
+// 8.0 之前的服务端没有 information_schema.COLUMN_STATISTICS，8.0 客户端不加这个参数会在导出 5.7 服务端时报 1109 失败；
+// 直方图不是恢复数据必须的内容，不区分服务端版本一律关闭更简单，也不必信赖服务端版本号的格式。MariaDB 客户端不认识该参数
+func TestMySQLColumnStatistics(t *testing.T) {
+	t.Run("Oracle 8.0 对 5.7 服务端加上该参数", func(t *testing.T) {
+		e := newFakeEnv(t)
+		e.tool("mysqldump", oracleVersion, mysqlOK)
+		(&fakeDB{answer: tablesOnly()}).install(t)
+		src := mysqlSource()
+		src.ServerVersion = "5.7.44"
+		s, err := Start(context.Background(), e.base, src, Options{Databases: []string{"app"}})
+		require.NoError(t, err)
+		_, err = readAll(t, s)
+		require.NoError(t, err)
+		require.NoError(t, s.Close())
+		assert.Contains(t, e.runs("mysqldump")[0].argv, "--column-statistics=0")
+	})
+
+	t.Run("Oracle 8.0 对 8.0 服务端也一律加上", func(t *testing.T) {
+		e := newFakeEnv(t)
+		e.tool("mysqldump", oracleVersion, mysqlOK)
+		(&fakeDB{answer: tablesOnly()}).install(t)
+		s, err := Start(context.Background(), e.base, mysqlSource(), Options{Databases: []string{"app"}})
+		require.NoError(t, err)
+		_, err = readAll(t, s)
+		require.NoError(t, err)
+		require.NoError(t, s.Close())
+		assert.Contains(t, e.runs("mysqldump")[0].argv, "--column-statistics=0")
+	})
+
+	t.Run("MariaDB 客户端不认识该参数，不加", func(t *testing.T) {
+		e := newFakeEnv(t)
+		e.tool("mysqldump", mariadbVersion, mysqlOK)
+		(&fakeDB{answer: tablesOnly()}).install(t)
+		s, err := Start(context.Background(), e.base, mysqlSource(), Options{Databases: []string{"app"}})
+		require.NoError(t, err)
+		_, err = readAll(t, s)
+		require.NoError(t, err)
+		require.NoError(t, s.Close())
+		assert.NotContains(t, e.runs("mysqldump")[0].argv, "--column-statistics=0")
+	})
+}
+
 func TestMySQLMariaDBClient(t *testing.T) {
 	t.Run("按 MariaDB 的选项写法", func(t *testing.T) {
 		e := newFakeEnv(t)

@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/tls"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
+	"fmt"
 	"net/url"
 
 	"github.com/go-sql-driver/mysql"
@@ -53,7 +55,37 @@ func mysqlDB(d Dialer, c Config, tlsCfg *tls.Config) (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	if tlsCfg != nil && c.TLS.Mode.prefer() {
+		// 驱动只在服务端不声明支持 TLS 时退回不加密；声明支持但握手谈不拢（如 5.7 只给出 Go 不支持的密码套件）时，
+		// 与 PostgreSQL 的 Fallbacks 一样改用不加密的连接重试一次
+		plainCfg := mc.Clone()
+		plainCfg.TLS = nil
+		plain, err := mysql.NewConnector(plainCfg)
+		if err != nil {
+			return nil, err
+		}
+		connector = preferConnector{Connector: connector, plain: plain}
+	}
 	return sql.OpenDB(connector), nil
+}
+
+// preferConnector 优先加密：每条新连接先按 TLS 连接，TLS 握手失败时改用不加密的连接
+type preferConnector struct {
+	driver.Connector
+	plain driver.Connector
+}
+
+func (p preferConnector) Connect(ctx context.Context) (driver.Conn, error) {
+	conn, err := p.Connector.Connect(ctx)
+	if err == nil || ctx.Err() != nil || !tlsHandshakeFailed(err) {
+		return conn, err
+	}
+	conn, plainErr := p.plain.Connect(ctx)
+	if plainErr != nil {
+		// 与 PostgreSQL 的 Fallbacks 一样报告两次尝试的错误：不加密也被拒绝时（如服务端要求加密传输），握手失败才是原因
+		return nil, fmt.Errorf("%w; %w", err, plainErr)
+	}
+	return conn, nil
 }
 
 func postgresDB(d Dialer, c Config, tlsCfg *tls.Config) (*sql.DB, error) {

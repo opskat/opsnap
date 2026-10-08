@@ -25,7 +25,14 @@ type StorageRepo interface {
 	// FindByLocationKey 不存在时返回 nil, nil
 	FindByLocationKey(ctx context.Context, key string) (*storage_entity.Storage, error)
 	Delete(ctx context.Context, id int64) error
+	// SetUsage 记录读到的仓库用量（清除读取失败的原因）；存储不存在时什么也不做
+	SetUsage(ctx context.Context, id int64, u storage_entity.Usage) error
+	// SetUsageError 记录读取用量失败的原因与时间，保留上一次读到的数字；存储不存在时什么也不做
+	SetUsageError(ctx context.Context, id int64, reason, reasonEn string, checktime int64) error
 }
+
+// usageColumns 仓库用量的列，Save 不改动
+var usageColumns = []string{"usage_snapshots", "usage_packed_bytes", "usage_original_bytes", "usage_error", "usage_error_en", "usage_checktime"}
 
 // ErrNotFound 保存时记录已不存在（已被删除）
 var ErrNotFound = errors.New("storage not found")
@@ -51,8 +58,9 @@ func (r *storageRepo) Create(ctx context.Context, s *storage_entity.Storage) err
 }
 
 func (r *storageRepo) Save(ctx context.Context, s *storage_entity.Storage) error {
-	// 不用 gorm 的 Save：它在没有匹配行时会改为插入，把刚删除的存储重新写回
-	res := db.Ctx(ctx).Model(s).Select("*").Updates(s)
+	// 不用 gorm 的 Save：它在没有匹配行时会改为插入，把刚删除的存储重新写回。
+	// 用量只由 SetUsage / SetUsageError 写入：测试连接等耗时操作保存的是读取时的记录，不能覆盖期间记录的用量
+	res := db.Ctx(ctx).Model(s).Select("*").Omit(usageColumns...).Updates(s)
 	if res.Error != nil {
 		return res.Error
 	}
@@ -93,4 +101,23 @@ func (r *storageRepo) FindByLocationKey(ctx context.Context, key string) (*stora
 
 func (r *storageRepo) Delete(ctx context.Context, id int64) error {
 	return db.Ctx(ctx).Delete(&storage_entity.Storage{}, id).Error
+}
+
+func (r *storageRepo) SetUsage(ctx context.Context, id int64, u storage_entity.Usage) error {
+	return db.Ctx(ctx).Model(&storage_entity.Storage{}).Where("id = ?", id).Updates(map[string]any{
+		"usage_snapshots":      u.Snapshots,
+		"usage_packed_bytes":   u.PackedBytes,
+		"usage_original_bytes": u.OriginalBytes,
+		"usage_error":          "",
+		"usage_error_en":       "",
+		"usage_checktime":      u.Checktime,
+	}).Error
+}
+
+func (r *storageRepo) SetUsageError(ctx context.Context, id int64, reason, reasonEn string, checktime int64) error {
+	return db.Ctx(ctx).Model(&storage_entity.Storage{}).Where("id = ?", id).Updates(map[string]any{
+		"usage_error":     reason,
+		"usage_error_en":  reasonEn,
+		"usage_checktime": checktime,
+	}).Error
 }

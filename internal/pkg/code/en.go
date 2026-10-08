@@ -64,6 +64,8 @@ var en = map[int]string{ //nolint:gosec // 错误文案中的 “token”“pass
 	StorageDirCreateFailed:       "Could not create the folder: %s",
 	StorageInUse:                 "The storage is still referenced by jobs and cannot be deleted: %s",
 	StorageLocationLocked:        "The storage is still referenced by jobs and its location cannot be changed: %s",
+	StorageUsageNotRead:          "Usage has not been read yet. Test the connection to read it",
+	StorageUsageUnreadable:       "Could not read usage: %s",
 
 	ChannelNotFound:             "Channel not found",
 	ChannelNameInvalid:          "Name must be 1–64 characters",
@@ -176,7 +178,7 @@ var en = map[int]string{ //nolint:gosec // 错误文案中的 “token”“pass
 	RunStorageNotOK:             "The status of storage \"%s\" is not \"OK\" (%s). Test the storage connection first",
 	RunDataSourceMissing:        "The data source does not exist",
 	RunHostKeyChanged:           "A host key on the network path of data source \"%s\" has changed. Confirm the new host key on the Data Sources page first",
-	RunLogToolPath:              "Export tool %s: %s",
+	RunLogToolPath:              "Export tool %s: %s (%s)",
 	RunOpenStorageFailed:        "Failed to open storage \"%s\": %s",
 	RunLogStorageOpened:         "Opened storage \"%s\"",
 	RunLogConnecting:            "Connecting to data source \"%s\" (%s:%d) through the network channel",

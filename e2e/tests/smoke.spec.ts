@@ -15,12 +15,14 @@ test.describe("启动与身份", () => {
     expect(res.status()).toBe(404);
   });
 
-  test("首页由内嵌前端提供，并显示系统状态", async ({ page, request }) => {
+  test("首页由内嵌前端提供，侧栏底部显示服务状态、版本与提交短号", async ({ page, request }) => {
     const health = await (await request.get("/api/v1/system/health")).json();
     await page.goto("/");
     await expect(page).toHaveTitle("OpsNap");
-    // 独立校验：页面显示的版本号必须与接口返回一致
-    await expect(page.getByTestId("health-version")).toHaveText(health.data.version);
+    await expect(page.getByText("服务运行中")).toBeVisible();
+    // 独立校验：侧栏显示的版本号与提交短号必须与接口返回一致
+    const expected = [health.data.version, health.data.commit, "自托管"].filter(Boolean).join(" · ");
+    await expect(page.getByTestId("service-version")).toHaveText(expected);
   });
 });
 
@@ -46,7 +48,7 @@ test.describe("主题与语言", () => {
 
   test("切换到英文后界面文案随之变化", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("button", { name: "EN" }).click();
+    await page.getByRole("button", { name: "EN", exact: true }).click();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Overview");
     await expect(page.locator("html")).toHaveAttribute("lang", "en");
     await page.getByRole("button", { name: "中文" }).click();

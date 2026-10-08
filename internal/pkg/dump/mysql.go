@@ -22,24 +22,24 @@ import (
 type mysqlPlan struct {
 	src  Source
 	opts Options
-	tool *toolInfo
+	tool *probe.Tool
 	// mariadb 主控端的 mysqldump 来自 MariaDB：TLS 选项写法不同，也没有 --set-gtid-purged
 	mariadb bool
 }
 
 func (p *mysqlPlan) tools(ctx context.Context, s *Session) error {
-	t, err := findTool(ctx, "mysqldump", l10n.New(code.DumpPkgMySQL))
+	t, err := s.findTool(ctx, "mysqldump", p.src.ServerVersion, l10n.New(code.DumpPkgMySQL))
 	if err != nil {
 		return err
 	}
 	p.tool = t
-	p.mariadb = strings.Contains(t.raw, "MariaDB")
+	p.mariadb = strings.Contains(t.Raw, "MariaDB")
 	mode := p.src.Config.TLS.Mode
 	if p.mariadb && mode != "" && mode != dsconn.TLSPrefer && mode != dsconn.TLSDisable {
-		return l10n.Errorf(code.DumpMariaDBTLS, ErrUnsupportedTLS, t.raw, mode)
+		return l10n.Errorf(code.DumpMariaDBTLS, ErrUnsupportedTLS, t.Raw, mode)
 	}
-	if smaj, smin, ok := probe.ParseMajorMinor(p.src.ServerVersion); ok && (t.major < smaj || t.major == smaj && t.minor < smin) {
-		s.logm(l10n.New(code.DumpMySQLDumpOlder, t.major, t.minor, smaj, smin))
+	if smaj, smin, ok := probe.ParseMajorMinor(p.src.ServerVersion); ok && (t.Major < smaj || t.Major == smaj && t.Minor < smin) {
+		s.logm(l10n.New(code.DumpMySQLDumpOlder, t.Major, t.Minor, smaj, smin))
 	}
 	return nil
 }
@@ -101,6 +101,13 @@ func (p *mysqlPlan) args(cnfPath string) []string {
 	}
 	if !p.mariadb {
 		args = append(args, "--set-gtid-purged=OFF")
+		if p.tool.Major >= 8 {
+			// Oracle mysqldump 8.0 起默认会额外查询 information_schema.COLUMN_STATISTICS 生成直方图统计；
+			// 这张表 8.0 之前的服务端没有，8.0 客户端对 5.7 服务端不加这个参数会报 1109 导致整个备份失败。
+			// 直方图不是恢复数据必须的内容：不区分服务端版本、一律关闭更简单，也不用信赖服务端版本号的格式；
+			// MariaDB 客户端不认识这个参数，因此仅对 Oracle 客户端生效（外层 !p.mariadb 已排除）
+			args = append(args, "--column-statistics=0")
+		}
 	}
 	for _, ex := range p.opts.ExcludeTables {
 		args = append(args, "--ignore-table="+ex)

@@ -13,7 +13,7 @@ test.describe("首次设置", () => {
     const preview = await other.newPage();
     await preview.goto("/setup");
     await preview.getByRole("button", { name: "深色" }).click();
-    await preview.getByRole("button", { name: "EN" }).click();
+    await preview.getByRole("button", { name: "EN", exact: true }).click();
     await expect(preview.locator("html")).toHaveClass(/dark/);
     await expect(preview.locator("html")).toHaveAttribute("lang", "en");
     await expect(preview.getByRole("heading", { level: 1 })).toHaveText("Set up OpsNap");

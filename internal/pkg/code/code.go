@@ -96,6 +96,10 @@ const (
 	StorageInUse
 	// StorageLocationLocked 被任务引用时不能更改位置，参数同 StorageInUse
 	StorageLocationLocked
+	// StorageUsageNotRead 只用于概览：从未读取过仓库用量的存储的原因
+	StorageUsageNotRead
+	// StorageUsageUnreadable 只用于概览：最近一次读取仓库用量失败，参数为原因
+	StorageUsageUnreadable
 )
 
 // 网络通道

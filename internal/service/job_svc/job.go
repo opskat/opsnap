@@ -55,6 +55,9 @@ type JobSvc interface {
 	CancelRun(ctx context.Context, req *api.CancelRunRequest) (*api.CancelRunResponse, error)
 	// Runs 运行记录，按触发顺序倒序，每页 20 条
 	Runs(ctx context.Context, req *api.RunsRequest) (*api.RunsResponse, error)
+	// RunView 一条运行记录的响应，与 Runs 中的同一条相同：固定原因按 ctx 的界面语言显示，
+	// 运行中的带实时的已导出量与已运行时间（概览的最近运行用）
+	RunView(ctx context.Context, run *job_entity.Run) *api.Run
 	// RunLog 一次运行的执行日志
 	RunLog(ctx context.Context, req *api.RunLogRequest) (*api.RunLogResponse, error)
 	// Stats 任务统计：快照数与最早时间、去重占用、导出总量与节省比例、最近一次成功、最近 30 次运行

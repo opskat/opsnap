@@ -86,9 +86,9 @@ func TestCreateAndVerifyLocal(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, os.FileMode(0o700), fi.Mode().Perm())
 
-		n, err := m.Verify(ctx, 1, localAt(dir), testKey)
+		stats, err := m.Verify(ctx, 1, localAt(dir), testKey)
 		require.NoError(t, err)
-		assert.Equal(t, 0, n)
+		assert.Equal(t, &RepoStats{Usage: &Usage{}}, stats, "空仓库：没有快照，用量为 0")
 	})
 
 	t.Run("校验后本机不留下连接配置（S3 时其中含明文 Secret Key）", func(t *testing.T) {

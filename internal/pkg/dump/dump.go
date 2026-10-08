@@ -133,6 +133,7 @@ type Session struct {
 	fwd     *forwarder
 	files   []*File
 	runs    []*toolRun
+	tools   []probe.Tool
 
 	closed   atomic.Bool
 	closeMu  sync.Mutex
@@ -161,6 +162,9 @@ func (f *File) Read(p []byte) (int, error) {
 
 // Bytes 已读出的字节数，可在读取的同时从其他 goroutine 调用，用于显示导出进度
 func (f *File) Bytes() int64 { return f.n.Load() }
+
+// Tools 本次导出按服务端版本选用的导出工具（路径与版本），按查找顺序排列
+func (s *Session) Tools() []probe.Tool { return s.tools }
 
 // Files 本次导出的文件，按应读取的顺序排列
 func (s *Session) Files() []*File { return s.files }
@@ -272,7 +276,7 @@ func Start(ctx context.Context, dir string, src Source, opts Options) (_ *Sessio
 	return s, nil
 }
 
-// CheckTools 不连接数据源，只检查这次导出需要的工具：能否在 PATH → tools.dir 中找到并读出版本；
+// CheckTools 不连接数据源，只检查这次导出需要的工具：能否按 serverVersion 选到（见 probe.ResolveTool）并读出版本；
 // PostgreSQL 的 pg_dump / pg_dumpall 大版本不低于 serverVersion（数据源最近一次测试时读到的版本，未知时为空，不比较）；
 // MariaDB 的 mysqldump 无法保证的 TLS 模式。运行的“准备”步骤用它在发起连接之前失败；
 // 连接后 Start 仍按实际读到的服务端版本再检查一次
@@ -353,23 +357,17 @@ func ValidateExcludeTable(typ dsconn.Type, rule string) error {
 	return nil
 }
 
-// findTool 按 PATH → tools.dir 查找导出工具并读取版本
-func findTool(ctx context.Context, name string, pkg l10n.Message) (*toolInfo, error) {
-	path, ok := probe.ToolPath(name)
-	if !ok {
+// findTool 按服务端版本选用导出工具（见 probe.ResolveTool）并读取版本，记进 s.Tools
+func (s *Session) findTool(ctx context.Context, name, serverVersion string, pkg l10n.Message) (*probe.Tool, error) {
+	t, found, err := probe.ResolveTool(ctx, name, serverVersion)
+	if !found {
 		return nil, l10n.Errorf(code.DumpToolMissing, ErrToolNotFound, name, pkg, name)
 	}
-	major, minor, raw, err := probe.ToolVersion(ctx, path)
 	if err != nil {
-		return nil, l10n.Errorf(code.DumpToolVersionUnknown, name, path, err)
+		return nil, l10n.Errorf(code.DumpToolVersionUnknown, t.Name, t.Path, err)
 	}
-	return &toolInfo{name: name, path: path, major: major, minor: minor, raw: raw}, nil
-}
-
-type toolInfo struct {
-	name, path   string
-	major, minor int
-	raw          string
+	s.tools = append(s.tools, t)
+	return &t, nil
 }
 
 // openDB 经链路打开数据源的 Go 连接池（测试可替换）

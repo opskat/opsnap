@@ -234,12 +234,19 @@ func apiReasons(t *testing.T, ctx context.Context, jobID int64, lang string) map
 // tool 写一个假工具：--version 时打印版本；否则记录参数，取出库名到 $db 后执行 body
 func (e *runEnv) tool(name, version, body string) {
 	e.t.Helper()
+	e.toolIn(e.bin, name, version, body)
+}
+
+// toolIn 在目录 dir 下写假工具，行为同 tool
+func (e *runEnv) toolIn(dir, name, version, body string) {
+	e.t.Helper()
+	require.NoError(e.t, os.MkdirAll(dir, 0o755)) //nolint:gosec // 测试临时目录
 	script := "#!/bin/sh\nPATH=/usr/bin:/bin\n" +
 		"if [ \"$1\" = \"--version\" ]; then printf '%s\\n' '" + version + "'; exit 0; fi\n" +
 		"printf '%s\\n' \"$@\" > " + e.rec + "/" + name + ".$$.argv\n" +
 		"db=$(printf '%s\\n' \"$@\" | sed -n \"s/.* dbname='\\([^']*\\)'.*/\\1/p\")\n" +
 		body + "\n"
-	require.NoError(e.t, os.WriteFile(filepath.Join(e.bin, name), []byte(script), 0o755)) //nolint:gosec // 测试用假可执行文件
+	require.NoError(e.t, os.WriteFile(filepath.Join(dir, name), []byte(script), 0o755)) //nolint:gosec // 测试用假可执行文件
 }
 
 // argv 假工具全部调用的参数
@@ -706,6 +713,29 @@ func TestRunPrepareChecksToolVersion(t *testing.T) {
 		assert.Empty(t, e.argv("mysqldump"))
 		e.assertClean()
 	})
+}
+
+// 运行日志的“导出工具”行写出按服务端版本实际选用的工具路径与版本
+// （docs/specs/2026-09-29-overview-docker.md「按服务端版本选择导出工具」）
+func TestRunLogShowsChosenTool(t *testing.T) {
+	e := newRunEnv(t)
+	toolsDir := t.TempDir()
+	probe.SetToolsDir(toolsDir)
+	t.Cleanup(func() { probe.SetToolsDir("") })
+	for _, v := range []string{"16", "17"} {
+		bin := filepath.Join(toolsDir, "postgresql-"+v, "bin")
+		e.toolIn(bin, "pg_dump", "pg_dump (PostgreSQL) "+v+".10", pgDumpOK)
+		e.toolIn(bin, "pg_dumpall", "pg_dumpall (PostgreSQL) "+v+".10", `printf -- '`+strings.ReplaceAll(globalsOut, "\n", `\n`)+`'`)
+	}
+
+	run := e.manual()
+	require.Equal(t, job_entity.RunSuccess, run.Status, "%s\n%s", run.Reason, logText(run))
+	pgDump := filepath.Join(toolsDir, "postgresql-16", "bin", "pg_dump")
+	zh := apiLog(t, e, run.ID, code.LangZhCN)
+	assert.Contains(t, zh, "导出工具 pg_dump："+pgDump+"（16.10）")
+	assert.Contains(t, zh, "导出工具 pg_dumpall："+filepath.Join(toolsDir, "postgresql-16", "bin", "pg_dumpall")+"（16.10）")
+	assert.Contains(t, apiLog(t, e, run.ID, code.LangEn), "Export tool pg_dump: "+pgDump+" (16.10)")
+	assert.NotContains(t, zh, "postgresql-17", "服务端为 16.4，选不低于它的最低版本")
 }
 
 // “指定数据库”中的库在运行时不存在：本次运行失败并指出是哪个库，不启动导出工具

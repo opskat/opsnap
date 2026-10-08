@@ -1,0 +1,27 @@
+# Docker 构建上下文（deploy/docker/Dockerfile 在仓库根目录构建）：只需要 Go 源码、前端源码与 deploy/docker。
+# 前端与 Go 都在镜像的构建阶段里重新构建，本地的依赖与产物一概不进上下文。
+.git
+.github
+.dev-kit
+.verification
+**/node_modules
+bin
+runtime
+coverage.out
+frontend/dist
+internal/web/dist/*
+!internal/web/dist/.gitkeep
+**/*.tsbuildinfo
+
+# 开发者本地的配置与测试凭据不进上下文：镜像里的配置由 deploy/docker/config.yaml 提供
+configs/config.yaml
+.env
+**/.env
+master.key
+**/master.key
+
+# 构建镜像用不到
+docs
+e2e
+deploy/test
+**/.DS_Store

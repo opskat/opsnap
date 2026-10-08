@@ -1,9 +1,13 @@
 # OpsNap 统一命令入口。前端命令也可在 frontend/ 下用 pnpm 直接执行。
+# VERSION 与 COMMIT 写入二进制，健康接口返回二者；Docker 镜像构建时由构建参数覆盖（没有 .git 目录）
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
-LDFLAGS := -s -w -X github.com/cago-frame/cago/configs.Version=$(VERSION)
+COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null)
+LDFLAGS := -s -w -X github.com/cago-frame/cago/configs.Version=$(VERSION) \
+	-X github.com/opskat/opsnap/internal/service/system_svc.Commit=$(COMMIT)
 BIN := bin/opsnap
+IMAGE ?= opsnap:local
 
-.PHONY: install dev-server dev-web build build-web build-server build-fakeidp build-fakessh build-fakepg generate lint lint-fix test test-cover e2e verify clean
+.PHONY: install dev-server dev-web build build-web build-server build-fakeidp build-fakessh build-fakepg generate lint lint-fix test test-cover e2e verify clean docker-build docker-smoke
 
 install: ## 安装前端依赖与 e2e 浏览器
 	pnpm -C frontend install --frozen-lockfile
@@ -61,6 +65,12 @@ e2e: build build-fakeidp build-fakessh build-fakepg ## 冒烟 e2e：临时目录
 	pnpm -C e2e test
 
 verify: lint test e2e ## 提交前的完整验证
+
+docker-build: ## 构建 Docker 镜像（deploy/docker/Dockerfile，本机架构），标签为 $(IMAGE)
+	docker build -f deploy/docker/Dockerfile --build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) -t $(IMAGE) .
+
+docker-smoke: ## 冒烟检查已构建的镜像：启动容器、等健康检查通过、逐个执行预装工具报版本
+	scripts/docker-smoke.sh $(IMAGE)
 
 clean:
 	rm -rf bin coverage.out frontend/dist e2e/test-results e2e/playwright-report

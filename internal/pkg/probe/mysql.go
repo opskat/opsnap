@@ -42,11 +42,10 @@ func mysqlItems(ctx context.Context, conn *dsconn.Conn) []Item {
 		items = append(items, decideMySQLGTID(gtidMode))
 	}
 
-	var retention int64
-	if err := scanOne(ctx, conn.DB, "SELECT @@GLOBAL.binlog_expire_logs_seconds", &retention); err != nil {
+	if item, err := mysqlBinlogRetentionItem(ctx, conn); err != nil {
 		items = append(items, queryErrorItem("mysql.binlog_retention", err))
 	} else {
-		items = append(items, decideMySQLBinlogRetention(retention))
+		items = append(items, item)
 	}
 
 	if item, err := mysqlReplicationPrivilegesItem(ctx, conn.DB); err != nil {
@@ -61,13 +60,30 @@ func mysqlItems(ctx context.Context, conn *dsconn.Conn) []Item {
 		items = append(items, item)
 	}
 
-	items = append(items, decideMySQLDump(conn.Info.Version, lookupTool(ctx, "mysqldump")))
+	items = append(items, decideMySQLDump(conn.Info.Version, lookupTool(ctx, "mysqldump", conn.Info.Version)))
 	return items
 }
 
 // scanOne 执行只返回一行一列的只读查询
 func scanOne(ctx context.Context, db *sql.DB, query string, dest any) error {
 	return db.QueryRowContext(ctx, query).Scan(dest)
+}
+
+// mysqlBinlogRetentionItem 读取 binlog 保留时长：binlog_expire_logs_seconds 是 8.0 才引入的变量，
+// 5.7 及更早的服务端上不存在，只能读按天计的 expire_logs_days（换算成秒后按同一规则判定）
+func mysqlBinlogRetentionItem(ctx context.Context, conn *dsconn.Conn) (Item, error) {
+	if major, _, ok := ParseMajorMinor(conn.Info.Version); ok && major < 8 {
+		var days int64
+		if err := scanOne(ctx, conn.DB, "SELECT @@GLOBAL.expire_logs_days", &days); err != nil {
+			return Item{}, err
+		}
+		return decideMySQLBinlogRetentionLegacy(days), nil
+	}
+	var seconds int64
+	if err := scanOne(ctx, conn.DB, "SELECT @@GLOBAL.binlog_expire_logs_seconds", &seconds); err != nil {
+		return Item{}, err
+	}
+	return decideMySQLBinlogRetention(seconds), nil
 }
 
 // mysqlCurrentUser 读取 CURRENT_USER()，拆成用户名与允许来源的主机，用于把修复方法中的账号换成实际值
@@ -199,26 +215,47 @@ func decideMySQLGTID(mode string) Item {
 	}}
 }
 
+// decideMySQLBinlogRetention 8.0 起按 binlog_expire_logs_seconds 判定
 func decideMySQLBinlogRetention(seconds int64) Item {
-	if seconds == 0 || seconds >= mysqlBinlogRetentionThreshold {
-		var detail, detailEn string
-		if seconds == 0 {
-			detail = "binlog 永不过期（binlog_expire_logs_seconds = 0）"
-			detailEn = "Binlog never expires (binlog_expire_logs_seconds = 0)."
-		} else {
-			detail = fmt.Sprintf("binlog 保留 %d 秒（约 %.1f 天），不少于 7 天", seconds, float64(seconds)/86400)
-			detailEn = fmt.Sprintf("Binlog is kept for %d seconds (about %.1f days), at least 7 days.", seconds, float64(seconds)/86400)
-		}
-		return Item{Key: "mysql.binlog_retention", Title: itemTitles["mysql.binlog_retention"], Tier: TierOK,
-			Detail: Text{ZhCN: detail, En: detailEn}}
-	}
-	return Item{Key: "mysql.binlog_retention", Title: itemTitles["mysql.binlog_retention"], Tier: TierWarn, Detail: Text{
-		ZhCN: fmt.Sprintf("binlog 只保留 %d 秒（约 %.1f 天），少于 7 天，中断超过这个时长就无法续传", seconds, float64(seconds)/86400),
-		En:   fmt.Sprintf("Binlog is kept for only %d seconds (about %.1f days), less than 7 days; a longer outage cannot resume.", seconds, float64(seconds)/86400),
-	}, Fix: Text{
+	return decideBinlogRetention(seconds, "binlog_expire_logs_seconds = 0", Text{}, Text{
 		ZhCN: "SET PERSIST binlog_expire_logs_seconds = 604800;",
 		En:   "SET PERSIST binlog_expire_logs_seconds = 604800;",
-	}}
+	})
+}
+
+// decideMySQLBinlogRetentionLegacy 5.7 及更早版本上 binlog 保留时长的判定：实际读到的变量是
+// expire_logs_days（按天计），8.0 才有的 SET PERSIST / binlog_expire_logs_seconds 在这些服务端上不存在，
+// 说明与修复建议须用 5.7 实际存在的变量
+func decideMySQLBinlogRetentionLegacy(days int64) Item {
+	return decideBinlogRetention(days*24*3600, "expire_logs_days = 0", Text{
+		ZhCN: fmt.Sprintf("，expire_logs_days = %d", days),
+		En:   fmt.Sprintf(", expire_logs_days = %d", days),
+	}, Text{
+		ZhCN: "在 my.cnf 中设置 expire_logs_days=7（需重启），或执行 SET GLOBAL expire_logs_days = 7;",
+		En:   "Set expire_logs_days=7 in my.cnf (requires a restart), or run SET GLOBAL expire_logs_days = 7;",
+	})
+}
+
+// decideBinlogRetention 两个版本共用的阈值规则与文案：0 为永不过期，不少于 7 天为正常，否则为风险。
+// neverExpires 是保留变量为 0 时的写法，source 附在天数之后注明读到的变量（为空则不注明），fix 是该版本可用的修复方法
+func decideBinlogRetention(seconds int64, neverExpires string, source, fix Text) Item {
+	days := float64(seconds) / 86400
+	if seconds == 0 {
+		return Item{Key: "mysql.binlog_retention", Title: itemTitles["mysql.binlog_retention"], Tier: TierOK, Detail: Text{
+			ZhCN: fmt.Sprintf("binlog 永不过期（%s）", neverExpires),
+			En:   fmt.Sprintf("Binlog never expires (%s).", neverExpires),
+		}}
+	}
+	if seconds >= mysqlBinlogRetentionThreshold {
+		return Item{Key: "mysql.binlog_retention", Title: itemTitles["mysql.binlog_retention"], Tier: TierOK, Detail: Text{
+			ZhCN: fmt.Sprintf("binlog 保留 %d 秒（约 %.1f 天%s），不少于 7 天", seconds, days, source.ZhCN),
+			En:   fmt.Sprintf("Binlog is kept for %d seconds (about %.1f days%s), at least 7 days.", seconds, days, source.En),
+		}}
+	}
+	return Item{Key: "mysql.binlog_retention", Title: itemTitles["mysql.binlog_retention"], Tier: TierWarn, Detail: Text{
+		ZhCN: fmt.Sprintf("binlog 只保留 %d 秒（约 %.1f 天%s），少于 7 天，中断超过这个时长就无法续传", seconds, days, source.ZhCN),
+		En:   fmt.Sprintf("Binlog is kept for only %d seconds (about %.1f days%s), less than 7 days; a longer outage cannot resume.", seconds, days, source.En),
+	}, Fix: fix}
 }
 
 func decideMySQLReplicationPrivileges(hasSlave, hasClient bool, user, host string) Item {
@@ -268,13 +305,13 @@ func decideMySQLDump(serverVersion string, tool toolStatus) Item {
 	}
 	if tool.Major < sMajor || (tool.Major == sMajor && tool.Minor < sMinor) {
 		return Item{Key: "mysql.mysqldump", Title: itemTitles["mysql.mysqldump"], Tier: TierWarn, Detail: Text{
-			ZhCN: fmt.Sprintf("本机 mysqldump（%s）版本低于服务端（%s）", tool.Raw, serverVersion),
-			En:   fmt.Sprintf("The local mysqldump (%s) is older than the server (%s).", tool.Raw, serverVersion),
+			ZhCN: fmt.Sprintf("选用的 %s：%s（%s）版本低于服务端（%s）", tool.Name, tool.Path, tool.Version, serverVersion),
+			En:   fmt.Sprintf("The selected %s: %s (%s) is older than the server (%s).", tool.Name, tool.Path, tool.Version, serverVersion),
 		}, Fix: mysqlDumpFix}
 	}
 	return Item{Key: "mysql.mysqldump", Title: itemTitles["mysql.mysqldump"], Tier: TierOK, Detail: Text{
-		ZhCN: fmt.Sprintf("已找到 mysqldump（%s），版本不低于服务端", tool.Raw),
-		En:   fmt.Sprintf("Found mysqldump (%s), not older than the server.", tool.Raw),
+		ZhCN: fmt.Sprintf("选用 %s：%s（%s），版本不低于服务端", tool.Name, tool.Path, tool.Version),
+		En:   fmt.Sprintf("Using %s: %s (%s), not older than the server.", tool.Name, tool.Path, tool.Version),
 	}}
 }
 

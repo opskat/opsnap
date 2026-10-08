@@ -34,13 +34,125 @@
     "hoursAgo": "{{count}} h ago"
   },
   "overview": {
-    "subtitle": "Status of all backup and sync jobs",
-    "systemStatus": "System status",
-    "version": "Version",
-    "database": "Metadata database",
-    "databaseOk": "Healthy",
-    "databaseError": "Unavailable",
-    "loadFailed": "Failed to load system status: {{message}}"
+    "subtitle": "All backup jobs · last 24 hours",
+    "searchPlaceholder": "Search · coming in a later version",
+    "comingSoon": "Coming in a later version",
+    "restore": "Restore data",
+    "loadFailedTitle": "Failed to load the overview",
+    "refreshFailed": "Refresh failed: {{message}}",
+    "guide": {
+      "title": "Start your first backup",
+      "description": "OpsNap backs up data sources to storage on a schedule. Finish the three steps below and this space will show run status, success rate and storage usage.",
+      "step1": {
+        "title": "Add data source",
+        "description": "The MySQL or PostgreSQL instance to back up, reachable via an SSH jump host or SOCKS5.",
+        "done": "{{count}} data sources added",
+        "done_one": "{{count}} data source added",
+        "done_other": "{{count}} data sources added",
+        "add": "Add data source",
+        "view": "View data sources"
+      },
+      "step2": {
+        "title": "Add storage",
+        "description": "Where snapshots are kept: a local directory or an S3-compatible object store; data is encrypted before it is written.",
+        "done": "{{count}} storages added",
+        "done_one": "{{count}} storage added",
+        "done_other": "{{count}} storages added",
+        "add": "Add storage",
+        "view": "View storage"
+      },
+      "step3": {
+        "title": "New job",
+        "description": "Choose a data source, storage, schedule and retention policy; you can run it once right after creating it.",
+        "note": "Requires the first two steps"
+      }
+    },
+    "stats": {
+      "protected": "Protected data sources",
+      "protectedNone": "No data source is backed up by a job yet",
+      "successRate": "24h success rate",
+      "runs": "{{count}} runs",
+      "runs_one": "{{count}} run",
+      "runs_other": "{{count}} runs",
+      "failedRuns": "{{count}} failed",
+      "failedRuns_one": "{{count}} failed",
+      "failedRuns_other": "{{count}} failed",
+      "noRuns": "No runs in the last 24 hours",
+      "storageUsed": "Storage used",
+      "savings": "Deduped and compressed · {{percent}}% saved",
+      "unreadable": "{{count}} storages unreadable",
+      "unreadable_one": "{{count}} storage unreadable",
+      "unreadable_other": "{{count}} storages unreadable",
+      "noStorage": "No storage yet",
+      "nextRun": "Next run",
+      "noEnabledJobs": "No enabled jobs yet",
+      "inMinutes": "in {{count}} minutes",
+      "inMinutes_one": "in {{count}} minute",
+      "inMinutes_other": "in {{count}} minutes",
+      "inHours": "in {{count}} hours",
+      "inHours_one": "in {{count}} hour",
+      "inHours_other": "in {{count}} hours",
+      "tomorrow": "tomorrow",
+      "inDays": "in {{count}} days",
+      "inDays_one": "in {{count}} day",
+      "inDays_other": "in {{count}} days"
+    },
+    "recent": {
+      "title": "Recent runs",
+      "filterLabel": "Filter recent runs",
+      "all": "All",
+      "backup": "Backup",
+      "sync": "Sync",
+      "failed": "Failed {{count}}",
+      "columns": {
+        "job": "Job",
+        "type": "Type",
+        "status": "Status",
+        "duration": "Duration",
+        "size": "Size",
+        "time": "Time"
+      },
+      "type": {
+        "backup": "Backup",
+        "sync": "Sync"
+      },
+      "status": {
+        "queued": "Queued",
+        "running": "Running",
+        "success": "Success",
+        "failed": "Failed",
+        "canceled": "Canceled",
+        "skipped": "Skipped"
+      },
+      "empty": "No runs yet",
+      "emptyFailed": "No failed runs"
+    },
+    "daily": {
+      "title": "Last 14 days",
+      "legendSuccess": "Success",
+      "legendFailed": "Failed",
+      "success": "Success {{count}}",
+      "failed": "Failed {{count}}",
+      "bar": "{{date}} · success {{success}} · failed {{failed}}",
+      "today": "Today",
+      "empty": "No runs in the last 14 days"
+    },
+    "storage": {
+      "title": "Storage targets",
+      "usage": "{{size}} · {{count}} snapshots",
+      "usage_one": "{{size}} · {{count}} snapshot",
+      "usage_other": "{{size}} · {{count}} snapshots",
+      "disk": "Disk {{used}} / {{total}} used · {{free}} free",
+      "diskUsed": "Disk used",
+      "empty": "No storage yet",
+      "add": "Add storage"
+    }
+  },
+  "service": {
+    "running": "Service running",
+    "databaseError": "Metadata database unavailable",
+    "unreachable": "Cannot reach the service",
+    "selfHosted": "Self-hosted"
   },
   "form": {
     "required": "Required",

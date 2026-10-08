@@ -1,0 +1,30 @@
+# Docker 镜像内置的默认配置（/opt/opsnap/configs/config.yaml）。
+# 换用自己的配置：把整份文件挂载到同一路径（见 README「Docker」）。数据目录 /data 应挂载为卷。
+env: prod
+source: file
+debug: false
+
+http:
+  address:
+    - "0.0.0.0:8210"
+  # 反向代理的地址（IP 或 CIDR）。只有来自这些地址的请求才采用 X-Forwarded-For 作为客户端 IP，
+  # 登录限速按客户端 IP 计算；留空表示不信任任何代理
+  trustedProxies: []
+
+logger:
+  level: info
+  # 控制台输出即容器日志（docker logs），首次启动的设置码在这里
+  disableConsole: false
+  logFile:
+    enable: true
+    filename: /data/logs/opsnap.log
+    errorFilename: /data/logs/opsnap.err.log
+
+# 元数据库所在目录即数据目录：master.key、kopia 缓存与导出临时目录也放在这里
+db:
+  driver: sqlite
+  dsn: "/data/opsnap.db?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
+
+tools:
+  # 预装的多版本导出工具，按服务端版本选用（spec「按服务端版本选择导出工具」）
+  dir: /opt/opsnap/tools

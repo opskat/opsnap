@@ -34,7 +34,7 @@ func TestEnvironmentOverridesFile(t *testing.T) {
 }
 
 func TestServices(t *testing.T) {
-	full := "TEST_ENV_HOST=192.0.2.1\nOPSNAP_TEST_PASSWORD=pw\nTEST_ENV_MYSQL_PORT=13306\nTEST_ENV_PG_PORT=15432\n"
+	full := "TEST_ENV_HOST=192.0.2.1\nOPSNAP_TEST_PASSWORD=pw\nTEST_ENV_MYSQL_PORT=13306\nTEST_ENV_MYSQL57_PORT=13307\nTEST_ENV_PG_PORT=15432\n"
 
 	t.Run("配置齐全", func(t *testing.T) {
 		e := envOf(full, nil)
@@ -42,9 +42,19 @@ func TestServices(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, Service{Host: "192.0.2.1", Port: 13306, User: "root", Password: "pw"}, m)
 		assert.Equal(t, "192.0.2.1:13306", m.Addr())
+		m57, err := e.MySQL57()
+		require.NoError(t, err)
+		assert.Equal(t, Service{Host: "192.0.2.1", Port: 13307, User: "root", Password: "pw"}, m57)
 		p, err := e.Postgres()
 		require.NoError(t, err)
 		assert.Equal(t, Service{Host: "192.0.2.1", Port: 15432, User: "postgres", Password: "pw"}, p)
+	})
+
+	t.Run("未配置 5.7 端口时错误中列出该变量", func(t *testing.T) {
+		e := envOf("TEST_ENV_HOST=192.0.2.1\nOPSNAP_TEST_PASSWORD=pw\n", nil)
+		_, err := e.MySQL57()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "TEST_ENV_MYSQL57_PORT")
 	})
 
 	t.Run("缺少的变量写进原因", func(t *testing.T) {

@@ -13,8 +13,11 @@ import (
 	"github.com/opskat/opsnap/internal/repository/system_repo"
 )
 
+// Commit 构建时写入的提交短号（Makefile 的 COMMIT，经 -ldflags -X 注入）；未写入时为空
+var Commit string
+
 type SystemSvc interface {
-	// Health 汇总版本号与元数据库状态
+	// Health 汇总版本号、提交短号与元数据库状态
 	Health(ctx context.Context, req *api.HealthRequest) (*api.HealthResponse, error)
 }
 
@@ -35,6 +38,7 @@ func (s *systemSvc) Health(ctx context.Context, req *api.HealthRequest) (*api.He
 	}
 	return &api.HealthResponse{
 		Version:  configs.Version,
+		Commit:   Commit,
 		Database: status,
 	}, nil
 }

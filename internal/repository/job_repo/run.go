@@ -36,6 +36,14 @@ type RunRepo interface {
 	Trim(ctx context.Context, jobID int64, keep int) error
 	// DeleteByJob 删除任务的全部运行记录
 	DeleteByJob(ctx context.Context, jobID int64) error
+
+	// ListRecent 所有任务中最近 limit 次运行，按 ID 倒序（即触发顺序倒序）；status 非空时只列出该状态的
+	ListRecent(ctx context.Context, status string, limit int) ([]*job_entity.Run, error)
+	// ListStartedSince 所有任务中开始时间（毫秒）不早于 since、状态为 statuses 之一的运行，
+	// 只读取 ID、任务、状态与开始时间
+	ListStartedSince(ctx context.Context, since int64, statuses []string) ([]*job_entity.Run, error)
+	// SucceededJobs 至少有一次成功运行的任务，任务 ID → true
+	SucceededJobs(ctx context.Context) (map[int64]bool, error)
 }
 
 // defaultRun 运行记录与任务共用元数据库，没有需要替换的依赖；测试可用 RegisterRun 替换为 mock
@@ -142,4 +150,35 @@ func (r *runRepo) Trim(ctx context.Context, jobID int64, keep int) error {
 
 func (r *runRepo) DeleteByJob(ctx context.Context, jobID int64) error {
 	return db.Ctx(ctx).Where("job_id = ?", jobID).Delete(&job_entity.Run{}).Error
+}
+
+func (r *runRepo) ListRecent(ctx context.Context, status string, limit int) ([]*job_entity.Run, error) {
+	q := summary(ctx)
+	if status != "" {
+		q = q.Where("status = ?", status)
+	}
+	var rows []*job_entity.Run
+	err := q.Order("id DESC").Limit(limit).Find(&rows).Error
+	return rows, err
+}
+
+func (r *runRepo) ListStartedSince(ctx context.Context, since int64, statuses []string) ([]*job_entity.Run, error) {
+	var rows []*job_entity.Run
+	err := db.Ctx(ctx).Model(&job_entity.Run{}).Select("id", "job_id", "status", "started_at").
+		Where("status IN ? AND started_at >= ?", statuses, since).Find(&rows).Error
+	return rows, err
+}
+
+func (r *runRepo) SucceededJobs(ctx context.Context) (map[int64]bool, error) {
+	var ids []int64
+	err := db.Ctx(ctx).Model(&job_entity.Run{}).Distinct("job_id").Where("status = ?", job_entity.RunSuccess).
+		Pluck("job_id", &ids).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[int64]bool, len(ids))
+	for _, id := range ids {
+		out[id] = true
+	}
+	return out, nil
 }

@@ -27,7 +27,6 @@ import (
 	"github.com/opskat/opsnap/internal/pkg/kopiarepo"
 	"github.com/opskat/opsnap/internal/pkg/l10n"
 	"github.com/opskat/opsnap/internal/pkg/netchain"
-	"github.com/opskat/opsnap/internal/pkg/probe"
 	"github.com/opskat/opsnap/internal/pkg/retention"
 	"github.com/opskat/opsnap/internal/repository/datasource_repo"
 	"github.com/opskat/opsnap/internal/repository/job_repo"
@@ -86,6 +85,8 @@ const (
 	cancelWait = 30 * time.Second
 	// retentionTimeout 应用保留策略（含快速维护）的上限；它在快照已确认之后执行，不受取消与超时影响
 	retentionTimeout = 30 * time.Minute
+	// usageTimeout 运行结束时读取存储用量的上限
+	usageTimeout = 10 * time.Minute
 	// reasonHead、reasonTail 失败原因过长时保留的开头与结尾字符数，完整内容在日志中
 	reasonHead = 600
 	reasonTail = 1200
@@ -291,6 +292,8 @@ func (r *runner) Execute(ctx context.Context, runID int64) (*job_entity.Run, err
 
 	x := &execution{r: r, run: run, job: j, log: ar.log, ar: ar, started: time.UnixMilli(run.StartedAt)}
 	res, stepErr := x.do(tctx)
+	// 运行被取消、超时或中断时不记录存储用量
+	recordUsage := tctx.Err() == nil
 	x.finish(tctx, res, stepErr)
 
 	// 记录用不受取消影响的 ctx 保存
@@ -308,6 +311,8 @@ func (r *runner) Execute(ctx context.Context, runID int64) (*job_entity.Run, err
 	if err := job_repo.Run().Trim(sctx, j.ID, job_entity.MaxRunsPerJob); err != nil {
 		logger.Ctx(sctx).Warn("清理更早的运行记录失败", zap.Int64("job_id", j.ID), zap.Error(err))
 	}
+	// 运行之后记录存储用量（spec「存储目标」），再关闭写入会话
+	x.closeWriter(ctx, recordUsage)
 	return run, nil
 }
 
@@ -496,7 +501,7 @@ func (x *execution) do(ctx context.Context) (res *kopiarepo.SnapshotResult, err 
 	return res, nil
 }
 
-// close 终止导出工具、关闭本机端口与链路、删除运行临时目录，最后关闭存储写入会话
+// close 终止导出工具、关闭本机端口与链路、删除运行临时目录；存储写入会话留到运行记录保存之后，由 closeWriter 关闭
 func (x *execution) close(ctx context.Context) {
 	cctx := context.WithoutCancel(ctx)
 	if x.sess != nil {
@@ -507,23 +512,23 @@ func (x *execution) close(ctx context.Context) {
 	if x.tunnel != nil {
 		_ = x.tunnel.Close()
 	}
-	if x.writer != nil {
-		if err := x.writer.Close(cctx); err != nil {
-			logger.Ctx(cctx).Warn("关闭存储写入会话失败", zap.Int64("run_id", x.run.ID), zap.Error(err))
-		}
-	}
 }
 
-// requiredTools 任务需要的导出工具
-func requiredTools(j *job_entity.Job, kind string) []string {
-	if kind == datasource_entity.KindMySQL {
-		return []string{"mysqldump"}
+// closeWriter 在运行记录保存之后调用：record 时（运行没有被取消、超时或中断）先用写入会话记录存储用量，
+// 再关闭写入会话。读取用量不是运行的一部分，不计入运行的耗时；OpsNap 停止时随 ctx 停止，停止时不记录
+func (x *execution) closeWriter(ctx context.Context, record bool) {
+	if x.writer == nil {
+		return
 	}
-	tools := []string{"pg_dump"}
-	if j.OptGlobals {
-		tools = append(tools, "pg_dumpall")
+	if record && ctx.Err() == nil {
+		uctx, cancel := context.WithTimeout(ctx, usageTimeout)
+		storage_svc.Storage().RecordUsage(uctx, x.st.ID, x.writer)
+		cancel()
 	}
-	return tools
+	cctx := context.WithoutCancel(ctx)
+	if err := x.writer.Close(cctx); err != nil {
+		logger.Ctx(cctx).Warn("关闭存储写入会话失败", zap.Int64("run_id", x.run.ID), zap.Error(err))
+	}
 }
 
 // prepare 检查存储状态为正常、数据源状态不是主机密钥已变化、导出工具可用，并打开存储；不连接数据源
@@ -556,12 +561,8 @@ func (x *execution) prepare(ctx context.Context) error {
 		dump.Options{Globals: x.job.OptGlobals && x.ds.Kind == datasource_entity.KindPostgreSQL}); err != nil {
 		return &stepError{step: step, err: err}
 	}
-	for _, name := range requiredTools(x.job, x.ds.Kind) {
-		if path, ok := probe.ToolPath(name); ok {
-			x.log.add(l10n.New(code.RunLogToolPath, name, path))
-		}
-	}
 	if x.writer, err = storage_svc.Storage().OpenWriter(ctx, x.st.ID); err != nil {
+		storage_svc.Storage().RecordUsageError(ctx, x.st.ID, err)
 		return failAt(step, code.RunOpenStorageFailed, x.st.Name, err)
 	}
 	x.log.add(l10n.New(code.RunLogStorageOpened, x.st.Name))
@@ -613,6 +614,10 @@ func (x *execution) connect(ctx context.Context) error {
 	}
 	x.sess = sess
 	x.ar.sess.Store(sess)
+	// 连接后按实际读到的服务端版本选用的导出工具
+	for _, t := range sess.Tools() {
+		x.log.add(l10n.New(code.RunLogToolPath, t.Name, t.Path, t.Version))
+	}
 	x.log.add(l10n.New(code.RunLogForwarding))
 	return nil
 }

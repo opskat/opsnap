@@ -16,6 +16,8 @@ make test           # Go tests + frontend Vitest (guard tests included)
 make test-cover     # Go coverage summary
 make e2e            # build, then run the Playwright smoke suite
 make verify         # lint + test + e2e: the full pre-PR check
+make docker-build   # build the Docker image (deploy/docker/Dockerfile) for this machine's architecture, tag opsnap:local (IMAGE=...)
+make docker-smoke   # start the built image, wait for its health check, run every tool under /opt/opsnap/tools with --version
 ```
 
 Targeted runs:
@@ -47,8 +49,9 @@ frontend/              React app (the @ alias points to src/)
   eslint-rules/        project ESLint plugin (design-system rules)
   scripts/             check-i18n.mjs
 e2e/                   Playwright smoke tests and scratch verification
+deploy/docker/         Dockerfile, built-in config.yaml, install-mysqldump.sh and pinned MySQL / PGDG signing keys for the image
 deploy/test/           docker-compose.yaml for the docker.internal test services
-scripts/               repository scripts (test-env.sh)
+scripts/               repository scripts (test-env.sh, docker-smoke.sh)
 docs/                  contributor docs and specs
 ```
 
@@ -120,8 +123,27 @@ A PR description states what changed and why, the commands run and their results
 - `go`: golangci-lint v2.12.2 + `go test ./...`
 - `frontend`: `pnpm lint` and `pnpm test` in `frontend/`, `pnpm lint` in `e2e/`
 - `e2e`: `make e2e`
+- `docker` (pull requests only): builds the image for amd64 on `ubuntu-latest` and arm64 on `ubuntu-24.04-arm` (native runners, no QEMU; free only while the repository is public), without pushing, and runs `scripts/docker-smoke.sh` on each. `VERSION` is `pr-<number>`, `COMMIT` the PR head's short hash.
 
-**These checks do not block merging yet.** A repository admin has to enable branch protection on `main` and mark the three jobs as required. Until then they are advisory.
+**These checks do not block merging yet.** A repository admin has to enable branch protection on `main` and mark the jobs as required. Until then they are advisory.
+
+The Docker image takes two build arguments, `VERSION` and `COMMIT`; `make build-server` writes them into the binary through `LDFLAGS` (`configs.Version` and `system_svc.Commit`), and `/api/v1/system/health` returns both. Outside Docker they default to `git describe` and `git rev-parse --short HEAD`.
+
+## Nightly image
+
+`.github/workflows/nightly.yml` and the reusable `.github/workflows/docker-publish.yml` build and publish a daily image, separately from the PR-only `docker` job above (spec [`2026-09-29-overview-docker.md`](specs/2026-09-29-overview-docker.md), "Docker 镜像" → "nightly 构建"):
+
+- Every day at 18:00 UTC (02:00 Beijing time), it merges `main` into the `nightly` branch. A merge conflict stops the workflow with an error and leaves `nightly` untouched; no new commits on `main` skip the build entirely.
+- Pushing to `nightly` directly also builds, skipping the merge step (it is only meaningful for the scheduled/manual triggers). Running the workflow manually (`workflow_dispatch`) builds too, subject to the same "skip when nothing changed" rule as the schedule.
+- Before publishing, it runs the same Go and frontend checks as the `go` and `frontend` jobs in `ci.yml` against the `nightly` branch; a failure there blocks the publish.
+- `amd64` and `arm64` are built natively (same runners as the PR `docker` job), each pushed to `ghcr.io/opskat/opsnap` by digest and smoke-tested (`scripts/docker-smoke.sh`) right after that push — pulling the just-pushed digest back down, since `docker buildx`'s push-by-digest output cannot also load the image into the local daemon in the same build. A failed smoke test fails that job, so the digest is never merged into a tagged manifest. The two digests are then merged into one multi-arch manifest list tagged `nightly` and `nightly-<UTC date>`. There is no `latest` tag and no GitHub Release.
+- The image version shown in the app is `nightly-<UTC date>`; the commit is the short SHA of the merged `nightly` commit that was built.
+
+One-time prerequisite: the `nightly` branch does not exist until someone creates it with `git push origin main:nightly`. That push, made with a real account rather than the workflow's own token, fires the `push` trigger above right away, which doubles as the first manual confirmation that the pipeline works end to end.
+
+GitHub disables scheduled workflows after 60 days without repository activity; a stopped nightly build does not raise any error, it silently stops updating the tags. Check the Actions tab for "Nightly" shown as disabled, and re-enable it there if needed.
+
+To trigger a build manually: open the "Nightly" workflow under the repository's Actions tab and use "Run workflow" (`workflow_dispatch`), or `gh workflow run nightly.yml`.
 
 ## Related
 

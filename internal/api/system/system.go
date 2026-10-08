@@ -9,12 +9,14 @@ const (
 	DatabaseError = "error"
 )
 
-// HealthRequest 健康检查：返回版本号与元数据库状态，供前端和部署探活使用
+// HealthRequest 健康检查：返回版本号、提交短号与元数据库状态，供前端和部署探活使用
 type HealthRequest struct {
 	mux.Meta `path:"/system/health" method:"GET"`
 }
 
 type HealthResponse struct {
-	Version  string `json:"version"`
+	Version string `json:"version"`
+	// Commit 构建时写入的提交短号；未写入（如 go run）时为空
+	Commit   string `json:"commit"`
 	Database string `json:"database"`
 }

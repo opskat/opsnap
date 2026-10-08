@@ -11,7 +11,6 @@ import (
 	"github.com/kopia/kopia/repo"
 	"github.com/kopia/kopia/repo/manifest"
 	"github.com/kopia/kopia/snapshot"
-	"github.com/kopia/kopia/snapshot/snapshotfs"
 
 	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/l10n"
@@ -179,21 +178,5 @@ func (w *Writer) Usage(ctx context.Context, ids []string) (*Usage, error) {
 		}
 		mans = append(mans, m)
 	}
-	u := &Usage{}
-	if len(mans) == 0 {
-		return u, nil
-	}
-	for _, m := range mans {
-		if m.RootEntry != nil && m.RootEntry.DirSummary != nil {
-			u.ExportBytes += m.RootEntry.DirSummary.TotalFileSize
-		}
-	}
-	err := snapshotfs.CalculateStorageStats(ctx, w.rep, mans, func(m *snapshot.Manifest) error {
-		u.PackedBytes = m.StorageStats.RunningTotal.PackedContentBytes
-		return nil
-	})
-	if err != nil {
-		return nil, l10n.Errorf(code.KopiaUsage, err)
-	}
-	return u, nil
+	return usageOf(ctx, w.rep, mans)
 }

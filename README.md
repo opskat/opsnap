@@ -17,6 +17,48 @@ bin/opsnap        # open http://127.0.0.1:8210
 
 For development, run `make dev-server` and `make dev-web` side by side.
 
+## Docker
+
+The image `ghcr.io/opskat/opsnap` is built for `linux/amd64` and `linux/arm64` on Debian stable slim. Besides the binary it carries the export tools, laid out by version under `/opt/opsnap/tools` so OpsNap can pick the one matching each server:
+
+| Directory | Tools | Source |
+|---|---|---|
+| `mysql-8.0`, `mysql-8.4`, `mysql-9.7` | `mysqldump` | MySQL official binaries (signatures checked at build time) |
+| `postgresql-14` … `postgresql-18` | `pg_dump`, `pg_dumpall` | PostgreSQL apt repository (PGDG) |
+| `mariadb` | `mariadb-dump` | Debian's MariaDB client |
+
+The container listens on `0.0.0.0:8210`, keeps everything it writes (metadata database, `master.key`, logs, kopia cache) in `/data`, runs as root and reports its health from `/api/v1/system/health`. The image holds no keys or credentials; they are created in `/data` on first start.
+
+```bash
+docker run -d --name opsnap --restart unless-stopped \
+  -p 8210:8210 -v opsnap-data:/data \
+  ghcr.io/opskat/opsnap:nightly
+docker logs opsnap   # the setup code for first-time setup at http://<host>:8210
+```
+
+With docker compose:
+
+```yaml
+services:
+  opsnap:
+    image: ghcr.io/opskat/opsnap:nightly
+    restart: unless-stopped
+    ports:
+      - "8210:8210"
+    volumes:
+      - opsnap-data:/data
+      # - /srv/backups:/backups                              # a host directory for local-directory storage
+      # - ./config.yaml:/opt/opsnap/configs/config.yaml:ro   # your own configuration
+volumes:
+  opsnap-data:
+```
+
+- **Back up `master.key` with the volume.** It sits next to the database in `/data`; without it the saved credentials and storage keys cannot be decrypted (see [Master key](#master-key)). Setting `OPSNAP_MASTER_KEY` (`-e OPSNAP_MASTER_KEY=...`) instead keeps the key out of the volume.
+- **Local-directory storage needs a host directory mounted into the container**, for example `-v /srv/backups:/backups`, then a local-directory storage with the path `/backups`. Storage paths are paths inside the container; anything not on a mounted volume is lost with the container.
+- **To use your own configuration**, start from [`deploy/docker/config.yaml`](deploy/docker/config.yaml) (the built-in default) and mount it over `/opt/opsnap/configs/config.yaml`, or mount it elsewhere and append `-c <path>` to the `docker run` command. Keep `db.dsn` and the log files under `/data` and `tools.dir` at `/opt/opsnap/tools`; the health check calls `127.0.0.1:8210`, so if you change the port also override it with `--health-cmd`.
+
+To build and check the image from a checkout: `make docker-build` (tag `opsnap:local`, your machine's architecture), then `make docker-smoke`.
+
 ## OIDC sign-in
 
 Under Settings → Sign-in methods, configure one OIDC provider (display name, issuer, client ID and secret, scopes) and register the callback URL shown there with the IdP. Then click Bind and sign in at the IdP: that identity becomes a second way to sign in as the administrator. After signing in with it once, you can turn off password sign-in; `opsnap admin reset-password` turns it back on if the IdP is unavailable.
