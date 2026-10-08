@@ -122,11 +122,13 @@ jobs:
   test-go:
     name: Go lint & test (nightly)
     needs: [prepare]
-    # 不能省略 always()：没有状态检查函数时 GitHub 会隐式补上 success()，而它会检查
-    # 所有祖先作业（含经 prepare 间接依赖的 sync）。push 触发时 sync 按设计被跳过，
-    # 测试就会跟着被跳过，publish 却照样发布（曾经的事故）。所以这里显式要求 prepare
-    # 成功（sync 冲突失败时 prepare 被跳过，测试也就不跑）且没有被短路。
-    if: ${{ always() && needs.prepare.result == 'success' && needs.prepare.outputs.skip != 'true' }}
+    # 不能省略状态检查函数：没有时 GitHub 会隐式补上 success()，而它会检查所有祖先
+    # 作业（含经 prepare 间接依赖的 sync）。push 触发时 sync 按设计被跳过，测试就会
+    # 跟着被跳过，publish 却照样发布（曾经的事故）。用 !cancelled() 而不是 always()：
+    # 两者都能去掉隐式 success()，但 always() 会让被 concurrency 取消的旧运行照样把
+    # 作业跑起来。再显式要求 prepare 成功（sync 冲突失败时 prepare 被跳过，测试也就
+    # 不跑）且没有被短路。
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.skip != 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -143,8 +145,8 @@ jobs:
   test-frontend:
     name: Frontend lint & test (nightly)
     needs: [prepare]
-    # 同 test-go：必须 always() + 显式检查 prepare，原因见上。
-    if: ${{ always() && needs.prepare.result == 'success' && needs.prepare.outputs.skip != 'true' }}
+    # 同 test-go：必须 !cancelled() + 显式检查 prepare，原因见上。
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.skip != 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -171,8 +173,9 @@ jobs:
     needs: [prepare, test-go, test-frontend]
     # 只有 prepare 与两个测试作业都明确 success 才发布：测试失败、取消或被跳过（含
     # skip=true 的短路）一律不发布，不依赖 !failure() 这类对 skipped 放行的写法。
-    # always() 是为了让 push 触发时被跳过的 sync 不拦住这里（隐式 success() 会）。
-    if: ${{ always() && needs.prepare.result == 'success' && needs.prepare.outputs.skip != 'true' && needs.test-go.result == 'success' && needs.test-frontend.result == 'success' }}
+    # !cancelled() 是为了让 push 触发时被跳过的 sync 不拦住这里（隐式 success() 会），
+    # 同时整条运行被取消时也不发布（always() 做不到）。
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.skip != 'true' && needs.test-go.result == 'success' && needs.test-frontend.result == 'success' }}
     # 按架构原生构建、合成 manifest list 的细节都在被调用的工作流里；以后要加「按版本号
     # 发布正式镜像」时调的是同一个，nightly 与正式镜像的结构不会各走各的。
     uses: ./.github/workflows/docker-publish.yml
