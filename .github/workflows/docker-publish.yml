@@ -17,6 +17,8 @@ name: Publish image
 #      后面 export digest 的步骤不会执行，merge 作业拿不到这个架构的 digest 也会失败，
 #      未通过冒烟检查的镜像不会被合进任何打了标签的 manifest list。
 #   4. merge 作业把两个 digest 合成一个 manifest list，把 tag 打在这个列表上。
+#      给了 expect-branch 时，打标签前先确认那个分支在远端的头部仍是 ref：已经前进了就
+#      不打标签（published=false），免得重跑旧运行把滚动标签退回到旧提交上。
 # 于是同一个 tag 下挂着两份 manifest，客户端 pull 时由 registry 按 Accept 头里的架构
 # 挑一份，不需要使用者区分 -amd64 / -arm64 后缀。
 
@@ -24,9 +26,16 @@ on:
   workflow_call:
     inputs:
       ref:
-        description: 要构建的 git ref
+        description: 要构建的 git ref；给了 expect-branch 时必须是完整的提交 SHA
         type: string
         required: true
+      expect-branch:
+        description: >-
+          可选。非空时，推标签前确认这个分支在远端的头部仍等于 ref，不等就不推标签
+          （作业照样成功，published 输出为 false，原因写进运行摘要）
+        type: string
+        required: false
+        default: ""
       version:
         description: 写入镜像构建参数 VERSION（健康接口 /api/v1/system/health 会返回）
         type: string
@@ -43,6 +52,9 @@ on:
       image:
         description: 发布出去的镜像名（不含 tag）
         value: ${{ jobs.merge.outputs.image }}
+      published:
+        description: 标签是否真的推到了 manifest list 上（"true"/"false"）
+        value: ${{ jobs.merge.outputs.published }}
 
 permissions:
   contents: read
@@ -67,6 +79,9 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.ref }}
+      - name: Resolve the built commit
+        id: rev
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - name: Resolve the image name
         id: image
         run: |
@@ -87,12 +102,16 @@ jobs:
       # tags 输入仍然要给：metadata-action 的 org.opencontainers.image.version 这个
       # label 是从第一个 tag 推出来的，不给就会退回默认规则，算出与 manifest list 上
       # 那个对不上的版本号。
+      # revision 显式覆盖成实际检出的提交：metadata-action 默认取 github.sha，定时触发
+      # 时那是 main 的提交，不是这里构建的那个。
       - name: Generate labels
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ steps.image.outputs.name }}
           tags: ${{ inputs.tags }}
+          labels: |
+            org.opencontainers.image.revision=${{ steps.rev.outputs.sha }}
       - name: Build and push by digest
         id: build
         uses: docker/build-push-action@v7
@@ -142,6 +161,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       image: ${{ steps.image.outputs.name }}
+      published: ${{ steps.create.outputs.published || 'false' }}
     steps:
       - uses: actions/download-artifact@v7
         with:
@@ -163,7 +183,38 @@ jobs:
         with:
           images: ${{ steps.image.outputs.name }}
           tags: ${{ inputs.tags }}
+      # 放在打标签的前一步，尽量缩短「检查过」与「推出去」之间的窗口。
+      - name: Check the branch has not moved on
+        id: guard
+        env:
+          BRANCH: ${{ inputs.expect-branch }}
+          REF: ${{ inputs.ref }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -z "$BRANCH" ]; then
+            echo "superseded=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # 拿短号或分支名来比只会永远「不相等」，宁可直接报错。
+          if ! [[ "$REF" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::expect-branch 要求 ref 是完整的提交 SHA，实际是 ${REF}"
+            exit 1
+          fi
+          # 查不到（分支被删、网络错误）时 gh 非零退出，作业失败，同样不推标签。
+          head=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${BRANCH}" --jq .object.sha)
+          if [ "$head" = "$REF" ]; then
+            echo "superseded=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "superseded=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::${BRANCH} 已前进到 ${head}，本次构建的 ${REF} 不再推标签"
+            {
+              echo "已被新提交取代：本次构建的是 ${REF}，远端 ${BRANCH} 已指向 ${head}。"
+              echo "没有推送镜像标签；新提交由它自己的运行（或下一次定时运行）发布。"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Create the manifest list
+        id: create
+        if: steps.guard.outputs.superseded == 'false'
         working-directory: /tmp/digests
         env:
           IMAGE: ${{ steps.image.outputs.name }}
@@ -184,7 +235,9 @@ jobs:
           for digest in *; do args+=("${IMAGE}@sha256:${digest}"); done
 
           docker buildx imagetools create "${args[@]}"
+          echo "published=true" >> "$GITHUB_OUTPUT"
       - name: Inspect the manifest list
+        if: steps.create.outcome == 'success'
         run: |
           tag=$(jq -r '.tags[0]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
           docker buildx imagetools inspect "$tag"
