@@ -1,6 +1,7 @@
 # OpsNap 统一命令入口。前端命令也可在 frontend/ 下用 pnpm 直接执行。
 # VERSION 与 COMMIT 写入二进制，健康接口返回二者；Docker 镜像构建时由构建参数覆盖（没有 .git 目录）
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+# nightly 工作流维护的轻量标签 nightly-published 只用于标记发布进度，须排除，否则版本号会变成 nightly-published-<n>-g<sha>
+VERSION ?= $(shell git describe --tags --exclude nightly-published --always --dirty 2>/dev/null || echo dev)
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null)
 LDFLAGS := -s -w -X github.com/cago-frame/cago/configs.Version=$(VERSION) \
 	-X github.com/opskat/opsnap/internal/service/system_svc.Commit=$(COMMIT)
