@@ -15,9 +15,12 @@ name: Nightly
 #   2. 仓库连续 60 天没有活动时，GitHub 会静默停掉定时任务，镜像停更不会报任何错，
 #      只会不再更新。发现的办法只有去 Actions 页面看 Nightly 是不是 disabled。
 #
-# 「是否已经发布过」记在 git 标签 nightly-published 上：发布成功后它被移到刚发布的那个
-# nightly 提交。定时/手动触发时，nightly 头部等于这个标签才跳过；标签不存在按「没发布
-# 过」处理。删掉这个标签，下一次定时运行就会重新构建并发布当前的 nightly 头部。
+# 「是否已经发布过」记在 git 引用 refs/nightly/published 上：发布成功后它被移到刚发布的
+# 那个 nightly 提交。定时/手动触发时，nightly 头部等于这个引用才跳过；引用不存在按「没
+# 发布过」处理。删掉这个引用，下一次定时运行就会重新构建并发布当前的 nightly 头部。
+# 不用标签：会移动的标签让已经取过它的克隆在 git fetch/pull --tags 时报「会覆盖现有
+# 标签」，git describe --tags 也会看到它；refs/tags 之外的引用默认既不会被克隆取下来，
+# 也不会被 describe 看到。
 on:
   # 手动跑一次：想马上验证某个提交，或触发上面第 1 条的一次性确认时用得上。
   workflow_dispatch:
@@ -34,8 +37,8 @@ permissions:
 
 concurrency:
   # 定时、手动与 push 可能撞在一起，取消旧的而不是排队：三者跑的是同一份东西，
-  # 晚开始的那次手上的提交更新。被取消的那次没发布，nightly-published 也就没动，它手上
-  # 的提交不会丢：下一次运行看到头部与标签不一致，照样构建发布。
+  # 晚开始的那次手上的提交更新。被取消的那次没发布，refs/nightly/published 也就没动，它
+  # 手上的提交不会丢：下一次运行看到头部与这个引用不一致，照样构建发布。
   group: nightly
   cancel-in-progress: true
 
@@ -75,7 +78,7 @@ jobs:
           after=$(git rev-parse HEAD)
 
           # main 没有新提交不等于不用构建：上一次 push 触发的运行可能被取消、发布可能
-          # 失败过。要不要构建交给 prepare 按 nightly-published 判断，这里只管合并。
+          # 失败过。要不要构建交给 prepare 按 refs/nightly/published 判断，这里只管合并。
           if [ "$before" = "$after" ]; then
             echo "main 没有新提交，nightly 保持不变。" >> "$GITHUB_STEP_SUMMARY"
           else
@@ -101,8 +104,6 @@ jobs:
         with:
           ref: nightly
           fetch-depth: 0
-          # 要拿 nightly-published 跟头部比，标签得取下来。
-          fetch-tags: true
       - name: Compute version
         id: ver
         env:
@@ -120,8 +121,15 @@ jobs:
             echo "sha=${sha}"
           } >> "$GITHUB_OUTPUT"
 
-          # 标签不存在时 published 为空，与任何 SHA 都不相等，按「没发布过」构建。
-          published=$(git rev-parse -q --verify 'refs/tags/nightly-published^{commit}' || true)
+          # checkout 不取 refs/tags 之外的引用，得单独取。远端没有这个引用时 fetch 报错，
+          # 这里忽略；别的原因取失败（网络、权限）同样被忽略，但新的 runner 上本地本来就
+          # 没有这个引用，取失败只会让 published 为空、按「没发布过」构建，不会被误判成
+          # 「已发布」而跳过——宁可多构建一次，不能漏发。
+          if ! git fetch --no-tags origin '+refs/nightly/published:refs/nightly/published'; then
+            echo "未取到 refs/nightly/published（远端没有，或取失败），按没发布过处理。" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          # 引用不存在时 published 为空，与任何 SHA 都不相等，按「没发布过」构建。
+          published=$(git rev-parse -q --verify 'refs/nightly/published^{commit}' || true)
 
           # 定时/手动触发，且这个提交已经发布过：整条流水线短路，不重复构建一份一样的
           # 镜像（spec「nightly 构建」：nightly 头部已经发布过时跳过）。只看 main 有没有
@@ -129,7 +137,7 @@ jobs:
           # push 触发一律构建：有人刚推过 nightly，就是想要一份新镜像。
           if [ "$EVENT" != "push" ] && [ "$sha" = "$published" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "nightly 头部 ${sha} 已经发布过（nightly-published），跳过本次构建。" >> "$GITHUB_STEP_SUMMARY"
+            echo "nightly 头部 ${sha} 已经发布过（refs/nightly/published），跳过本次构建。" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
             echo "本次构建 nightly 提交 ${sha}（上次发布：${published:-无}）。" >> "$GITHUB_STEP_SUMMARY"
@@ -221,18 +229,20 @@ jobs:
   mark-published:
     name: Mark the commit as published
     needs: [prepare, publish]
-    # 只有标签真的推到了这个提交上（published=true）才移动 nightly-published：测试失败、
-    # 发布失败、被新提交取代或整条运行被取消时都不动它，下一次运行会把这个提交补发出去。
+    # 只有镜像标签真的推到了这个提交上（published=true）才移动 refs/nightly/published：
+    # 测试失败、发布失败、被新提交取代或整条运行被取消时都不动它，下一次运行会把这个提交
+    # 补发出去。
     if: ${{ !cancelled() && needs.publish.result == 'success' && needs.publish.outputs.published == 'true' }}
     runs-on: ubuntu-latest
-    # 推标签要写权限，只给这一个作业。用 GITHUB_TOKEN 推的标签不会触发新的工作流运行。
+    # 推引用要写权限，只给这一个作业。用 GITHUB_TOKEN 推的引用不会触发新的工作流运行
+    # （push 触发器也只认 nightly 分支）。
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v6
         with:
           ref: ${{ needs.prepare.outputs.sha }}
-      - name: Move the nightly-published tag
+      - name: Move refs/nightly/published
         env:
           SHA: ${{ needs.prepare.outputs.sha }}
         run: |
@@ -244,9 +254,9 @@ jobs:
           head=$(git ls-remote --exit-code origin refs/heads/nightly)
           head=${head%%[[:space:]]*}
           if [ "$head" != "$SHA" ]; then
-            echo "已被新提交取代：本次发布的是 ${SHA}，远端 nightly 已指向 ${head}，nightly-published 保持不动。" >> "$GITHUB_STEP_SUMMARY"
+            echo "已被新提交取代：本次发布的是 ${SHA}，远端 nightly 已指向 ${head}，refs/nightly/published 保持不动。" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          # 轻量标签、强制移动：它只是一个「发布到哪了」的书签，不是版本号。
-          git push --force origin "${SHA}:refs/tags/nightly-published"
-          echo "nightly-published 已移到 ${SHA}。" >> "$GITHUB_STEP_SUMMARY"
+          # 强制移动：它只是一个「发布到哪了」的书签，不是版本号，所以放在 refs/tags 之外。
+          git push --force origin "${SHA}:refs/nightly/published"
+          echo "refs/nightly/published 已移到 ${SHA}。" >> "$GITHUB_STEP_SUMMARY"
