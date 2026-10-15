@@ -1,0 +1,13 @@
+# dev-kit 本地工作区（计划、评审、mockup）
+.dev-kit/
+
+# 依赖与构建产物
+node_modules/
+dist/
+/bin/
+
+# 运行时数据
+/data/
+
+# 系统文件
+.DS_Store
