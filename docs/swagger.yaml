@@ -1454,6 +1454,45 @@ definitions:
       source_type:
         type: string
     type: object
+  sso.DisableRequest:
+    type: object
+  sso.DisableResponse:
+    type: object
+  sso.GetResponse:
+    properties:
+      button_label:
+        type: string
+      callback_url:
+        description: 要填到提供方 OAuth2 应用里的重定向 URI，由面板对外地址拼成
+        type: string
+      client_id:
+        type: string
+      client_secret:
+        description: 已保存时为「已设置」，否则为空；不返回内容
+        type: string
+      configured:
+        description: 是否已保存提供方配置
+        type: boolean
+      issuer:
+        type: string
+      panel_url:
+        type: string
+    type: object
+  sso.UpdateRequest:
+    properties:
+      button_label:
+        type: string
+      client_id:
+        type: string
+      client_secret:
+        type: string
+      issuer:
+        type: string
+      panel_url:
+        type: string
+    type: object
+  sso.UpdateResponse:
+    type: object
 info:
   title: opsnap API
   version: "1.0"
@@ -3372,7 +3411,7 @@ paths:
       consumes:
       - application/json
       description: |-
-        轮换主密钥：用新主密钥重新加密所有保存的凭据（服务器、代理、数据库密码、存储位置、Webhook 请求头），
+        轮换主密钥：用新主密钥重新加密所有保存的凭据（服务器、代理、数据库密码、存储位置、Webhook 请求头、单点登录的 Client Secret），
         全部成功才生效，任何一项失败都保持原状。生效后本进程立即改用新主密钥；
         管理员必须把环境变量 OPSNAP_SECRET_KEY 改成新主密钥，否则下次启动会因主密钥不匹配而拒绝启动。
       parameters:
@@ -3398,9 +3437,96 @@ paths:
           schema:
             $ref: '#/definitions/BadRequest'
       summary: |-
-        轮换主密钥：用新主密钥重新加密所有保存的凭据（服务器、代理、数据库密码、存储位置、Webhook 请求头），
+        轮换主密钥：用新主密钥重新加密所有保存的凭据（服务器、代理、数据库密码、存储位置、Webhook 请求头、单点登录的 Client Secret），
         全部成功才生效，任何一项失败都保持原状。生效后本进程立即改用新主密钥；
         管理员必须把环境变量 OPSNAP_SECRET_KEY 改成新主密钥，否则下次启动会因主密钥不匹配而拒绝启动。
       tags:
       - setting
+  /settings/sso:
+    delete:
+      consumes:
+      - application/json
+      description: 停用单点登录：清空提供方配置
+      parameters:
+      - in: body
+        name: body
+        schema:
+          $ref: '#/definitions/sso.DisableRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              code:
+                type: integer
+              data:
+                $ref: '#/definitions/sso.DisableResponse'
+              msg:
+                type: string
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/BadRequest'
+      summary: 停用单点登录：清空提供方配置
+      tags:
+      - sso
+    get:
+      consumes:
+      - application/json
+      description: 读取单点登录设置
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              code:
+                type: integer
+              data:
+                $ref: '#/definitions/sso.GetResponse'
+              msg:
+                type: string
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/BadRequest'
+      summary: 读取单点登录设置
+      tags:
+      - sso
+    put:
+      consumes:
+      - application/json
+      description: |-
+        保存提供方配置：先读取 <Issuer>/.well-known/openid-configuration 检查，通过才保存。
+        client_secret 为空或为「已设置」时保留已保存的值。
+      parameters:
+      - in: body
+        name: body
+        schema:
+          $ref: '#/definitions/sso.UpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              code:
+                type: integer
+              data:
+                $ref: '#/definitions/sso.UpdateResponse'
+              msg:
+                type: string
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/BadRequest'
+      summary: |-
+        保存提供方配置：先读取 <Issuer>/.well-known/openid-configuration 检查，通过才保存。
+        client_secret 为空或为「已设置」时保留已保存的值。
+      tags:
+      - sso
 swagger: "2.0"

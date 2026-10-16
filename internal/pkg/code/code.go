@@ -111,3 +111,14 @@ const (
 const (
 	OverviewWindowInvalid = iota + 11700 // 时间线窗口不是 7d 或 30d
 )
+
+// 单点登录（OIDC）相关错误码
+const (
+	SSOIssuerInvalid        = iota + 11800 // Issuer 不是合法的 http(s) 地址
+	SSOClientIDRequired                    // 缺少 Client ID
+	SSOClientSecretRequired                // 第一次保存时缺少 Client Secret
+	SSOButtonLabelInvalid                  // 按钮文字为空或过长
+	SSOPanelURLInvalid                     // 面板对外地址不是合法的 http(s) 地址
+	SSODiscoveryFailed                     // 读取发现文档失败（带地址和原因）
+	SSOIssuerMismatch                      // 发现文档声明的 issuer 与填写的不一致
+)

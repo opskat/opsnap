@@ -32,6 +32,7 @@ import (
 	"github.com/opskat/opsnap/internal/repository/server_repo"
 	"github.com/opskat/opsnap/internal/repository/session_repo"
 	"github.com/opskat/opsnap/internal/repository/setting_repo"
+	"github.com/opskat/opsnap/internal/repository/sso_repo"
 	"github.com/opskat/opsnap/internal/service/job_svc"
 	"github.com/opskat/opsnap/internal/service/masterkey_svc"
 	"github.com/opskat/opsnap/internal/service/overview_svc"
@@ -107,6 +108,7 @@ func run(ctx context.Context, getenv func(string) string, configFile string) err
 	apikey_repo.RegisterAPIKey(apikey_repo.NewAPIKey())
 	masterkey_repo.RegisterMasterKey(masterkey_repo.NewMasterKey())
 	setting_repo.RegisterSetting(setting_repo.NewSetting())
+	sso_repo.RegisterSSO(sso_repo.NewSSO())
 	notify_repo.RegisterNotify(notify_repo.NewNotify())
 	server_repo.RegisterServer(server_repo.NewServer())
 	repo_repo.RegisterRepo(repo_repo.NewRepo())

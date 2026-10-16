@@ -2970,7 +2970,7 @@
         },
         "/settings/master-key/rotate": {
             "post": {
-                "description": "轮换主密钥：用新主密钥重新加密所有保存的凭据（服务器、代理、数据库密码、存储位置、Webhook 请求头），\n全部成功才生效，任何一项失败都保持原状。生效后本进程立即改用新主密钥；\n管理员必须把环境变量 OPSNAP_SECRET_KEY 改成新主密钥，否则下次启动会因主密钥不匹配而拒绝启动。",
+                "description": "轮换主密钥：用新主密钥重新加密所有保存的凭据（服务器、代理、数据库密码、存储位置、Webhook 请求头、单点登录的 Client Secret），\n全部成功才生效，任何一项失败都保持原状。生效后本进程立即改用新主密钥；\n管理员必须把环境变量 OPSNAP_SECRET_KEY 改成新主密钥，否则下次启动会因主密钥不匹配而拒绝启动。",
                 "consumes": [
                     "application/json"
                 ],
@@ -2980,7 +2980,7 @@
                 "tags": [
                     "setting"
                 ],
-                "summary": "轮换主密钥：用新主密钥重新加密所有保存的凭据（服务器、代理、数据库密码、存储位置、Webhook 请求头），\n全部成功才生效，任何一项失败都保持原状。生效后本进程立即改用新主密钥；\n管理员必须把环境变量 OPSNAP_SECRET_KEY 改成新主密钥，否则下次启动会因主密钥不匹配而拒绝启动。",
+                "summary": "轮换主密钥：用新主密钥重新加密所有保存的凭据（服务器、代理、数据库密码、存储位置、Webhook 请求头、单点登录的 Client Secret），\n全部成功才生效，任何一项失败都保持原状。生效后本进程立即改用新主密钥；\n管理员必须把环境变量 OPSNAP_SECRET_KEY 改成新主密钥，否则下次启动会因主密钥不匹配而拒绝启动。",
                 "parameters": [
                     {
                         "name": "body",
@@ -3000,6 +3000,137 @@
                                 },
                                 "data": {
                                     "$ref": "#/definitions/setting.RotateMasterKeyResponse"
+                                },
+                                "msg": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/BadRequest"
+                        }
+                    }
+                }
+            }
+        },
+        "/settings/sso": {
+            "get": {
+                "description": "读取单点登录设置",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sso"
+                ],
+                "summary": "读取单点登录设置",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "properties": {
+                                "code": {
+                                    "type": "integer"
+                                },
+                                "data": {
+                                    "$ref": "#/definitions/sso.GetResponse"
+                                },
+                                "msg": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/BadRequest"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "保存提供方配置：先读取 \u003cIssuer\u003e/.well-known/openid-configuration 检查，通过才保存。\nclient_secret 为空或为「已设置」时保留已保存的值。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sso"
+                ],
+                "summary": "保存提供方配置：先读取 \u003cIssuer\u003e/.well-known/openid-configuration 检查，通过才保存。\nclient_secret 为空或为「已设置」时保留已保存的值。",
+                "parameters": [
+                    {
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/sso.UpdateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "properties": {
+                                "code": {
+                                    "type": "integer"
+                                },
+                                "data": {
+                                    "$ref": "#/definitions/sso.UpdateResponse"
+                                },
+                                "msg": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/BadRequest"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "停用单点登录：清空提供方配置",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sso"
+                ],
+                "summary": "停用单点登录：清空提供方配置",
+                "parameters": [
+                    {
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/sso.DisableRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "properties": {
+                                "code": {
+                                    "type": "integer"
+                                },
+                                "data": {
+                                    "$ref": "#/definitions/sso.DisableResponse"
                                 },
                                 "msg": {
                                     "type": "string"
@@ -5168,6 +5299,64 @@
                     "type": "string"
                 }
             }
+        },
+        "sso.DisableRequest": {
+            "type": "object"
+        },
+        "sso.DisableResponse": {
+            "type": "object"
+        },
+        "sso.GetResponse": {
+            "type": "object",
+            "properties": {
+                "button_label": {
+                    "type": "string"
+                },
+                "callback_url": {
+                    "description": "要填到提供方 OAuth2 应用里的重定向 URI，由面板对外地址拼成",
+                    "type": "string"
+                },
+                "client_id": {
+                    "type": "string"
+                },
+                "client_secret": {
+                    "description": "已保存时为「已设置」，否则为空；不返回内容",
+                    "type": "string"
+                },
+                "configured": {
+                    "description": "是否已保存提供方配置",
+                    "type": "boolean"
+                },
+                "issuer": {
+                    "type": "string"
+                },
+                "panel_url": {
+                    "type": "string"
+                }
+            }
+        },
+        "sso.UpdateRequest": {
+            "type": "object",
+            "properties": {
+                "button_label": {
+                    "type": "string"
+                },
+                "client_id": {
+                    "type": "string"
+                },
+                "client_secret": {
+                    "type": "string"
+                },
+                "issuer": {
+                    "type": "string"
+                },
+                "panel_url": {
+                    "type": "string"
+                }
+            }
+        },
+        "sso.UpdateResponse": {
+            "type": "object"
         }
     }
 }

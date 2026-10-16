@@ -40,7 +40,7 @@ type UpdateResponse struct {
 	GetResponse
 }
 
-// RotateMasterKeyRequest 轮换主密钥：用新主密钥重新加密所有保存的凭据（服务器、代理、数据库密码、存储位置、Webhook 请求头），
+// RotateMasterKeyRequest 轮换主密钥：用新主密钥重新加密所有保存的凭据（服务器、代理、数据库密码、存储位置、Webhook 请求头、单点登录的 Client Secret），
 // 全部成功才生效，任何一项失败都保持原状。生效后本进程立即改用新主密钥；
 // 管理员必须把环境变量 OPSNAP_SECRET_KEY 改成新主密钥，否则下次启动会因主密钥不匹配而拒绝启动。
 type RotateMasterKeyRequest struct {

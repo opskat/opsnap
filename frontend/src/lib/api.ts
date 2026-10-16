@@ -190,6 +190,23 @@ export type SettingsUpdate = Pick<
   "max_concurrent_runs" | "retention_days" | "timezone" | "clear_mirror_after_backup"
 >;
 
+// ---- 单点登录 internal/api/sso ----
+
+export interface SSOSettings {
+  /** 是否已保存提供方配置 */
+  configured: boolean;
+  issuer: string;
+  client_id: string;
+  /** 已保存时为 SECRET_MASKED，否则为空；不返回内容 */
+  client_secret: string;
+  button_label: string;
+  panel_url: string;
+  /** 要填到提供方 OAuth2 应用里的重定向 URI */
+  callback_url: string;
+}
+/** client_secret 为空表示保留已保存的值 */
+export type SSOUpdate = Pick<SSOSettings, "issuer" | "client_id" | "client_secret" | "button_label" | "panel_url">;
+
 // ---- 通知 internal/api/notify ----
 
 export interface NotifyConfig {
@@ -677,6 +694,11 @@ export const api = {
     list: () => request<{ list: APIKey[] | null }>("GET", "/apikeys"),
     create: (body: { name: string; expires_in: APIKeyExpiry }) => request<CreatedAPIKey>("POST", "/apikeys", body),
     revoke: (id: number) => request<Record<string, never>>("DELETE", `/apikeys/${id}`),
+  },
+  sso: {
+    get: () => request<SSOSettings>("GET", "/settings/sso"),
+    update: (body: SSOUpdate) => request<SSOSettings>("PUT", "/settings/sso", body),
+    disable: () => request<SSOSettings>("DELETE", "/settings/sso"),
   },
   settings: {
     get: () => request<Settings>("GET", "/settings"),

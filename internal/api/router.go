@@ -23,6 +23,7 @@ import (
 	"github.com/opskat/opsnap/internal/controller/server_ctr"
 	"github.com/opskat/opsnap/internal/controller/setting_ctr"
 	"github.com/opskat/opsnap/internal/controller/snapshot_ctr"
+	"github.com/opskat/opsnap/internal/controller/sso_ctr"
 	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/service/auth_svc"
 	"github.com/opskat/opsnap/web"
@@ -51,6 +52,7 @@ func Router(ctx context.Context, root *mux.Router) error {
 	runCtr := run_ctr.NewRun()
 	snapshotCtr := snapshot_ctr.NewSnapshot()
 	overviewCtr := overview_ctr.NewOverview()
+	ssoCtr := sso_ctr.NewSSO()
 	// 未登录可访问：是否已初始化、首次创建管理员、登录。/health 由 cago 在 /api/v1 之外提供。
 	r.Group("/").Bind(
 		authCtr.Status,
@@ -68,6 +70,9 @@ func Router(ctx context.Context, root *mux.Router) error {
 		settingCtr.Get,
 		settingCtr.Update,
 		settingCtr.RotateMasterKey,
+		ssoCtr.Get,
+		ssoCtr.Update,
+		ssoCtr.Disable,
 		notifyCtr.Get,
 		notifyCtr.Update,
 		notifyCtr.Test,

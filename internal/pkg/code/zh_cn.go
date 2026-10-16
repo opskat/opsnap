@@ -91,4 +91,12 @@ var zhCN = map[int]string{
 	SnapshotNotDatabase:  "这个任务不是数据库任务，没有导出文件",
 
 	OverviewWindowInvalid: "时间线窗口只能是 7d 或 30d",
+
+	SSOIssuerInvalid:        "Issuer 地址须是以 http:// 或 https:// 开头的完整地址",
+	SSOClientIDRequired:     "请填写 Client ID",
+	SSOClientSecretRequired: "请填写 Client Secret",
+	SSOButtonLabelInvalid:   "按钮文字不能为空，最多 %d 个字符",
+	SSOPanelURLInvalid:      "面板对外地址须是以 http:// 或 https:// 开头的完整地址，例如 https://opsnap.example.com",
+	SSODiscoveryFailed:      "读取 %s 失败：%s。检查 Issuer 地址和网络后再保存",
+	SSOIssuerMismatch:       "提供方声明的 issuer 是 %s，与填写的不一致。请把 Issuer 地址改成它",
 }

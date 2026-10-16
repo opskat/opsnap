@@ -13,6 +13,7 @@ import (
 	"github.com/opskat/opsnap/internal/model/entity/notify_entity"
 	"github.com/opskat/opsnap/internal/model/entity/repo_entity"
 	"github.com/opskat/opsnap/internal/model/entity/server_entity"
+	"github.com/opskat/opsnap/internal/model/entity/sso_entity"
 )
 
 // MasterKeyRepo 主密钥仓储
@@ -132,6 +133,19 @@ func (r *masterKeyRepo) Rekey(ctx context.Context, fn func(string) (string, erro
 				n.Headers[name] = v
 			}
 			if err := tx.Model(n).Select("headers").Updates(n).Error; err != nil {
+				return err
+			}
+		}
+
+		var ssos []*sso_entity.SSO
+		if err := tx.Find(&ssos).Error; err != nil {
+			return err
+		}
+		for _, o := range ssos {
+			if err := conv(&o.ClientSecret); err != nil {
+				return err
+			}
+			if err := tx.Model(o).Select("client_secret").Updates(o).Error; err != nil {
 				return err
 			}
 		}
