@@ -108,3 +108,26 @@ describe("登录页 · 单点登录", () => {
     expect(m.find("GET", "/auth/oidc/result")[0].query).toBe("id=abc123");
   });
 });
+
+describe("登录页 · 密码登录已关闭", () => {
+  it("只显示主样式的「用 Gitea 登录」和恢复提示", async () => {
+    mockApi({
+      "GET /auth/status": ok({ initialized: true, sso_enabled: true, sso_label: "Gitea", password_login: false }),
+    });
+    renderPage(<LoginPage />, { path: "/login" });
+    expect(await screen.findByRole("button", { name: "用 Gitea 登录" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("密码")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "登录" })).not.toBeInTheDocument();
+    expect(screen.getByText("密码登录已关闭。Gitea 不可用时，见部署说明里的恢复方法。")).toBeInTheDocument();
+  });
+
+  it("旧页面仍提交密码时显示服务端的说明", async () => {
+    mockApi({
+      "GET /auth/status": ok({ initialized: true, sso_enabled: false }),
+      "POST /auth/login": fail(403, 11821, "密码登录已关闭，请用 Gitea 登录"),
+    });
+    renderPage(<LoginPage />, { path: "/login" });
+    await submit("admin", "correct-horse");
+    expect(await screen.findByRole("alert")).toHaveTextContent("密码登录已关闭，请用 Gitea 登录");
+  });
+});

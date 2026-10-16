@@ -11,6 +11,7 @@
 - **调度**：每小时 / 每 6 小时 / 每天 / 每周 / cron；保留规则、超时、停止运行；每周自动清理空间与抽样校验；「太久没有成功」告警。
 - **通知**：通用 Webhook（失败、恢复正常、太久没有成功、每次成功），发送失败自动重试。
 - **快照**：在面板里浏览快照，勾选文件流式下载为 `.tar.gz`，或下载数据库导出文件。opsnap 不会把数据写回线上。
+- **单点登录**：可绑定 Gitea 等 OIDC 提供方上的一个账号登录面板，并可关闭密码登录。
 - **HTTP API**：面板用的就是对外 API，配合 API 密钥和 OpenAPI 文档，可交给脚本或 AI 助手巡检和操作。
 
 ## 快速开始
@@ -35,7 +36,20 @@ docker run -d --name opsnap -p 8080:8080 \
 - **数据目录**：`/data` 存放 SQLite、文件镜像和 restic 缓存，请挂载为持久卷。
 - **配置文件**：镜像内为 `/opt/opsnap/configs/config.yaml`，可用 `-config <路径>` 指定其他文件。修改 `dataDir` 时要同步修改 `db.dsn` 里的数据库路径。
 - **端口与接口**：默认监听 `8080`。面板在 `/`，API 前缀 `/api/v1`，OpenAPI 文档在 `/api/v1/openapi.json`，健康检查 `/health`。
+- **恢复密码登录**：关闭了密码登录、而单点登录的提供方又不可用时，给容器加上环境变量 `OPSNAP_PASSWORD_LOGIN=1` 重启，就能用用户名密码登录（不改动设置里保存的开关）。恢复访问后去掉这个变量再重启。
 - **镜像**：只发布 linux/amd64，以 uid 10001 的 `opsnap` 用户运行，内含 restic、rclone、rsync、openssh-client、`mysqldump`（MySQL 8.4）、`mariadb-dump`、`pg_dump`（PGDG 最新大版本）、`mongodump` 和 `redis-cli`（7.x）。也可以自己构建：`docker build -t opsnap .`。
+
+## 单点登录（OIDC）
+
+可以把 opsnap 唯一的管理员绑定到 Gitea（或 Authentik、Keycloak 等任何 OIDC 提供方）上的一个账号，之后用这个账号登录面板。以 Gitea 为例：
+
+1. 在 opsnap「设置 → 单点登录」填写面板对外地址（浏览器打开 opsnap 用的地址），页面会显示回调地址 `<面板对外地址>/api/v1/auth/oidc/callback`。
+2. 在 Gitea「设置 → 应用」创建 OAuth2 应用，重定向 URI 填上面的回调地址，记下 Client ID 和 Client Secret。
+3. 回到 opsnap 填写 Issuer 地址（Gitea 的 ROOT_URL，例如 `https://git.example.com/`，注意结尾的 `/`）、Client ID、Client Secret，点击「保存并检查」。
+4. 点击「绑定 Gitea 账号」，在 Gitea 授权后回到设置页。之后登录页会出现「用 Gitea 登录」，只有绑定的这个账号能登录。
+5. 需要的话关闭「允许用户名密码登录」，登录页就只剩单点登录；提供方不可用时按上面「恢复密码登录」处理。
+
+Client Secret 用主密钥加密保存。修改 Issuer 或 Client ID、解除绑定、停用单点登录都会解除绑定并重新打开密码登录。API 密钥不受单点登录影响。
 
 ## 脱离 opsnap 恢复
 

@@ -14,6 +14,7 @@ import (
 	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/secret"
 	"github.com/opskat/opsnap/internal/repository/sso_repo"
+	"github.com/opskat/opsnap/internal/service/auth_svc"
 )
 
 // defaultDiscoveryTimeout 读取发现文档的超时
@@ -29,6 +30,8 @@ type SSOSvc interface {
 	Disable(ctx context.Context) (*ssoapi.DisableResponse, error)
 	// Unbind 解除绑定
 	Unbind(ctx context.Context) (*ssoapi.UnbindResponse, error)
+	// SetPasswordLogin 打开或关闭「允许用户名密码登录」
+	SetPasswordLogin(ctx context.Context, req *ssoapi.PasswordLoginRequest) (*ssoapi.PasswordLoginResponse, error)
 	// StartLogin 开始单点登录（需要已配置并已绑定）
 	StartLogin(ctx context.Context, next string) (*Start, error)
 	// StartBind 开始绑定（需要已配置）；只接受面板会话，API 密钥返回 403
@@ -85,6 +88,9 @@ func view(s *sso_entity.SSO) *ssoapi.GetResponse {
 		ButtonLabel:  s.ButtonLabel,
 		PanelURL:     s.PanelURL,
 		CallbackURL:  s.CallbackURL(),
+
+		PasswordLogin:       s.PasswordLogin,
+		PasswordLoginForced: auth_svc.PasswordLoginForced(),
 	}
 	if resp.ButtonLabel == "" {
 		resp.ButtonLabel = sso_entity.DefaultButtonLabel
@@ -116,6 +122,10 @@ func (s *ssoSvc) Update(ctx context.Context, req *ssoapi.UpdateRequest) (*ssoapi
 	if err := next.ValidateProvider(ctx); err != nil {
 		return nil, err
 	}
+	providerChanged := next.Issuer != cur.Issuer || next.ClientID != cur.ClientID
+	if providerChanged && cur.Locked(auth_svc.PasswordLoginForced()) {
+		return nil, i18n.NewForbiddenError(ctx, code.SSOLockedWhilePasswordOff)
+	}
 	if req.ClientSecret != "" && req.ClientSecret != secret.Masked {
 		sec := secret.Default()
 		if sec == nil {
@@ -132,7 +142,7 @@ func (s *ssoSvc) Update(ctx context.Context, req *ssoapi.UpdateRequest) (*ssoapi
 		return nil, err
 	}
 	// 同一个 sub 在不同提供方或不同应用下代表的不是同一个人
-	if next.Issuer != cur.Issuer || next.ClientID != cur.ClientID {
+	if providerChanged {
 		next.ClearBinding()
 	}
 	next.Updatetime = s.now().Unix()
@@ -143,6 +153,14 @@ func (s *ssoSvc) Update(ctx context.Context, req *ssoapi.UpdateRequest) (*ssoapi
 }
 
 func (s *ssoSvc) Disable(ctx context.Context) (*ssoapi.DisableResponse, error) {
+	cur, err := load(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if cur.Locked(auth_svc.PasswordLoginForced()) {
+		return nil, i18n.NewForbiddenError(ctx, code.SSOLockedWhilePasswordOff)
+	}
+	// 删除整行：没有这一行时等同未配置、允许密码登录
 	if err := sso_repo.SSO().Delete(ctx); err != nil {
 		return nil, err
 	}
@@ -154,6 +172,9 @@ func (s *ssoSvc) Unbind(ctx context.Context) (*ssoapi.UnbindResponse, error) {
 	if err != nil {
 		return nil, err
 	}
+	if cur.Locked(auth_svc.PasswordLoginForced()) {
+		return nil, i18n.NewForbiddenError(ctx, code.SSOLockedWhilePasswordOff)
+	}
 	if cur.Bound() {
 		cur.ClearBinding()
 		cur.Updatetime = s.now().Unix()
@@ -162,4 +183,23 @@ func (s *ssoSvc) Unbind(ctx context.Context) (*ssoapi.UnbindResponse, error) {
 		}
 	}
 	return &ssoapi.UnbindResponse{GetResponse: *view(cur)}, nil
+}
+
+func (s *ssoSvc) SetPasswordLogin(ctx context.Context, req *ssoapi.PasswordLoginRequest) (*ssoapi.PasswordLoginResponse, error) {
+	cur, err := load(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// 关闭前必须有绑定，否则就没有任何登录方式了
+	if !req.Enabled && (!cur.Configured() || !cur.Bound()) {
+		return nil, i18n.NewError(ctx, code.SSOPasswordLoginNeedsBinding)
+	}
+	if cur.PasswordLogin != req.Enabled {
+		cur.PasswordLogin = req.Enabled
+		cur.Updatetime = s.now().Unix()
+		if err := sso_repo.SSO().Save(ctx, cur); err != nil {
+			return nil, err
+		}
+	}
+	return &ssoapi.PasswordLoginResponse{GetResponse: *view(cur)}, nil
 }

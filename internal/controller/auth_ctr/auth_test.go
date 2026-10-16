@@ -3,8 +3,11 @@ package auth_ctr
 import (
 	"context"
 	"crypto/tls"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,6 +25,7 @@ import (
 	"github.com/opskat/opsnap/internal/model/entity/admin_entity"
 	"github.com/opskat/opsnap/internal/model/entity/apikey_entity"
 	"github.com/opskat/opsnap/internal/model/entity/session_entity"
+	"github.com/opskat/opsnap/internal/model/entity/sso_entity"
 	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/repository/admin_repo"
 	"github.com/opskat/opsnap/internal/repository/admin_repo/mock_admin_repo"
@@ -29,6 +33,8 @@ import (
 	"github.com/opskat/opsnap/internal/repository/apikey_repo/mock_apikey_repo"
 	"github.com/opskat/opsnap/internal/repository/session_repo"
 	"github.com/opskat/opsnap/internal/repository/session_repo/mock_session_repo"
+	"github.com/opskat/opsnap/internal/repository/sso_repo"
+	"github.com/opskat/opsnap/internal/repository/sso_repo/mock_sso_repo"
 	"github.com/opskat/opsnap/internal/service/auth_svc"
 )
 
@@ -38,6 +44,7 @@ type mocks struct {
 	admin   *mock_admin_repo.MockAdminRepo
 	session *mock_session_repo.MockSessionRepo
 	apikey  *mock_apikey_repo.MockAPIKeyRepo
+	sso     *mock_sso_repo.MockSSORepo
 }
 
 func setupAuthTest(t *testing.T) (context.Context, *mocks, *muxtest.TestMux) {
@@ -48,10 +55,12 @@ func setupAuthTest(t *testing.T) (context.Context, *mocks, *muxtest.TestMux) {
 		admin:   mock_admin_repo.NewMockAdminRepo(ctrl),
 		session: mock_session_repo.NewMockSessionRepo(ctrl),
 		apikey:  mock_apikey_repo.NewMockAPIKeyRepo(ctrl),
+		sso:     mock_sso_repo.NewMockSSORepo(ctrl),
 	}
 	admin_repo.RegisterAdmin(m.admin)
 	session_repo.RegisterSession(m.session)
 	apikey_repo.RegisterAPIKey(m.apikey)
+	sso_repo.RegisterSSO(m.sso)
 	auth_svc.RegisterAuth(auth_svc.NewAuth(func() time.Time { return now }))
 
 	testMux := muxtest.NewTestMux()
@@ -82,6 +91,23 @@ func serve(testMux *muxtest.TestMux, method, path string, mod func(*http.Request
 func TestLogin(t *testing.T) {
 	convey.Convey("登录接口", t, func() {
 		ctx, m, testMux := setupAuthTest(t)
+		// 没有单点登录配置：允许密码登录
+		ssoCfg := (*sso_entity.SSO)(nil)
+		m.sso.EXPECT().Get(gomock.Any()).DoAndReturn(func(context.Context) (*sso_entity.SSO, error) { return ssoCfg, nil }).AnyTimes()
+
+		convey.Convey("密码登录关闭时返回 403，不比对密码、不下发 Cookie", func() {
+			ssoCfg = &sso_entity.SSO{Issuer: "https://git.example.com/", ButtonLabel: "Gitea", BoundSub: "3", PasswordLogin: false}
+			m.admin.EXPECT().Find(gomock.Any()).Return(newAdmin(t), nil)
+			w := serve(testMux, http.MethodPost, "/api/v1/auth/login", func(r *http.Request) {
+				r.Body = io.NopCloser(strings.NewReader(`{"username":"admin","password":"correct-horse"}`))
+				r.Header.Set("Content-Type", "application/json")
+			})
+			assert.Equal(t, http.StatusForbidden, w.Code)
+			assert.Contains(t, w.Body.String(), "密码登录已关闭，请用 Gitea 登录")
+			assert.Contains(t, w.Body.String(), strconv.Itoa(code.PasswordLoginDisabled))
+			assert.Empty(t, w.Result().Cookies())
+			ssoCfg = nil
+		})
 
 		convey.Convey("成功后下发 HttpOnly 会话 Cookie", func() {
 			m.admin.EXPECT().Find(gomock.Any()).Return(newAdmin(t), nil)

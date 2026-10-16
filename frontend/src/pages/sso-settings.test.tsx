@@ -15,6 +15,8 @@ const EMPTY = {
   panel_url: "",
   callback_url: "",
   binding: null,
+  password_login: true,
+  password_login_forced: false,
 };
 
 const SAVED = {
@@ -26,6 +28,8 @@ const SAVED = {
   panel_url: "https://opsnap.example.com",
   callback_url: "https://opsnap.example.com/api/v1/auth/oidc/callback",
   binding: null,
+  password_login: true,
+  password_login_forced: false,
 };
 
 const BOUND = {
@@ -193,5 +197,61 @@ describe("设置 · 单点登录 · 绑定账号", () => {
     expect(m.find("PUT", "/settings/sso")).toHaveLength(1);
     await user.click(within(dialog).getByRole("button", { name: "保存并解除绑定" }));
     await waitFor(() => expect(m.find("PUT", "/settings/sso")).toHaveLength(2));
+  });
+});
+
+describe("设置 · 单点登录 · 密码登录", () => {
+  const PW_OFF = { ...BOUND, password_login: false };
+  const pwSwitch = () => screen.getByRole("switch", { name: "允许用户名密码登录" });
+
+  it("没有绑定时开关不可关", async () => {
+    mockApi({ "GET /settings/sso": ok(SAVED) });
+    open();
+    expect(await screen.findByText("绑定账号后才能关闭")).toBeInTheDocument();
+    expect(pwSwitch()).toBeDisabled();
+    expect(pwSwitch()).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("关闭前确认，写明恢复方法；确认后立即保存", async () => {
+    const m = mockApi({ "GET /settings/sso": ok(BOUND), "PUT /settings/sso/password-login": ok(PW_OFF) });
+    open();
+    const user = userEvent.setup();
+    await screen.findByText("alice-ops");
+    await user.click(pwSwitch());
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent("之后只能用 Gitea 账号 alice-ops 登录");
+    expect(dialog).toHaveTextContent("OPSNAP_PASSWORD_LOGIN=1");
+    expect(m.find("PUT", "/settings/sso/password-login")).toHaveLength(0);
+    await user.click(within(dialog).getByRole("button", { name: "关闭密码登录" }));
+    await waitFor(() => expect(m.find("PUT", "/settings/sso/password-login")[0]?.body).toEqual({ enabled: false }));
+    await waitFor(() => expect(pwSwitch()).toHaveAttribute("aria-checked", "false"));
+  });
+
+  it("关闭期间锁定 Issuer、Client ID、解除绑定和停用；打开不需要确认", async () => {
+    const m = mockApi({ "GET /settings/sso": ok(PW_OFF), "PUT /settings/sso/password-login": ok(BOUND) });
+    open();
+    const user = userEvent.setup();
+    expect(await screen.findByLabelText("Issuer 地址")).toBeDisabled();
+    expect(screen.getByLabelText("Client ID")).toBeDisabled();
+    expect(screen.getByLabelText("按钮文字")).toBeEnabled();
+    expect(screen.getByRole("button", { name: "解除绑定" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "停用单点登录" })).toBeDisabled();
+    expect(screen.getAllByText("密码登录关闭期间不能修改，避免绑定失效后无法登录").length).toBeGreaterThan(0);
+    await user.click(pwSwitch());
+    await waitFor(() => expect(m.find("PUT", "/settings/sso/password-login")[0]?.body).toEqual({ enabled: true }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  });
+
+  it("环境变量强制打开时开关显示为开且不可操作，写明保存的值，锁定不生效", async () => {
+    mockApi({ "GET /settings/sso": ok({ ...PW_OFF, password_login_forced: true }) });
+    open();
+    await screen.findByText("alice-ops");
+    expect(pwSwitch()).toHaveAttribute("aria-checked", "true");
+    expect(pwSwitch()).toBeDisabled();
+    expect(screen.getByText(/OPSNAP_PASSWORD_LOGIN=1/).closest("p")).toHaveTextContent(
+      "环境变量 OPSNAP_PASSWORD_LOGIN=1 正在强制打开密码登录（设置里保存的是「关闭」）。恢复访问后，去掉这个变量并重启容器。"
+    );
+    expect(screen.getByLabelText("Issuer 地址")).toBeEnabled();
+    expect(screen.getByRole("button", { name: "解除绑定" })).toBeEnabled();
   });
 });

@@ -53,9 +53,20 @@ func (s *SSO) Configured() bool { return s != nil && s.Issuer != "" }
 // Bound 是否已绑定提供方账号
 func (s *SSO) Bound() bool { return s != nil && s.BoundSub != "" }
 
-// ClearBinding 解除绑定
+// ClearBinding 解除绑定，同时打开密码登录：密码登录关闭时一定存在绑定
 func (s *SSO) ClearBinding() {
 	s.BoundIssuer, s.BoundSub, s.BoundName, s.BoundAt = "", "", "", 0
+	s.PasswordLogin = true
+}
+
+// PasswordLoginAllowed 是否允许用户名密码登录；forced 表示环境变量强制打开
+func (s *SSO) PasswordLoginAllowed(forced bool) bool {
+	return forced || s == nil || s.PasswordLogin
+}
+
+// Locked 密码登录关闭期间（且没有被环境变量强制打开）：绑定不能失效，Issuer、Client ID 不能改
+func (s *SSO) Locked(forced bool) bool {
+	return !s.PasswordLoginAllowed(forced)
 }
 
 // CallbackURL 由面板对外地址拼出的回调地址；未填写面板地址时为空

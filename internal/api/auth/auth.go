@@ -14,6 +14,8 @@ type StatusResponse struct {
 	SSOEnabled bool `json:"sso_enabled"`
 	// SSOLabel 登录按钮文字，例如 Gitea
 	SSOLabel string `json:"sso_label,omitempty"`
+	// PasswordLogin 是否允许用户名密码登录（已考虑环境变量 OPSNAP_PASSWORD_LOGIN）
+	PasswordLogin bool `json:"password_login"`
 }
 
 // SetupRequest 首次运行时创建管理员（未登录可访问，仅在尚无管理员时可用）
@@ -25,7 +27,7 @@ type SetupRequest struct {
 
 type SetupResponse struct{}
 
-// LoginRequest 登录；成功后通过 HttpOnly Cookie 下发会话
+// LoginRequest 登录；成功后通过 HttpOnly Cookie 下发会话。密码登录关闭时返回 403
 type LoginRequest struct {
 	mux.Meta `path:"/auth/login" method:"POST"`
 	Username string `json:"username" form:"username" binding:"required,max=64" label:"用户名"`

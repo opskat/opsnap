@@ -21,6 +21,10 @@ type GetResponse struct {
 	CallbackURL string `json:"callback_url"`
 	// Binding 绑定的提供方账号；未绑定时为 null
 	Binding *Binding `json:"binding"`
+	// PasswordLogin 设置里保存的「允许用户名密码登录」
+	PasswordLogin bool `json:"password_login"`
+	// PasswordLoginForced 环境变量 OPSNAP_PASSWORD_LOGIN 正在强制打开密码登录
+	PasswordLoginForced bool `json:"password_login_forced"`
 }
 
 // Binding 绑定的提供方账号：只认 issuer + sub，Name 只用于展示
@@ -43,6 +47,17 @@ type UpdateRequest struct {
 }
 
 type UpdateResponse struct {
+	GetResponse
+}
+
+// PasswordLoginRequest 打开或关闭「允许用户名密码登录」。没有绑定账号时不能关闭。
+// 关闭期间不能修改 Issuer、Client ID，也不能解除绑定或停用；任何解除绑定的操作都会把它改回打开。
+type PasswordLoginRequest struct {
+	mux.Meta `path:"/settings/sso/password-login" method:"PUT"`
+	Enabled  bool `json:"enabled" form:"enabled"`
+}
+
+type PasswordLoginResponse struct {
 	GetResponse
 }
 

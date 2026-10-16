@@ -137,7 +137,9 @@ func TestSSOBind(t *testing.T) {
 				assert.Nil(t, v.Binding)
 			})
 
-			convey.Convey("绑定失败时回到设置页并带上原因，绑定不变", func() {
+			convey.Convey("绑定失败时回到设置页并带上原因，绑定状态不变", func() {
+				_, err := svc.Unbind(ctx)
+				require.NoError(t, err)
 				st, err := svc.StartBind(asAdmin(ctx))
 				require.NoError(t, err)
 				_, s := idp.authorize(st.URL)
@@ -146,7 +148,7 @@ func TestSSOBind(t *testing.T) {
 				assert.Contains(t, res.Redirect, "tab=sso")
 				assert.Equal(t, "Gitea 拒绝了授权（access_denied）。", msg)
 				v, _ := svc.View(ctx)
-				assert.Equal(t, "3", v.Binding.Sub)
+				assert.Nil(t, v.Binding)
 			})
 		})
 	})

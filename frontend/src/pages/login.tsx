@@ -44,6 +44,8 @@ export function LoginPage() {
   const [ssoLabel, setSsoLabel] = React.useState<string | null>(null);
   const [ssoBusy, setSsoBusy] = React.useState(false);
   const [ssoError, setSsoError] = React.useState<string | null>(null);
+  // 密码登录关闭时只剩单点登录按钮；读不到状态时按允许处理
+  const [passwordLogin, setPasswordLogin] = React.useState(true);
   const ssoErrorId = params.get("sso_error");
 
   React.useEffect(() => {
@@ -52,7 +54,9 @@ export function LoginPage() {
     api.auth
       .status()
       .then((st) => {
-        if (!cancelled && st.sso_enabled) setSsoLabel(st.sso_label || "单点登录");
+        if (cancelled) return;
+        if (st.sso_enabled) setSsoLabel(st.sso_label || "单点登录");
+        setPasswordLogin(st.password_login !== false);
       })
       .catch(() => {});
     return () => {
@@ -86,6 +90,9 @@ export function LoginPage() {
       setSsoBusy(false);
     }
   }
+
+  // 只有在确实能用单点登录时才隐藏密码表单，避免两种方式都看不到
+  const showPassword = passwordLogin || !ssoLabel;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -122,45 +129,56 @@ export function LoginPage() {
           </div>
           <h1 className="text-[26px] font-semibold tracking-[-0.01em]">登录 opsnap</h1>
           <p className="mt-1 text-[13.5px] text-ink-2">{window.location.host}</p>
-          <div className="mt-8 grid gap-4">
-            <Field label="用户名">
-              <Input
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                autoComplete="username"
-                className="h-10 bg-surface"
-              />
-            </Field>
-            <Field label="密码">
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="current-password"
-                autoFocus
-                aria-invalid={error ? true : undefined}
-                aria-describedby={error ? "login-err" : undefined}
-                className="h-10 bg-surface"
-              />
-            </Field>
-            <FormError id="login-err">{error}</FormError>
-            <Button type="submit" className="h-10 w-full" disabled={busy || ssoBusy}>
-              登录
-            </Button>
-          </div>
+          {showPassword && (
+            <div className="mt-8 grid gap-4">
+              <Field label="用户名">
+                <Input
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  autoComplete="username"
+                  className="h-10 bg-surface"
+                />
+              </Field>
+              <Field label="密码">
+                <Input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="current-password"
+                  autoFocus
+                  aria-invalid={error ? true : undefined}
+                  aria-describedby={error ? "login-err" : undefined}
+                  className="h-10 bg-surface"
+                />
+              </Field>
+              <FormError id="login-err">{error}</FormError>
+              <Button type="submit" className="h-10 w-full" disabled={busy || ssoBusy}>
+                登录
+              </Button>
+            </div>
+          )}
           {(ssoLabel || ssoError) && (
-            <div className="mt-4 grid gap-4">
-              {ssoLabel && (
+            <div className={showPassword ? "mt-4 grid gap-4" : "mt-8 grid gap-4"}>
+              {ssoLabel && showPassword && (
                 <div className="flex items-center gap-3 text-xs text-ink-3" aria-hidden>
                   <span className="h-px flex-1 bg-line" />或<span className="h-px flex-1 bg-line" />
                 </div>
               )}
               <FormError>{ssoError}</FormError>
               {ssoLabel && (
-                <Button type="button" variant="outline" className="h-10 w-full" disabled={ssoBusy} onClick={startSso}>
+                <Button
+                  type="button"
+                  variant={showPassword ? "outline" : "default"}
+                  className="h-10 w-full"
+                  disabled={ssoBusy}
+                  onClick={startSso}
+                >
                   {ssoBusy ? <Loader2 className="animate-spin" /> : <LogIn />}
                   {ssoBusy ? `正在跳转到 ${ssoLabel}…` : `用 ${ssoLabel} 登录`}
                 </Button>
+              )}
+              {ssoLabel && !showPassword && (
+                <p className="text-xs text-ink-3">密码登录已关闭。{ssoLabel} 不可用时，见部署说明里的恢复方法。</p>
               )}
             </div>
           )}

@@ -78,6 +78,7 @@ func Router(ctx context.Context, root *mux.Router) error {
 		ssoCtr.Update,
 		ssoCtr.Disable,
 		ssoCtr.Unbind,
+		ssoCtr.PasswordLogin,
 		authCtr.OIDCBind,
 		notifyCtr.Get,
 		notifyCtr.Update,

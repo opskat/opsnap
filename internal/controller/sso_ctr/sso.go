@@ -29,3 +29,8 @@ func (s *SSO) Disable(ctx context.Context, req *ssoapi.DisableRequest) (*ssoapi.
 func (s *SSO) Unbind(ctx context.Context, req *ssoapi.UnbindRequest) (*ssoapi.UnbindResponse, error) {
 	return sso_svc.SSO().Unbind(ctx)
 }
+
+// PasswordLogin 打开或关闭「允许用户名密码登录」
+func (s *SSO) PasswordLogin(ctx context.Context, req *ssoapi.PasswordLoginRequest) (*ssoapi.PasswordLoginResponse, error) {
+	return sso_svc.SSO().SetPasswordLogin(ctx, req)
+}

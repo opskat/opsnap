@@ -141,6 +141,8 @@ export interface AuthStatus {
   sso_enabled?: boolean;
   /** 登录按钮文字，例如 Gitea */
   sso_label?: string;
+  /** 是否允许用户名密码登录（已考虑环境变量 OPSNAP_PASSWORD_LOGIN） */
+  password_login?: boolean;
 }
 export interface Credentials {
   username: string;
@@ -209,6 +211,10 @@ export interface SSOSettings {
   callback_url: string;
   /** 绑定的提供方账号；只认 issuer + sub，name 只用于展示 */
   binding: SSOBinding | null;
+  /** 设置里保存的「允许用户名密码登录」 */
+  password_login: boolean;
+  /** 环境变量 OPSNAP_PASSWORD_LOGIN 正在强制打开密码登录 */
+  password_login_forced: boolean;
 }
 export interface SSOBinding {
   issuer: string;
@@ -719,6 +725,7 @@ export const api = {
     /** 开始绑定，返回提供方授权页地址 */
     bind: () => request<{ url: string }>("POST", "/settings/sso/bind"),
     unbind: () => request<SSOSettings>("DELETE", "/settings/sso/binding"),
+    setPasswordLogin: (enabled: boolean) => request<SSOSettings>("PUT", "/settings/sso/password-login", { enabled }),
   },
   settings: {
     get: () => request<Settings>("GET", "/settings"),

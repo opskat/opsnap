@@ -289,3 +289,58 @@ func TestStatusSSO(t *testing.T) {
 		assert.Equal(t, "Gitea", st.SSOLabel)
 	})
 }
+
+func TestPasswordLoginSwitch(t *testing.T) {
+	convey.Convey("密码登录开关", t, func() {
+		ctx, svc, _, _ := setupAuthTest(t)
+		mustSetup(t, ctx, svc)
+		SetPasswordLoginForced(false)
+		t.Cleanup(func() { SetPasswordLoginForced(false) })
+		cfg := &sso_entity.SSO{
+			Issuer: "https://git.example.com/", ClientID: "cid", ClientSecret: "c", ButtonLabel: "Gitea",
+			BoundIssuer: "https://git.example.com/", BoundSub: "3", PasswordLogin: true,
+		}
+		require.NoError(t, sso_repo.SSO().Save(ctx, cfg))
+
+		convey.Convey("开着时照常登录，状态里 password_login 为 true", func() {
+			st, _ := svc.Status(ctx)
+			assert.True(t, st.PasswordLogin)
+			_, err := login(ctx, svc, "correct-horse")
+			assert.NoError(t, err)
+		})
+
+		convey.Convey("关闭后登录接口返回 403，不计入错误次数；状态里 password_login 为 false", func() {
+			cfg.PasswordLogin = false
+			require.NoError(t, sso_repo.SSO().Save(ctx, cfg))
+			st, _ := svc.Status(ctx)
+			assert.False(t, st.PasswordLogin)
+			_, err := login(ctx, svc, "correct-horse")
+			var he *httputils.Error
+			require.ErrorAs(t, err, &he)
+			assert.Equal(t, code.PasswordLoginDisabled, he.Code)
+			assert.Equal(t, 403, he.Status)
+			assert.Contains(t, he.Msg, "密码登录已关闭，请用 Gitea 登录")
+			a, _ := admin_repo.Admin().Find(ctx)
+			assert.Equal(t, 0, a.FailedCount)
+
+			convey.Convey("修改密码仍然可用", func() {
+				_, err := svc.ChangePassword(ctx, &authapi.ChangePasswordRequest{OldPassword: "correct-horse", NewPassword: "battery-staple"}, "")
+				assert.NoError(t, err)
+			})
+
+			convey.Convey("环境变量强制打开后可以登录", func() {
+				SetPasswordLoginForced(true)
+				st, _ := svc.Status(ctx)
+				assert.True(t, st.PasswordLogin)
+				_, err := login(ctx, svc, "correct-horse")
+				assert.NoError(t, err)
+			})
+		})
+	})
+}
+
+func TestParsePasswordLoginEnv(t *testing.T) {
+	for v, want := range map[string]bool{"1": true, "true": true, "TRUE": true, " true ": true, "": false, "0": false, "yes": false, "false": false} {
+		assert.Equal(t, want, ParsePasswordLoginEnv(v), v)
+	}
+}

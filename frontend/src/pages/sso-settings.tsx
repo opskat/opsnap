@@ -1,10 +1,11 @@
-// 设置 → 单点登录：提供方配置、绑定账号
+// 设置 → 单点登录：提供方配置、绑定账号、密码登录开关
 import * as React from "react";
 import { useSearchParams } from "react-router";
-import { AlertTriangle, Check } from "lucide-react";
+import { AlertTriangle, Check, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -53,6 +54,22 @@ function isHttpURL(v: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** 密码登录关闭（且没有被环境变量强制打开）时，绑定不能失效：Issuer、Client ID、解除绑定、停用都锁定 */
+function isLocked(s: SSOSettings): boolean {
+  return !s.password_login && !s.password_login_forced;
+}
+
+const LOCKED_HINT = "密码登录关闭期间不能修改，避免绑定失效后无法登录";
+
+function LockedHint() {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <Lock className="size-3" aria-hidden />
+      {LOCKED_HINT}
+    </span>
+  );
 }
 
 /** 回调地址：面板对外地址去掉结尾的 / 再加固定路径 */
@@ -118,6 +135,7 @@ export function SsoSettings() {
       )}
       <Provider data={data} onSaved={setData} />
       <Binding data={data} onChanged={setData} />
+      <PasswordLogin data={data} onChanged={setData} />
     </div>
   );
 }
@@ -139,6 +157,7 @@ function Provider({ data, onSaved }: { data: SSOSettings; onSaved: (s: SSOSettin
   }
 
   const secretSaved = data.client_secret === SECRET_MASKED;
+  const locked = isLocked(data);
   const set = (patch: Partial<ProviderForm>) => setForm((f) => ({ ...f, ...patch }));
   const label = form.buttonLabel.trim() || "…";
 
@@ -185,20 +204,31 @@ function Provider({ data, onSaved }: { data: SSOSettings; onSaved: (s: SSOSettin
             className="sm:col-span-2"
             error={errors.issuer}
             hint={
-              <>
-                Gitea 填它的 ROOT_URL；opsnap 会读取 <Mono>/.well-known/openid-configuration</Mono>
-              </>
+              locked ? (
+                <LockedHint />
+              ) : (
+                <>
+                  Gitea 填它的 ROOT_URL；opsnap 会读取 <Mono>/.well-known/openid-configuration</Mono>
+                </>
+              )
             }
           >
             <Input
+              disabled={locked}
               value={form.issuer}
               onChange={(e) => set({ issuer: e.target.value })}
               placeholder="https://git.example.com/"
               autoComplete="off"
             />
           </Field>
-          <Field label="Client ID" className="sm:col-span-2" error={errors.clientId}>
+          <Field
+            label="Client ID"
+            className="sm:col-span-2"
+            error={errors.clientId}
+            hint={locked ? <LockedHint /> : undefined}
+          >
             <Input
+              disabled={locked}
               value={form.clientId}
               onChange={(e) => set({ clientId: e.target.value })}
               className="font-mono text-[12.5px]"
@@ -254,6 +284,7 @@ function Provider({ data, onSaved }: { data: SSOSettings; onSaved: (s: SSOSettin
                 type="button"
                 variant="ghost"
                 className="text-fail hover:text-fail"
+                disabled={locked}
                 onClick={() => setDisabling(true)}
               >
                 停用单点登录
@@ -344,13 +375,20 @@ function Binding({ data, onChanged }: { data: SSOSettings; onChanged: (s: SSOSet
               <Check className="size-4 text-ok" aria-hidden />
               已绑定 <span className="font-medium">{b.name}</span>
             </p>
-            <Button size="sm" variant="ghost" className="text-fail hover:text-fail" onClick={() => setUnbinding(true)}>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-fail hover:text-fail"
+              disabled={isLocked(data)}
+              onClick={() => setUnbinding(true)}
+            >
               解除绑定
             </Button>
           </div>
           <p className="text-xs text-ink-3 num">
             sub {b.sub} · {b.issuer} · 绑定于 {fmtDate(b.bound_at)}
           </p>
+          {isLocked(data) && <p className="text-xs text-ink-3">密码登录关闭期间不能解除绑定。</p>}
         </div>
       ) : (
         <div className="grid gap-2">
@@ -382,6 +420,79 @@ function Binding({ data, onChanged }: { data: SSOSettings; onChanged: (s: SSOSet
             >
               解除绑定
             </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Row>
+  );
+}
+
+function PasswordLogin({ data, onChanged }: { data: SSOSettings; onChanged: (s: SSOSettings) => void }) {
+  const [confirmOff, setConfirmOff] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
+  const label = data.button_label;
+  const bound = data.configured && data.binding !== null;
+  const forced = data.password_login_forced;
+
+  async function set(enabled: boolean) {
+    setBusy(true);
+    try {
+      onChanged(await api.sso.setPasswordLogin(enabled));
+      toast.success(enabled ? "密码登录已打开" : "密码登录已关闭");
+    } catch (err) {
+      toast.error(`保存失败：${errorMessage(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Row title="密码登录">
+      <div className="grid gap-3">
+        <div className="flex items-start justify-between gap-4">
+          <span>
+            <span className="block text-[13px] font-medium">允许用户名密码登录</span>
+            <span className="block text-xs text-ink-3">
+              {bound ? `关闭后登录页只显示「用 ${label} 登录」` : "绑定账号后才能关闭"}
+            </span>
+          </span>
+          <Switch
+            checked={forced || data.password_login}
+            disabled={busy || forced || (!bound && data.password_login)}
+            onCheckedChange={(v) => (v ? void set(true) : setConfirmOff(true))}
+            aria-label="允许用户名密码登录"
+          />
+        </div>
+        {forced ? (
+          <p className="flex items-start gap-1.5 text-xs text-warn">
+            <AlertTriangle className="mt-px size-3.5 shrink-0" aria-hidden />
+            <span>
+              环境变量 <Mono className="text-[11.5px]">OPSNAP_PASSWORD_LOGIN=1</Mono> 正在强制打开密码登录
+              {data.password_login ? "" : "（设置里保存的是「关闭」）"}。恢复访问后，去掉这个变量并重启容器。
+            </span>
+          </p>
+        ) : (
+          bound && (
+            <p className="text-xs text-ink-3">
+              {label} 不可用时，用 <Mono className="text-[11.5px]">OPSNAP_PASSWORD_LOGIN=1</Mono>{" "}
+              重启容器可以临时打开密码登录。
+            </p>
+          )
+        )}
+      </div>
+
+      <AlertDialog open={confirmOff} onOpenChange={setConfirmOff}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>关闭密码登录？</AlertDialogTitle>
+            <AlertDialogDescription>
+              之后只能用 {label} 账号 {data.binding?.name} 登录。{label} 不可用时，用环境变量 OPSNAP_PASSWORD_LOGIN=1
+              重启容器可以临时打开密码登录。API 密钥不受影响。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void set(false)}>关闭密码登录</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

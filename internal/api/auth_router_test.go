@@ -34,6 +34,7 @@ func TestAuthRoutes(t *testing.T) {
 				{http.MethodDelete, "/api/v1/settings/sso"},
 				{http.MethodPost, "/api/v1/settings/sso/bind"},
 				{http.MethodDelete, "/api/v1/settings/sso/binding"},
+				{http.MethodPut, "/api/v1/settings/sso/password-login"},
 				{http.MethodGet, "/api/v1/notify"},
 				{http.MethodPut, "/api/v1/notify"},
 				{http.MethodPost, "/api/v1/notify/test"},

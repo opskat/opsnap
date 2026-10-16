@@ -203,6 +203,9 @@ func (s *ssoSvc) StartBind(ctx context.Context) (*Start, error) {
 	if !cfg.Configured() {
 		return nil, i18n.NewError(ctx, code.SSONotConfigured)
 	}
+	if cfg.Bound() {
+		return nil, i18n.NewError(ctx, code.SSOAlreadyBound)
+	}
 	return s.start(ctx, cfg, purposeBind, "")
 }
 
