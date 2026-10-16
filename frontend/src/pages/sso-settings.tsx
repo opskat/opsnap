@@ -297,7 +297,8 @@ function Provider({ data, onSaved }: { data: SSOSettings; onSaved: (s: SSOSettin
 
       <AlertDialog open={confirmBody !== null} onOpenChange={(v) => !v && setConfirmBody(null)}>
         <AlertDialogContent>
-          <AlertDialogHeader>
+          {/* 名字可能是不能折行的长串（回退为 sub 时），确认框里同样在任意处折行，不把按钮挤出对话框 */}
+          <AlertDialogHeader className="wrap-anywhere">
             <AlertDialogTitle>保存后会解除当前绑定</AlertDialogTitle>
             <AlertDialogDescription>
               修改了 Issuer 或 Client ID，原来绑定的 {data.binding?.name} 不再有效，保存后需要重新绑定。
@@ -372,10 +373,11 @@ function Binding({ data, onChanged }: { data: SSOSettings; onChanged: (s: SSOSet
       {b ? (
         <div className="grid gap-1.5">
           <div className="flex flex-wrap items-center gap-3">
-            {/* 提供方不给 preferred_username 和 name 时名字就是 sub，同样可能是不能折行的长串 */}
-            <p className="flex flex-1 items-center gap-1.5 text-[13.5px] wrap-anywhere">
-              <Check className="size-4 text-ok" aria-hidden />
-              已绑定 <span className="font-medium">{b.name}</span>
+            {/* 提供方不给 preferred_username 和 name 时名字就是 sub，同样可能是不能折行的长串：只让名字折行，「已绑定」不被挤窄 */}
+            <p className="flex min-w-0 flex-1 items-center gap-1.5 text-[13.5px]">
+              <Check className="size-4 shrink-0 text-ok" aria-hidden />
+              <span className="shrink-0">已绑定</span>
+              <span className="min-w-0 font-medium wrap-anywhere">{b.name}</span>
             </p>
             <Button
               size="sm"
@@ -409,7 +411,7 @@ function Binding({ data, onChanged }: { data: SSOSettings; onChanged: (s: SSOSet
 
       <AlertDialog open={unbinding} onOpenChange={setUnbinding}>
         <AlertDialogContent>
-          <AlertDialogHeader>
+          <AlertDialogHeader className="wrap-anywhere">
             <AlertDialogTitle>解除绑定 {b?.name}？</AlertDialogTitle>
             <AlertDialogDescription>
               解除后不能再用 {label} 登录，直到重新绑定。当前会话不受影响。
@@ -486,7 +488,7 @@ function PasswordLogin({ data, onChanged }: { data: SSOSettings; onChanged: (s: 
 
       <AlertDialog open={confirmOff} onOpenChange={setConfirmOff}>
         <AlertDialogContent>
-          <AlertDialogHeader>
+          <AlertDialogHeader className="wrap-anywhere">
             <AlertDialogTitle>关闭密码登录？</AlertDialogTitle>
             <AlertDialogDescription>
               之后只能用 {label} 账号 {data.binding?.name} 登录。{label} 不可用时，用环境变量 OPSNAP_PASSWORD_LOGIN=1
