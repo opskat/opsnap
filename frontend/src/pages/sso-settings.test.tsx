@@ -174,7 +174,10 @@ describe("设置 · 单点登录 · 绑定账号", () => {
       "GET /auth/oidc/result": ok({ message: "Gitea 拒绝了授权（access_denied）。" }),
     });
     renderPage(<SettingsPage />, { path: "/settings", at: "/settings?tab=sso&sso_error=e1" });
-    expect(await screen.findByText("绑定失败：Gitea 拒绝了授权（access_denied）。")).toBeInTheDocument();
+    const banner = await screen.findByText("绑定失败：Gitea 拒绝了授权（access_denied）。");
+    // 红色提示
+    expect(banner).toHaveClass("text-fail");
+    expect(banner.closest('[role="alert"]')).toHaveClass("bg-fail-wash");
   });
 
   it("已绑定时修改 Issuer 或 Client ID，保存前确认会解除绑定；只改按钮文字不确认", async () => {
@@ -237,6 +240,7 @@ describe("设置 · 单点登录 · 密码登录", () => {
     expect(screen.getByRole("button", { name: "解除绑定" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "停用单点登录" })).toBeDisabled();
     expect(screen.getAllByText("密码登录关闭期间不能修改，避免绑定失效后无法登录").length).toBeGreaterThan(0);
+    expect(screen.getByText("密码登录关闭期间不能停用单点登录。")).toBeInTheDocument();
     await user.click(pwSwitch());
     await waitFor(() => expect(m.find("PUT", "/settings/sso/password-login")[0]?.body).toEqual({ enabled: true }));
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
@@ -253,5 +257,15 @@ describe("设置 · 单点登录 · 密码登录", () => {
     );
     expect(screen.getByLabelText("Issuer 地址")).toBeEnabled();
     expect(screen.getByRole("button", { name: "解除绑定" })).toBeEnabled();
+  });
+
+  it("保存的值是「开」时只写明正在被环境变量强制打开", async () => {
+    mockApi({ "GET /settings/sso": ok({ ...BOUND, password_login_forced: true }) });
+    open();
+    await screen.findByText("alice-ops");
+    expect(pwSwitch()).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByText(/OPSNAP_PASSWORD_LOGIN=1/).closest("p")).toHaveTextContent(
+      /^环境变量 OPSNAP_PASSWORD_LOGIN=1 正在强制打开密码登录。$/
+    );
   });
 });

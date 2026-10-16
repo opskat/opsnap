@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -41,7 +42,7 @@ func bind(t *testing.T, ctx context.Context, svc *ssoSvc, idp *fakeIdP) {
 	st, err := svc.StartBind(asAdmin(ctx))
 	require.NoError(t, err)
 	c, s := idp.authorize(st.URL)
-	res := svc.Callback(ctx, st.Browser, &authapi.OIDCCallbackRequest{Code: c, State: s})
+	res := svc.Callback(ctx, st.Browser, "", &authapi.OIDCCallbackRequest{Code: c, State: s})
 	require.Equal(t, "/settings?tab=sso", res.Redirect)
 }
 
@@ -94,7 +95,7 @@ func TestSSOBind(t *testing.T) {
 			assert.Equal(t, "https://opsnap.example.com/api/v1/auth/oidc/callback", u.Query().Get("redirect_uri"))
 			c, s := idp.authorize(st.URL)
 			clock.Advance(time.Minute)
-			res := svc.Callback(ctx, st.Browser, &authapi.OIDCCallbackRequest{Code: c, State: s})
+			res := svc.Callback(ctx, st.Browser, "", &authapi.OIDCCallbackRequest{Code: c, State: s})
 			assert.Equal(t, "/settings?tab=sso", res.Redirect)
 			assert.Nil(t, res.Session, "绑定不建立新会话")
 
@@ -137,13 +138,50 @@ func TestSSOBind(t *testing.T) {
 				assert.Nil(t, v.Binding)
 			})
 
+			convey.Convey("绑定请求过期时（浏览器带着面板会话）回到设置页显示绑定失败，而不是登录页", func() {
+				_, err := svc.Unbind(ctx)
+				require.NoError(t, err)
+				sess, err := auth_svc.Auth().IssueSession(ctx)
+				require.NoError(t, err)
+				st, err := svc.StartBind(asAdmin(ctx))
+				require.NoError(t, err)
+				c, s := idp.authorize(st.URL)
+				clock.Advance(10*time.Minute + time.Second)
+				res := svc.Callback(ctx, st.Browser, sess.Token, &authapi.OIDCCallbackRequest{Code: c, State: s})
+				msg := failed(t, svc, res, "/settings")
+				assert.Contains(t, res.Redirect, "tab=sso")
+				assert.Equal(t, "登录请求已过期（超过 10 分钟）或已用过，请重新点击登录。", msg)
+
+				// 没有有效会话时只能当作登录请求处理
+				res = svc.Callback(ctx, st.Browser, "not-a-session", &authapi.OIDCCallbackRequest{Code: c, State: s})
+				failed(t, svc, res, "/login")
+			})
+
+			convey.Convey("同时发起的两次绑定：先完成的生效，后完成的不会顶掉已有绑定", func() {
+				_, err := svc.Unbind(ctx)
+				require.NoError(t, err)
+				st1, err := svc.StartBind(asAdmin(ctx))
+				require.NoError(t, err)
+				c1, s1 := idp.authorize(st1.URL)
+				st2, err := svc.StartBind(asAdmin(ctx))
+				require.NoError(t, err)
+				c2, s2 := idp.authorize(st2.URL)
+				require.Equal(t, "/settings?tab=sso", svc.Callback(ctx, st1.Browser, "", &authapi.OIDCCallbackRequest{Code: c1, State: s1}).Redirect)
+				idp.sub, idp.name = "4", "bob"
+				res := svc.Callback(ctx, st2.Browser, "", &authapi.OIDCCallbackRequest{Code: c2, State: s2})
+				assert.Equal(t, "已经绑定了账号，要换账号请先解除绑定", failed(t, svc, res, "/settings"))
+				v, _ := svc.View(ctx)
+				require.NotNil(t, v.Binding)
+				assert.Equal(t, "3", v.Binding.Sub)
+			})
+
 			convey.Convey("绑定失败时回到设置页并带上原因，绑定状态不变", func() {
 				_, err := svc.Unbind(ctx)
 				require.NoError(t, err)
 				st, err := svc.StartBind(asAdmin(ctx))
 				require.NoError(t, err)
 				_, s := idp.authorize(st.URL)
-				res := svc.Callback(ctx, st.Browser, &authapi.OIDCCallbackRequest{State: s, Error: "access_denied"})
+				res := svc.Callback(ctx, st.Browser, "", &authapi.OIDCCallbackRequest{State: s, Error: "access_denied"})
 				msg := failed(t, svc, res, "/settings")
 				assert.Contains(t, res.Redirect, "tab=sso")
 				assert.Equal(t, "Gitea 拒绝了授权（access_denied）。", msg)
@@ -179,7 +217,7 @@ func TestSSOLogin(t *testing.T) {
 
 			convey.Convey("绑定的账号登录成功：建立 7 天会话，回到登录前的页面", func() {
 				st, c, s := start("/runs?status=failed")
-				res := svc.Callback(ctx, st.Browser, &authapi.OIDCCallbackRequest{Code: c, State: s})
+				res := svc.Callback(ctx, st.Browser, "", &authapi.OIDCCallbackRequest{Code: c, State: s})
 				require.NotNil(t, res.Session)
 				assert.Equal(t, "/runs?status=failed", res.Redirect)
 				assert.Equal(t, clock.Now().Add(7*24*time.Hour), res.Session.ExpiresAt)
@@ -191,7 +229,7 @@ func TestSSOLogin(t *testing.T) {
 			convey.Convey("next 不是站内路径时回到首页", func() {
 				for _, next := range []string{"", "//evil.example.com", "https://evil.example.com", "/\\evil", "/login", "/setup"} {
 					st, c, s := start(next)
-					res := svc.Callback(ctx, st.Browser, &authapi.OIDCCallbackRequest{Code: c, State: s})
+					res := svc.Callback(ctx, st.Browser, "", &authapi.OIDCCallbackRequest{Code: c, State: s})
 					require.NotNil(t, res.Session, next)
 					assert.Equal(t, "/", res.Redirect, next)
 				}
@@ -202,13 +240,13 @@ func TestSSOLogin(t *testing.T) {
 				a.FailedCount, a.LockedUntil = 5, clock.Now().Add(10*time.Minute).Unix()
 				require.NoError(t, admin_repo.Admin().Update(ctx, a))
 				st, c, s := start("/")
-				assert.NotNil(t, svc.Callback(ctx, st.Browser, &authapi.OIDCCallbackRequest{Code: c, State: s}).Session)
+				assert.NotNil(t, svc.Callback(ctx, st.Browser, "", &authapi.OIDCCallbackRequest{Code: c, State: s}).Session)
 
 				a.FailedCount, a.LockedUntil = 0, 0
 				require.NoError(t, admin_repo.Admin().Update(ctx, a))
 				idp.sub = "4"
 				st, c, s = start("/")
-				failed(t, svc, svc.Callback(ctx, st.Browser, &authapi.OIDCCallbackRequest{Code: c, State: s}), "/login")
+				failed(t, svc, svc.Callback(ctx, st.Browser, "", &authapi.OIDCCallbackRequest{Code: c, State: s}), "/login")
 				a, _ = admin_repo.Admin().Find(ctx)
 				assert.Equal(t, 0, a.FailedCount)
 			})
@@ -230,23 +268,27 @@ func TestSSOLogin(t *testing.T) {
 					}, "Gitea 返回的身份令牌无效：已过期"},
 					{"nonce 不一致", func() { idp.mutate = func(c map[string]any) { c["nonce"] = "forged" } }, "Gitea 返回的身份令牌无效：nonce"},
 					{"令牌端点拒绝", func() { idp.tokenError = "invalid_grant" }, "Gitea 拒绝了授权（invalid_grant）。"},
+					{"令牌端点响应异常（不是 OAuth2 错误）", func() { idp.tokenStatus = http.StatusInternalServerError }, "连不上 Gitea（" + idp.issuer + "）：令牌端点返回 HTTP 500。稍后再试。"},
+					{"读不到签名公钥", func() { idp.jwksStatus = http.StatusServiceUnavailable }, "连不上 Gitea（" + idp.issuer + "）：读取签名公钥 " + idp.issuer + "keys 失败：HTTP 503。稍后再试。"},
 				}
 				for _, c := range cases {
 					idp.sub, idp.name, idp.mutate, idp.signKey, idp.tokenError = "3", "alice-ops", nil, nil, ""
+					idp.tokenStatus, idp.jwksStatus = 0, 0
 					c.setup()
 					st, code, state := start("/")
-					msg := failed(t, svc, svc.Callback(ctx, st.Browser, &authapi.OIDCCallbackRequest{Code: code, State: state}), "/login")
+					msg := failed(t, svc, svc.Callback(ctx, st.Browser, "", &authapi.OIDCCallbackRequest{Code: code, State: state}), "/login")
 					assert.Contains(t, msg, c.want, c.name)
 					assert.NotContains(t, msg, code, c.name+"：提示里不含授权码")
+					assert.NotContains(t, msg, "provider says", c.name+"：不把提供方返回的任意文本放进提示")
 				}
 			})
 
 			convey.Convey("用户在提供方拒绝授权；错误码里的异常字符不原样显示", func() {
 				st, _, s := start("/")
-				msg := failed(t, svc, svc.Callback(ctx, st.Browser, &authapi.OIDCCallbackRequest{State: s, Error: "access_denied"}), "/login")
+				msg := failed(t, svc, svc.Callback(ctx, st.Browser, "", &authapi.OIDCCallbackRequest{State: s, Error: "access_denied"}), "/login")
 				assert.Equal(t, "Gitea 拒绝了授权（access_denied）。", msg)
 				st, _, s = start("/")
-				msg = failed(t, svc, svc.Callback(ctx, st.Browser, &authapi.OIDCCallbackRequest{State: s, Error: "<script>alert(1)</script>"}), "/login")
+				msg = failed(t, svc, svc.Callback(ctx, st.Browser, "", &authapi.OIDCCallbackRequest{State: s, Error: "<script>alert(1)</script>"}), "/login")
 				assert.NotContains(t, msg, "<script>")
 				assert.Contains(t, msg, "拒绝了授权")
 			})
@@ -254,25 +296,25 @@ func TestSSOLogin(t *testing.T) {
 			convey.Convey("登录请求无效：重放、超过 10 分钟、不认识的 state、换了浏览器", func() {
 				want := "登录请求已过期（超过 10 分钟）或已用过，请重新点击登录。"
 				st, c, s := start("/")
-				require.NotNil(t, svc.Callback(ctx, st.Browser, &authapi.OIDCCallbackRequest{Code: c, State: s}).Session)
-				assert.Equal(t, want, failed(t, svc, svc.Callback(ctx, st.Browser, &authapi.OIDCCallbackRequest{Code: c, State: s}), "/login"), "重放")
+				require.NotNil(t, svc.Callback(ctx, st.Browser, "", &authapi.OIDCCallbackRequest{Code: c, State: s}).Session)
+				assert.Equal(t, want, failed(t, svc, svc.Callback(ctx, st.Browser, "", &authapi.OIDCCallbackRequest{Code: c, State: s}), "/login"), "重放")
 
 				st, c, s = start("/")
 				clock.Advance(10*time.Minute + time.Second)
-				assert.Equal(t, want, failed(t, svc, svc.Callback(ctx, st.Browser, &authapi.OIDCCallbackRequest{Code: c, State: s}), "/login"), "过期")
+				assert.Equal(t, want, failed(t, svc, svc.Callback(ctx, st.Browser, "", &authapi.OIDCCallbackRequest{Code: c, State: s}), "/login"), "过期")
 
-				assert.Equal(t, want, failed(t, svc, svc.Callback(ctx, "x", &authapi.OIDCCallbackRequest{Code: "c", State: "unknown"}), "/login"), "不认识")
+				assert.Equal(t, want, failed(t, svc, svc.Callback(ctx, "x", "", &authapi.OIDCCallbackRequest{Code: "c", State: "unknown"}), "/login"), "不认识")
 
 				st, c, s = start("/")
-				assert.Equal(t, want, failed(t, svc, svc.Callback(ctx, "another-browser", &authapi.OIDCCallbackRequest{Code: c, State: s}), "/login"), "换了浏览器")
-				assert.Equal(t, want, failed(t, svc, svc.Callback(ctx, "", &authapi.OIDCCallbackRequest{Code: c, State: s}), "/login"), "没有浏览器 Cookie")
+				assert.Equal(t, want, failed(t, svc, svc.Callback(ctx, "another-browser", "", &authapi.OIDCCallbackRequest{Code: c, State: s}), "/login"), "换了浏览器")
+				assert.Equal(t, want, failed(t, svc, svc.Callback(ctx, "", "", &authapi.OIDCCallbackRequest{Code: c, State: s}), "/login"), "没有浏览器 Cookie")
 				_ = st
 			})
 
 			convey.Convey("连不上提供方", func() {
 				st, c, s := start("/")
 				idp.srv.Close()
-				msg := failed(t, svc, svc.Callback(ctx, st.Browser, &authapi.OIDCCallbackRequest{Code: c, State: s}), "/login")
+				msg := failed(t, svc, svc.Callback(ctx, st.Browser, "", &authapi.OIDCCallbackRequest{Code: c, State: s}), "/login")
 				assert.True(t, strings.HasPrefix(msg, "连不上 Gitea（"+idp.issuer+"）："), msg)
 				_, err := svc.StartLogin(ctx, "/")
 				assert.Equal(t, code.SSOProviderUnreachable, errCode(t, err))
@@ -281,7 +323,7 @@ func TestSSOLogin(t *testing.T) {
 			convey.Convey("配置被停用后回调不再建立会话", func() {
 				st, c, s := start("/")
 				require.NoError(t, sso_repo.SSO().Delete(ctx))
-				assert.Equal(t, "单点登录未启用。", failed(t, svc, svc.Callback(ctx, st.Browser, &authapi.OIDCCallbackRequest{Code: c, State: s}), "/login"))
+				assert.Equal(t, "单点登录未启用。", failed(t, svc, svc.Callback(ctx, st.Browser, "", &authapi.OIDCCallbackRequest{Code: c, State: s}), "/login"))
 			})
 
 			convey.Convey("失败原因的 id 不认识时为空", func() {
@@ -289,4 +331,25 @@ func TestSSOLogin(t *testing.T) {
 			})
 		})
 	})
+}
+
+func TestJWKSFailure(t *testing.T) {
+	d := &discovery{JWKSURL: "https://git.example.com/login/oauth/keys"}
+	cases := []struct {
+		name, err, want string
+		ok              bool
+	}{
+		{"HTTP 状态码，不带响应内容", "failed to verify signature: fetching keys oidc: get keys failed: 503 Service Unavailable <html>down</html>",
+			"读取签名公钥 https://git.example.com/login/oauth/keys 失败：HTTP 503", true},
+		{"网络错误", `failed to verify signature: fetching keys oidc: get keys failed Get "https://git.example.com/login/oauth/keys": dial tcp 10.0.0.1:443: connect: connection refused`,
+			"读取签名公钥 https://git.example.com/login/oauth/keys 失败：dial tcp 10.0.0.1:443: connect: connection refused", true},
+		{"内容不是 JWKS", "failed to verify signature: fetching keys oidc: failed to decode keys: invalid character '<' {secret}",
+			"读取签名公钥 https://git.example.com/login/oauth/keys 失败：不是合法的 JWKS", true},
+		{"签名不对不算连不上", "failed to verify signature: failed to verify id token signature", "", false},
+	}
+	for _, c := range cases {
+		got, ok := jwksFailure(d, errors.New(c.err))
+		assert.Equal(t, c.ok, ok, c.name)
+		assert.Equal(t, c.want, got, c.name)
+	}
 }

@@ -93,7 +93,8 @@ func (a *Auth) OIDCBind(c *gin.Context, req *authapi.OIDCBindRequest) (*authapi.
 // OIDCCallback 提供方授权后回到这里：交给服务校验，成功时写会话 Cookie，然后跳转
 func (a *Auth) OIDCCallback(c *gin.Context, req *authapi.OIDCCallbackRequest) error {
 	browser, _ := c.Cookie(OIDCCookie)
-	res := sso_svc.SSO().Callback(c.Request.Context(), browser, req)
+	session, _ := c.Cookie(auth_svc.SessionCookie)
+	res := sso_svc.SSO().Callback(c.Request.Context(), browser, session, req)
 	setOIDCCookie(c, "", -1)
 	if res.Session != nil {
 		setSessionCookie(c, res.Session.Token, int(time.Until(res.Session.ExpiresAt).Seconds()))

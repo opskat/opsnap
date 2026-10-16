@@ -120,7 +120,7 @@ const (
 	SSOButtonLabelInvalid                       // 按钮文字为空或过长
 	SSOPanelURLInvalid                          // 面板对外地址不是合法的 http(s) 地址
 	SSODiscoveryFailed                          // 读取发现文档失败（带地址和原因）
-	SSOIssuerMismatch                           // 发现文档声明的 issuer 与填写的不一致
+	SSOIssuerMismatch                           // 发现文档声明的 issuer 与填写的不一致（带地址、声明的 issuer）
 	SSONotConfigured                            // 还没有保存提供方配置
 	SSONotEnabled                               // 单点登录未启用（未配置或未绑定）
 	SSOBindRequiresSession                      // 绑定只能由已登录面板的管理员发起

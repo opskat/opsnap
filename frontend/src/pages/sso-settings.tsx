@@ -128,9 +128,9 @@ export function SsoSettings() {
   return (
     <div className="flex max-w-3xl flex-col gap-10">
       {bindError && (
-        <Sheet className="flex items-start gap-3 px-5 py-4" role="alert">
+        <Sheet className="flex items-start gap-3 border-fail/40 bg-fail-wash px-5 py-4" role="alert">
           <AlertTriangle className="mt-0.5 size-4 shrink-0 text-fail" aria-hidden />
-          <p className="flex-1 text-[13.5px]">绑定失败：{bindError}</p>
+          <p className="flex-1 text-[13.5px] text-fail">绑定失败：{bindError}</p>
         </Sheet>
       )}
       <Provider data={data} onSaved={setData} />
@@ -290,6 +290,7 @@ function Provider({ data, onSaved }: { data: SSOSettings; onSaved: (s: SSOSettin
                 停用单点登录
               </Button>
             )}
+            {data.configured && locked && <p className="text-xs text-ink-3">密码登录关闭期间不能停用单点登录。</p>}
           </div>
         </div>
       </Row>
@@ -468,7 +469,7 @@ function PasswordLogin({ data, onChanged }: { data: SSOSettings; onChanged: (s: 
             <AlertTriangle className="mt-px size-3.5 shrink-0" aria-hidden />
             <span>
               环境变量 <Mono className="text-[11.5px]">OPSNAP_PASSWORD_LOGIN=1</Mono> 正在强制打开密码登录
-              {data.password_login ? "" : "（设置里保存的是「关闭」）"}。恢复访问后，去掉这个变量并重启容器。
+              {data.password_login ? "。" : "（设置里保存的是「关闭」）。恢复访问后，去掉这个变量并重启容器。"}
             </span>
           </p>
         ) : (

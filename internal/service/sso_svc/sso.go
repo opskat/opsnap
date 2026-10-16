@@ -36,8 +36,9 @@ type SSOSvc interface {
 	StartLogin(ctx context.Context, next string) (*Start, error)
 	// StartBind 开始绑定（需要已配置）；只接受面板会话，API 密钥返回 403
 	StartBind(ctx context.Context) (*Start, error)
-	// Callback 处理提供方的回调；browser 是开始时写进浏览器 Cookie 的值。失败也返回跳转地址
-	Callback(ctx context.Context, browser string, req *authapi.OIDCCallbackRequest) *CallbackResult
+	// Callback 处理提供方的回调；browser 是开始时写进浏览器 Cookie 的值，session 是浏览器带着的面板会话（可为空）。
+	// 失败也返回跳转地址
+	Callback(ctx context.Context, browser, session string, req *authapi.OIDCCallbackRequest) *CallbackResult
 	// Result 回调失败的原因，id 来自跳转地址里的 sso_error；不存在或已过期时为空
 	Result(id string) string
 }

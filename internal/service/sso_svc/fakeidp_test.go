@@ -38,6 +38,10 @@ type fakeIdP struct {
 	signKey *rsa.PrivateKey
 	// tokenError 不为空时令牌端点返回这个 OAuth2 错误码
 	tokenError string
+	// tokenStatus 不为 0 时令牌端点返回这个 HTTP 状态码和一段 HTML（模拟提供方响应异常）
+	tokenStatus int
+	// jwksStatus 不为 0 时 JWKS 端点返回这个 HTTP 状态码（模拟读不到签名公钥）
+	jwksStatus int
 }
 
 type grant struct {
@@ -56,6 +60,11 @@ func newFakeIdP(t *testing.T, now func() time.Time) *fakeIdP {
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/token" {
 			f.token(w, r)
+			return
+		}
+		if r.URL.Path == "/keys" && f.jwksStatus != 0 {
+			w.WriteHeader(f.jwksStatus)
+			_, _ = w.Write([]byte("<html>provider says <b>down</b></html>"))
 			return
 		}
 		disc.ServeHTTP(w, r)
@@ -102,6 +111,12 @@ func (f *fakeIdP) token(w http.ResponseWriter, r *http.Request) {
 	}
 	if id != f.clientID || secret != f.clientSecret {
 		oauthErr("invalid_client")
+		return
+	}
+	if f.tokenStatus != 0 {
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(f.tokenStatus)
+		_, _ = w.Write([]byte("<html>provider says <b>oops</b></html>"))
 		return
 	}
 	if f.tokenError != "" {

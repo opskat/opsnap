@@ -197,7 +197,7 @@ func TestSSOProvider(t *testing.T) {
 				}, code.SSODiscoveryFailed, []string{"token_endpoint"}},
 				{"issuer 不一致（少了结尾 /）", func() string {
 					return discoveryServer(t, nil).URL
-				}, code.SSOIssuerMismatch, []string{"提供方声明的 issuer 是 http://"}},
+				}, code.SSOIssuerMismatch, []string{"/.well-known/openid-configuration", "提供方声明的 issuer 是 http://"}},
 			}
 			for _, c := range cases {
 				_, err := svc.Update(ctx, update(c.issuer()))

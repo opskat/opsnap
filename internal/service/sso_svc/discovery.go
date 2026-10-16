@@ -103,7 +103,7 @@ func (s *ssoSvc) checkDiscovery(ctx context.Context, issuer string) error {
 		return nil
 	}
 	if de.Declared != "" {
-		return i18n.NewError(ctx, code.SSOIssuerMismatch, de.Declared)
+		return i18n.NewError(ctx, code.SSOIssuerMismatch, de.URL, de.Declared)
 	}
 	return i18n.NewError(ctx, code.SSODiscoveryFailed, de.URL, de.Reason)
 }

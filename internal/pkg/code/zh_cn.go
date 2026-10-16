@@ -98,7 +98,7 @@ var zhCN = map[int]string{
 	SSOButtonLabelInvalid:        "按钮文字不能为空，最多 %d 个字符",
 	SSOPanelURLInvalid:           "面板对外地址须是以 http:// 或 https:// 开头的完整地址，例如 https://opsnap.example.com",
 	SSODiscoveryFailed:           "读取 %s 失败：%s。检查 Issuer 地址和网络后再保存",
-	SSOIssuerMismatch:            "提供方声明的 issuer 是 %s，与填写的不一致。请把 Issuer 地址改成它",
+	SSOIssuerMismatch:            "读取 %s 成功，但提供方声明的 issuer 是 %s，与填写的不一致。请把 Issuer 地址改成它",
 	SSONotConfigured:             "先保存提供方配置",
 	SSONotEnabled:                "单点登录未启用。",
 	SSOBindRequiresSession:       "绑定只能由已登录面板的管理员在浏览器里发起，API 密钥不能绑定",

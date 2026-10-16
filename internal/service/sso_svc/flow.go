@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 	"sync"
@@ -264,10 +265,17 @@ func sanitizeErrorCode(v string) string {
 	return "未知错误"
 }
 
-func (s *ssoSvc) Callback(ctx context.Context, browser string, req *authapi.OIDCCallbackRequest) *CallbackResult {
+func (s *ssoSvc) Callback(ctx context.Context, browser, session string, req *authapi.OIDCCallbackRequest) *CallbackResult {
 	p := s.take(req.State, browser)
 	if p == nil {
-		return s.fail(purposeLogin, i18n.NewError(ctx, code.SSOStateInvalid))
+		// 不知道这次是登录还是绑定：带着有效面板会话的浏览器不需要登录，只可能是在绑定，回到设置页显示「绑定失败」
+		pur := purposeLogin
+		if session != "" {
+			if a, err := auth_svc.Auth().Authenticate(ctx, session, ""); err == nil && a.Kind == auth.KindAdmin {
+				pur = purposeBind
+			}
+		}
+		return s.fail(pur, i18n.NewError(ctx, code.SSOStateInvalid))
 	}
 	res, err := s.callback(ctx, p, req)
 	if err != nil {
@@ -301,11 +309,11 @@ func (s *ssoSvc) callback(ctx context.Context, p *pending, req *authapi.OIDCCall
 	if err != nil {
 		var re *oauth2.RetrieveError
 		if errors.As(err, &re) {
-			ec := re.ErrorCode
-			if ec == "" {
-				ec = "HTTP " + strings.TrimSpace(strings.SplitN(re.Response.Status, " ", 2)[0])
+			if re.ErrorCode != "" {
+				return nil, i18n.NewError(ctx, code.SSOProviderDenied, cfg.ButtonLabel, sanitizeErrorCode(re.ErrorCode))
 			}
-			return nil, i18n.NewError(ctx, code.SSOProviderDenied, cfg.ButtonLabel, sanitizeErrorCode(ec))
+			// 没有 OAuth2 错误码：提供方响应异常，只显示状态码，不显示响应内容
+			return nil, unreachable(ctx, cfg, fmt.Sprintf("令牌端点返回 HTTP %d", re.Response.StatusCode))
 		}
 		return nil, unreachable(ctx, cfg, transportReason(err))
 	}
@@ -321,6 +329,9 @@ func (s *ssoSvc) callback(ctx context.Context, p *pending, req *authapi.OIDCCall
 	}).NewProvider(hctx)
 	idt, err := provider.Verifier(&oidc.Config{ClientID: cfg.ClientID, Now: s.now}).Verify(hctx, raw)
 	if err != nil {
+		if reason, ok := jwksFailure(d, err); ok {
+			return nil, unreachable(ctx, cfg, reason)
+		}
 		return nil, invalid(verifyReason(err))
 	}
 	if subtle.ConstantTimeCompare([]byte(idt.Nonce), []byte(p.nonce)) != 1 {
@@ -346,6 +357,10 @@ func (s *ssoSvc) callback(ctx context.Context, p *pending, req *authapi.OIDCCall
 		if err != nil {
 			return nil, err
 		}
+		// 同时发起的另一次绑定已经完成：不顶掉已有绑定，换账号要先解除
+		if cur.Bound() {
+			return nil, i18n.NewError(ctx, code.SSOAlreadyBound)
+		}
 		cur.BoundIssuer, cur.BoundSub, cur.BoundName, cur.BoundAt = idt.Issuer, idt.Subject, name, s.now().Unix()
 		cur.Updatetime = s.now().Unix()
 		if err := sso_repo.SSO().Save(ctx, cur); err != nil {
@@ -362,6 +377,33 @@ func (s *ssoSvc) callback(ctx context.Context, p *pending, req *authapi.OIDCCall
 		return nil, err
 	}
 	return &CallbackResult{Redirect: p.next, Session: sess}, nil
+}
+
+// jwksFailure 校验失败是不是因为读不到提供方的签名公钥（JWKS）；是的话返回只含地址和状态码或网络错误的原因。
+// go-oidc 用 %v 包装，错误链已断开，只能按它的固定文字判断；提供方返回的响应内容不放进原因里
+func jwksFailure(d *discovery, err error) (string, bool) {
+	msg := err.Error()
+	if !strings.Contains(msg, "fetching keys") {
+		return "", false
+	}
+	reason := "读取签名公钥 " + d.JWKSURL + " 失败"
+	const httpFailed, transportFailed = "get keys failed: ", "get keys failed "
+	if i := strings.Index(msg, httpFailed); i >= 0 {
+		// 「get keys failed: 503 Service Unavailable <响应内容>」只取状态码
+		if f := strings.Fields(msg[i+len(httpFailed):]); len(f) > 0 {
+			return reason + "：HTTP " + f[0], true
+		}
+		return reason, true
+	}
+	if i := strings.Index(msg, transportFailed); i >= 0 {
+		// 「get keys failed Get "<地址>": <网络错误>」只取网络错误
+		rest := msg[i+len(transportFailed):]
+		if j := strings.Index(rest, "\": "); j >= 0 {
+			return reason + "：" + rest[j+3:], true
+		}
+		return reason, true
+	}
+	return reason + "：不是合法的 JWKS", true
 }
 
 // verifyReason 把 go-oidc 的校验错误归到具体是哪一项

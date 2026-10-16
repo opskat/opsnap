@@ -25,6 +25,7 @@ type stubSSO struct {
 	sso_svc.SSOSvc
 	gotNext    string
 	gotBrowser string
+	gotSession string
 	result     *sso_svc.CallbackResult
 }
 
@@ -37,8 +38,8 @@ func (s *stubSSO) StartBind(context.Context) (*sso_svc.Start, error) {
 	return &sso_svc.Start{URL: "https://git.example.com/login/oauth/authorize?state=y", Browser: "browser-456"}, nil
 }
 
-func (s *stubSSO) Callback(_ context.Context, browser string, _ *authapi.OIDCCallbackRequest) *sso_svc.CallbackResult {
-	s.gotBrowser = browser
+func (s *stubSSO) Callback(_ context.Context, browser, session string, _ *authapi.OIDCCallbackRequest) *sso_svc.CallbackResult {
+	s.gotBrowser, s.gotSession = browser, session
 	return s.result
 }
 
@@ -136,6 +137,17 @@ func TestOIDC(t *testing.T) {
 			assert.Equal(t, "/login?sso_error=e1", w.Header().Get("Location"))
 			assert.Nil(t, cookieNamed(w, auth_svc.SessionCookie))
 			assert.Equal(t, "", stub.gotBrowser)
+			assert.Equal(t, "", stub.gotSession)
+		})
+
+		convey.Convey("回调时把面板会话 Cookie 一并交给服务（用来判断失效的请求是不是绑定）", func() {
+			stub.result = &sso_svc.CallbackResult{Redirect: "/settings?tab=sso&sso_error=e1"}
+			w := do(http.MethodGet, "/api/v1/auth/oidc/callback?code=c&state=s", "", func(r *http.Request) {
+				r.AddCookie(&http.Cookie{Name: auth_svc.SessionCookie, Value: "sess-abc", HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode})
+			})
+			assert.Equal(t, http.StatusFound, w.Code)
+			assert.Equal(t, "sess-abc", stub.gotSession)
+			assert.Nil(t, cookieNamed(w, auth_svc.SessionCookie), "失败时不改动已有会话")
 		})
 
 		convey.Convey("读取失败原因", func() {
