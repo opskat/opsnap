@@ -111,4 +111,5 @@ var zhCN = map[int]string{
 	SSOPasswordLoginNeedsBinding: "绑定账号后才能关闭密码登录",
 	SSOLockedWhilePasswordOff:    "密码登录关闭期间不能修改 Issuer、Client ID，也不能解除绑定或停用单点登录，避免绑定失效后无法登录。请先打开密码登录",
 	PasswordLoginDisabled:        "密码登录已关闭，请用 %s 登录",
+	SSOConfigChanged:             "授权期间单点登录的提供方配置被修改了，请重新操作。",
 }

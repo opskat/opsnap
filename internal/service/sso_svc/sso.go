@@ -4,6 +4,7 @@ package sso_svc
 import (
 	"context"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/cago-frame/cago/pkg/i18n"
@@ -48,6 +49,8 @@ type ssoSvc struct {
 	client           *http.Client
 	discoveryTimeout time.Duration
 	flow             flowState
+	// writeMu 让「读出配置 → 检查 → 整行保存」的写操作互斥，见 beginWrite
+	writeMu sync.Mutex
 }
 
 func newSSO(now func() time.Time) *ssoSvc {
@@ -65,8 +68,16 @@ func SSO() SSOSvc { return defaultSSO }
 // RegisterSSO 替换服务实现
 func RegisterSSO(i SSOSvc) { defaultSSO = i }
 
-// NewSSO 创建使用指定时钟的单点登录服务
-func NewSSO(now func() time.Time) SSOSvc { return newSSO(now) }
+// beginWrite 写配置前调用，返回的函数结束写入。配置只有一行，每次保存都整行覆盖（含 Client Secret 密文）：
+// 写操作之间互斥，避免互相覆盖对方刚保存的修改；同时与轮换主密钥互斥，避免把旧主密钥的密文写回
+func (s *ssoSvc) beginWrite() (done func()) {
+	s.writeMu.Lock()
+	endWrite := secret.BeginWrite()
+	return func() {
+		endWrite()
+		s.writeMu.Unlock()
+	}
+}
 
 // load 读取保存的配置，没有时返回默认值
 func load(ctx context.Context) (*sso_entity.SSO, error) {
@@ -111,9 +122,7 @@ func (s *ssoSvc) View(ctx context.Context) (*ssoapi.GetResponse, error) {
 }
 
 func (s *ssoSvc) Update(ctx context.Context, req *ssoapi.UpdateRequest) (*ssoapi.UpdateResponse, error) {
-	// 与轮换主密钥互斥，见 secret.BeginWrite
-	endWrite := secret.BeginWrite()
-	defer endWrite()
+	defer s.beginWrite()()
 	cur, err := load(ctx)
 	if err != nil {
 		return nil, err
@@ -154,6 +163,7 @@ func (s *ssoSvc) Update(ctx context.Context, req *ssoapi.UpdateRequest) (*ssoapi
 }
 
 func (s *ssoSvc) Disable(ctx context.Context) (*ssoapi.DisableResponse, error) {
+	defer s.beginWrite()()
 	cur, err := load(ctx)
 	if err != nil {
 		return nil, err
@@ -169,6 +179,7 @@ func (s *ssoSvc) Disable(ctx context.Context) (*ssoapi.DisableResponse, error) {
 }
 
 func (s *ssoSvc) Unbind(ctx context.Context) (*ssoapi.UnbindResponse, error) {
+	defer s.beginWrite()()
 	cur, err := load(ctx)
 	if err != nil {
 		return nil, err
@@ -187,6 +198,7 @@ func (s *ssoSvc) Unbind(ctx context.Context) (*ssoapi.UnbindResponse, error) {
 }
 
 func (s *ssoSvc) SetPasswordLogin(ctx context.Context, req *ssoapi.PasswordLoginRequest) (*ssoapi.PasswordLoginResponse, error) {
+	defer s.beginWrite()()
 	cur, err := load(ctx)
 	if err != nil {
 		return nil, err

@@ -28,8 +28,8 @@ import (
 )
 
 const (
-	// pendingTTL 发起后多久内必须回到回调地址
-	pendingTTL = 10 * time.Minute
+	// PendingTTL 发起后多久内必须回到回调地址；浏览器 Cookie 的有效期与它一致
+	PendingTTL = 10 * time.Minute
 	// maxPending 同时进行中的登录请求上限；未登录也能发起，满了先丢最早的
 	maxPending = 256
 	// resultTTL 失败原因保留多久，供登录页读取
@@ -91,9 +91,13 @@ func hashBrowser(v string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// safeNext 登录后要回到的地址只接受站内路径，与面板的 safeNext 规则一致
+// safeNext 登录后要回到的地址只接受站内路径，在面板的 safeNext 规则之外还拒绝控制字符：
+// 这里的结果会写进 302 的 Location，浏览器解析时删掉制表符和换行，「/<Tab>/evil」会变成「//evil」
 func safeNext(next string) string {
 	if next == "" || !strings.HasPrefix(next, "/") || strings.HasPrefix(next, "//") || strings.HasPrefix(next, "/\\") {
+		return "/"
+	}
+	if strings.IndexFunc(next, func(r rune) bool { return r < 0x20 || r == 0x7f }) >= 0 {
 		return "/"
 	}
 	if strings.HasPrefix(next, "/login") || strings.HasPrefix(next, "/setup") {
@@ -170,7 +174,7 @@ func (s *ssoSvc) start(ctx context.Context, cfg *sso_entity.SSO, p purpose, next
 // prune 清掉过期的请求和失败原因；调用方持有锁
 func (s *ssoSvc) prune(now time.Time) {
 	for k, v := range s.flow.pending {
-		if now.Sub(v.created) > pendingTTL {
+		if now.Sub(v.created) > PendingTTL {
 			delete(s.flow.pending, k)
 		}
 	}
@@ -217,7 +221,7 @@ func (s *ssoSvc) take(state, browser string) *pending {
 	defer s.flow.mu.Unlock()
 	p := s.flow.pending[state]
 	delete(s.flow.pending, state)
-	if p == nil || now.Sub(p.created) > pendingTTL || browser == "" ||
+	if p == nil || now.Sub(p.created) > PendingTTL || browser == "" ||
 		subtle.ConstantTimeCompare([]byte(p.browser), []byte(hashBrowser(browser))) != 1 {
 		return nil
 	}
@@ -351,11 +355,14 @@ func (s *ssoSvc) callback(ctx context.Context, p *pending, req *authapi.OIDCCall
 	}
 
 	if p.purpose == purposeBind {
-		endWrite := secret.BeginWrite()
-		defer endWrite()
+		defer s.beginWrite()()
 		cur, err := load(ctx)
 		if err != nil {
 			return nil, err
+		}
+		// 授权期间提供方配置被修改或停用：这个身份是按旧配置校验的，不能绑到新配置上
+		if cur.Issuer != cfg.Issuer || cur.ClientID != cfg.ClientID {
+			return nil, i18n.NewError(ctx, code.SSOConfigChanged)
 		}
 		// 同时发起的另一次绑定已经完成：不顶掉已有绑定，换账号要先解除
 		if cur.Bound() {
@@ -369,7 +376,15 @@ func (s *ssoSvc) callback(ctx context.Context, p *pending, req *authapi.OIDCCall
 		return &CallbackResult{Redirect: "/settings?tab=sso"}, nil
 	}
 
-	if idt.Issuer != cfg.BoundIssuer || idt.Subject != cfg.BoundSub {
+	// 授权期间可能解除了绑定或停用了单点登录：按现在保存的绑定判断
+	cur, err := load(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !cur.Configured() || !cur.Bound() {
+		return nil, i18n.NewError(ctx, code.SSONotEnabled)
+	}
+	if idt.Issuer != cur.BoundIssuer || idt.Subject != cur.BoundSub {
 		return nil, i18n.NewError(ctx, code.SSOAccountMismatch, cfg.ButtonLabel, name)
 	}
 	sess, err := auth_svc.Auth().IssueSession(ctx)

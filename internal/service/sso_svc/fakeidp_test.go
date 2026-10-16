@@ -42,6 +42,8 @@ type fakeIdP struct {
 	tokenStatus int
 	// jwksStatus 不为 0 时 JWKS 端点返回这个 HTTP 状态码（模拟读不到签名公钥）
 	jwksStatus int
+	// onToken 不为空时，令牌端点签发前调用一次（模拟授权期间面板上的其他操作）
+	onToken func()
 }
 
 type grant struct {
@@ -122,6 +124,10 @@ func (f *fakeIdP) token(w http.ResponseWriter, r *http.Request) {
 	if f.tokenError != "" {
 		oauthErr(f.tokenError)
 		return
+	}
+	if hook := f.onToken; hook != nil {
+		f.onToken = nil
+		hook()
 	}
 	f.mu.Lock()
 	g, found := f.codes[r.PostForm.Get("code")]

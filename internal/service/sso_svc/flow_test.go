@@ -227,7 +227,9 @@ func TestSSOLogin(t *testing.T) {
 			})
 
 			convey.Convey("next 不是站内路径时回到首页", func() {
-				for _, next := range []string{"", "//evil.example.com", "https://evil.example.com", "/\\evil", "/login", "/setup"} {
+				// 浏览器解析地址时会删掉制表符和换行，「/<Tab>/evil」会变成「//evil」跳到外站
+				for _, next := range []string{"", "//evil.example.com", "https://evil.example.com", "/\\evil", "/login", "/setup",
+					"/\t/evil.example.com", "/\n/evil.example.com", "/\r\\evil.example.com"} {
 					st, c, s := start(next)
 					res := svc.Callback(ctx, st.Browser, "", &authapi.OIDCCallbackRequest{Code: c, State: s})
 					require.NotNil(t, res.Session, next)

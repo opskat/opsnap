@@ -133,4 +133,5 @@ const (
 	SSOPasswordLoginNeedsBinding                // 没有绑定账号时不能关闭密码登录
 	SSOLockedWhilePasswordOff                   // 密码登录关闭期间不能改 Issuer/Client ID、解除绑定或停用
 	PasswordLoginDisabled                       // 密码登录已关闭（带按钮文字）
+	SSOConfigChanged                            // 授权期间提供方配置被修改或停用
 )

@@ -56,9 +56,13 @@ func (a *Auth) ChangePassword(c *gin.Context, req *authapi.ChangePasswordRequest
 
 // setSessionCookie 写会话 Cookie：HttpOnly、SameSite=Lax；经 HTTPS（含反向代理转发）访问时加 Secure
 func setSessionCookie(c *gin.Context, value string, maxAge int) {
-	secure := c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
 	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie(auth_svc.SessionCookie, value, maxAge, "/", "", secure, true)
+	c.SetCookie(auth_svc.SessionCookie, value, maxAge, "/", "", viaHTTPS(c), true)
+}
+
+// viaHTTPS 浏览器是否经 HTTPS 访问（含反向代理转发）
+func viaHTTPS(c *gin.Context) bool {
+	return c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
 }
 
 // OIDCCookie 单点登录进行中时写给浏览器的 Cookie：回调时据此确认是同一个浏览器发起的
@@ -67,8 +71,8 @@ const OIDCCookie = "opsnap_oidc"
 // oidcCookiePath 只在回调时带上
 const oidcCookiePath = "/api/v1/auth/oidc"
 
-// oidcCookieMaxAge 与服务端保留进行中请求的时长一致（10 分钟）
-const oidcCookieMaxAge = 600
+// oidcCookieMaxAge 与服务端保留进行中请求的时长一致
+const oidcCookieMaxAge = int(sso_svc.PendingTTL / time.Second)
 
 // OIDCLogin 开始单点登录：记下浏览器，返回提供方授权页地址
 func (a *Auth) OIDCLogin(c *gin.Context, req *authapi.OIDCLoginRequest) (*authapi.OIDCLoginResponse, error) {
@@ -110,7 +114,6 @@ func (a *Auth) OIDCResult(ctx context.Context, req *authapi.OIDCResultRequest) (
 }
 
 func setOIDCCookie(c *gin.Context, value string, maxAge int) {
-	secure := c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
 	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie(OIDCCookie, value, maxAge, oidcCookiePath, "", secure, true)
+	c.SetCookie(OIDCCookie, value, maxAge, oidcCookiePath, "", viaHTTPS(c), true)
 }
