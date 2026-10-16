@@ -1,0 +1,219 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* IBM Plex 本地打包（@fontsource），不走 CDN；按 unicode-range 只加载用到的子集 */
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource/ibm-plex-sans/700.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * opsnap 色板：骨架近乎无彩（石灰纸 + 墨），颜色只留给状态和主题色。
+ * 主题蓝（opskat primary）同时表示「正在运行 / 现在」。
+ */
+:root {
+  --radius: 0.625rem;
+
+  --paper: #f3f3f0;
+  --surface: #ffffff;
+  --sunken: #ebebe7;
+  --ink: #17181b;
+  --ink-2: #5d6066;
+  --ink-3: #8b8e94;
+  --line: #e2e2dd;
+  --line-strong: #cfcfc9;
+
+  /* 主题色沿用 opskat primary */
+  --brand: oklch(0.55 0.22 260);
+  --brand-ink: oklch(0.47 0.2 260);
+  --brand-wash: oklch(0.955 0.025 260);
+
+  --ok: #12804c;
+  --ok-fill: #1f9d5f;
+  --ok-wash: #e5f4ec;
+  --warn: #9a6200;
+  --warn-fill: #e3a21a;
+  --warn-wash: #fbf1dc;
+  --fail: #c8321f;
+  --fail-fill: #e0412c;
+  --fail-wash: #fce9e5;
+  --idle: #d9d9d3;
+
+  --log-bg: #15161a;
+  --log-ink: #d9dade;
+
+  /* shadcn 语义 token，供组件使用 */
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --card: var(--surface);
+  --card-foreground: var(--ink);
+  --popover: var(--surface);
+  --popover-foreground: var(--ink);
+  --primary: var(--brand);
+  --primary-foreground: #ffffff;
+  --secondary: var(--sunken);
+  --secondary-foreground: var(--ink);
+  --muted: var(--sunken);
+  --muted-foreground: var(--ink-2);
+  --accent: #ecece8;
+  --accent-foreground: var(--ink);
+  --destructive: var(--fail);
+  --destructive-foreground: #ffffff;
+  --border: var(--line);
+  --input: var(--line-strong);
+  --ring: var(--brand);
+
+  --font-sans: "IBM Plex Sans", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", "SF Mono", Menlo, Consolas, monospace;
+}
+
+.dark {
+  --paper: #111214;
+  --surface: #191a1d;
+  --sunken: #0c0d0f;
+  --ink: #ececea;
+  --ink-2: #a1a3a8;
+  --ink-3: #6f7277;
+  --line: #26272b;
+  --line-strong: #34363b;
+
+  --brand: oklch(0.63 0.2 260);
+  --brand-ink: oklch(0.76 0.13 260);
+  --brand-wash: oklch(0.26 0.06 260);
+
+  --ok: #4cc888;
+  --ok-fill: #2fb06f;
+  --ok-wash: #14271d;
+  --warn: #f0b545;
+  --warn-fill: #e3a21a;
+  --warn-wash: #2c2312;
+  --fail: #ff7a68;
+  --fail-fill: #e9503b;
+  --fail-wash: #321714;
+  --idle: #2c2e33;
+
+  --log-bg: #0a0b0d;
+  --accent: #222327;
+  --primary-foreground: #ffffff;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-sunken: var(--sunken);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-brand: var(--brand);
+  --color-brand-ink: var(--brand-ink);
+  --color-brand-wash: var(--brand-wash);
+  --color-ok: var(--ok);
+  --color-ok-fill: var(--ok-fill);
+  --color-ok-wash: var(--ok-wash);
+  --color-warn: var(--warn);
+  --color-warn-fill: var(--warn-fill);
+  --color-warn-wash: var(--warn-wash);
+  --color-fail: var(--fail);
+  --color-fail-fill: var(--fail-fill);
+  --color-fail-wash: var(--fail-wash);
+  --color-idle: var(--idle);
+  --color-log-bg: var(--log-bg);
+  --color-log-ink: var(--log-ink);
+
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    font-feature-settings: "tnum" 0;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-size: 14px;
+    line-height: 1.55;
+  }
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-brand;
+  }
+  ::selection {
+    background: var(--brand-wash);
+  }
+}
+
+@utility num {
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes now-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@keyframes dot-ring {
+  0% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}
+@keyframes lane-in {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    /* 终态留出边距：贴着轨道两端的点不被裁掉 */
+    clip-path: inset(-12px -12px -12px -12px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

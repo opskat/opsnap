@@ -1,0 +1,149 @@
+# opsnap 集成测试环境。只能以 compose 项目 opsnap-it 运行（scripts/it-remote.sh 统一加 -p opsnap-it）。
+#
+# 网络全部是 internal，不向宿主机发布任何端口，也不连接宿主机上已有的任何容器：
+#   edge   ：opsnap、runner、socks、sftp、postgres（直连模式）
+#   dmz    ：socks、jump
+#   inner  ：jump、target、mysql、postgres、redis、mongo、runner
+#   verify ：runner 与恢复导出用的空白实例 *-scratch
+# opsnap 到 target 只能走 socks（SOCKS5）→ jump（SSH 跳板）→ target 两跳；数据库对 opsnap 来说只能「从 target 上看」。
+#
+# 一次性密码由 it-remote.sh 运行时生成，经环境变量传入；种子数据全部虚构。
+name: opsnap-it
+
+x-node: &node
+  image: opsnap-it/sshd:latest
+  restart: "no"
+
+services:
+  opsnap:
+    image: opsnap-it/opsnap:latest
+    environment:
+      OPSNAP_SECRET_KEY: ${IT_SECRET_KEY:?}
+    volumes:
+      - opsnap-data:/data
+      - nas:/nas
+    networks: [edge]
+
+  socks:
+    <<: *node
+    command: ["socks"]
+    environment:
+      SOCKS_USER: ${IT_SOCKS_USER:?}
+      SOCKS_PASSWORD: ${IT_SOCKS_PASSWORD:?}
+    networks: [edge, dmz]
+
+  jump:
+    <<: *node
+    environment:
+      SSH_USER: itjump
+      SSH_PASSWORD: ${IT_JUMP_PASSWORD:?}
+    networks: [dmz, inner]
+
+  target:
+    <<: *node
+    environment:
+      SSH_USER: ittarget
+      SSH_PASSWORD: ${IT_TARGET_PASSWORD:?}
+    volumes:
+      - files-seed:/srv/it-files:ro
+    networks: [inner]
+
+  sftp:
+    <<: *node
+    environment:
+      SSH_USER: itsftp
+      SSH_PASSWORD: ${IT_SFTP_PASSWORD:?}
+    networks: [edge]
+
+  mysql:
+    image: ${IT_MYSQL_IMAGE:-mysql:8.0}
+    environment:
+      MYSQL_ROOT_PASSWORD: ${IT_MYSQL_PASSWORD:?}
+    command: ["--innodb-buffer-pool-size=64M", "--performance-schema=OFF", "--skip-log-bin"]
+    networks: [inner]
+
+  mysql-scratch:
+    image: ${IT_MYSQL_IMAGE:-mysql:8.0}
+    environment:
+      MYSQL_ROOT_PASSWORD: ${IT_MYSQL_PASSWORD:?}
+    command: ["--innodb-buffer-pool-size=64M", "--performance-schema=OFF", "--skip-log-bin"]
+    networks: [verify]
+
+  postgres:
+    image: ${IT_POSTGRES_IMAGE:-postgres:18.4-alpine}
+    environment:
+      POSTGRES_PASSWORD: ${IT_PG_PASSWORD:?}
+    networks: [inner, edge]
+
+  postgres-scratch:
+    image: ${IT_POSTGRES_IMAGE:-postgres:18.4-alpine}
+    environment:
+      POSTGRES_PASSWORD: ${IT_PG_PASSWORD:?}
+    networks: [verify]
+
+  redis:
+    image: ${IT_REDIS_IMAGE:-redis:7-alpine}
+    environment:
+      REDIS_PASSWORD: ${IT_REDIS_PASSWORD:?}
+    # 密码写进容器内的配置文件，不出现在 redis-server 的参数里
+    entrypoint: ["sh", "-c", "printf 'requirepass %s\\nsave \"\"\\nappendonly no\\n' \"$$REDIS_PASSWORD\" > /tmp/redis.conf && exec redis-server /tmp/redis.conf"]
+    networks: [inner]
+
+  redis-scratch:
+    image: ${IT_REDIS_IMAGE:-redis:7-alpine}
+    # runner 把下载的 RDB 放进 /data 后用 DEBUG RELOAD NOSAVE 加载；不落盘保存，避免覆盖
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--enable-debug-command", "yes"]
+    volumes:
+      - redis-scratch:/data
+    networks: [verify]
+
+  mongo:
+    image: ${IT_MONGO_IMAGE:-mongo:8.2.11}
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: ${IT_MONGO_PASSWORD:?}
+    command: ["--wiredTigerCacheSizeGB", "0.25"]
+    networks: [inner]
+
+  mongo-scratch:
+    image: ${IT_MONGO_IMAGE:-mongo:8.2.11}
+    command: ["--wiredTigerCacheSizeGB", "0.25"]
+    networks: [verify]
+
+  runner:
+    image: opsnap-it/runner:latest
+    profiles: ["test"]
+    environment:
+      OPSNAP_IT_URL: http://opsnap:8080
+      IT_PHASE: ${IT_PHASE:-main}
+      IT_ADMIN_PASSWORD: ${IT_ADMIN_PASSWORD:?}
+      IT_SOCKS_USER: ${IT_SOCKS_USER:?}
+      IT_SOCKS_PASSWORD: ${IT_SOCKS_PASSWORD:?}
+      IT_JUMP_PASSWORD: ${IT_JUMP_PASSWORD:?}
+      IT_TARGET_PASSWORD: ${IT_TARGET_PASSWORD:?}
+      IT_SFTP_PASSWORD: ${IT_SFTP_PASSWORD:?}
+      IT_MYSQL_PASSWORD: ${IT_MYSQL_PASSWORD:?}
+      IT_PG_PASSWORD: ${IT_PG_PASSWORD:?}
+      IT_REDIS_PASSWORD: ${IT_REDIS_PASSWORD:?}
+      IT_MONGO_PASSWORD: ${IT_MONGO_PASSWORD:?}
+    volumes:
+      - nas:/nas
+      - files-seed:/seed/files
+      - redis-scratch:/scratch/redis
+    networks: [edge, inner, verify]
+
+networks:
+  edge:
+    internal: true
+  dmz:
+    internal: true
+  inner:
+    internal: true
+  verify:
+    internal: true
+
+volumes:
+  opsnap-data:
+  nas:
+  files-seed:
+  redis-scratch:

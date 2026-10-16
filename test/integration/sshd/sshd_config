@@ -1,0 +1,7 @@
+# opsnap-it：密码登录、允许端口转发（opsnap 经跳板和目标转发到数据库）
+PasswordAuthentication yes
+KbdInteractiveAuthentication no
+PermitRootLogin no
+AllowTcpForwarding yes
+UseDNS no
+PrintMotd no

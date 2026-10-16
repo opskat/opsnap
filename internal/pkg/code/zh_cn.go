@@ -1,0 +1,94 @@
+package code
+
+import "github.com/cago-frame/cago/pkg/i18n"
+
+func init() {
+	i18n.Register(i18n.DefaultLang, zhCN)
+}
+
+//nolint:gosec // 错误文案，不是凭据
+var zhCN = map[int]string{
+	RouteNotFound: "接口不存在",
+
+	Unauthorized:                "未登录或凭据无效，请重新登录或检查 API 密钥",
+	AdminNotInitialized:         "尚未创建管理员，请先完成初始化",
+	AdminAlreadyInitialized:     "管理员已创建，不能重复初始化",
+	LoginFailed:                 "用户名或密码错误，还剩 %d 次机会",
+	LoginLocked:                 "登录失败次数过多，已锁定，请 %d 分钟后再试",
+	PasswordTooShort:            "密码至少 %d 位",
+	PasswordTooLong:             "密码不能超过 %d 字节",
+	OldPasswordWrong:            "原密码错误",
+	APIKeyNotFound:              "API 密钥不存在或已撤销",
+	SettingMaxConcurrentInvalid: "同时运行的任务数须在 1 到 %d 之间",
+	SettingRetentionInvalid:     "运行记录保留天数须在 1 到 %d 之间",
+	SettingTimezoneInvalid:      "时区 %q 无效，请填写 IANA 时区名，例如 Asia/Shanghai",
+	MasterKeyEmpty:              "请填写新的主密钥",
+	MasterKeySame:               "新主密钥与当前主密钥相同，请换一个",
+	MasterKeyRotateFailed:       "轮换主密钥失败，所有凭据保持原状：%s",
+
+	NotifyURLInvalid:         "Webhook 地址须是以 http:// 或 https:// 开头的完整地址",
+	NotifyURLEmpty:           "尚未配置 Webhook 地址，请先填写并保存",
+	NotifyStaleHoursInvalid:  "太久没有成功的阈值须在 1 到 %d 小时之间",
+	NotifyHeaderInvalid:      "请求头名或值不合法，名称不能为空或含空格和冒号，值不能含换行",
+	NotifyHeaderValueMissing: "请求头 %q 没有已保存的值，请填写",
+	NotifyTestFailed:         "测试消息发送失败：%s",
+	NotifyPanelURLInvalid:    "面板地址须是以 http:// 或 https:// 开头的完整地址",
+
+	ServerNotFound:               "服务器不存在",
+	ServerFieldInvalid:           "%s",
+	ServerAuthTypeInvalid:        "认证方式须是密码或私钥",
+	ServerCredentialRequired:     "%s",
+	ServerCredentialMissing:      "%s没有已保存的值，请填写",
+	ServerPrivateKeyInvalid:      "私钥无法解析或口令错误",
+	ServerHopInvalid:             "代理链第 %d 跳不合法：%s",
+	ServerFingerprintUnconfirmed: "目标主机的指纹尚未核对，请先测试连接并核对指纹",
+	ServerFingerprintInvalid:     "主机指纹须是 SHA256: 开头的指纹",
+	ServerInUse:                  "有 %d 个任务正在使用这台服务器，不能删除",
+	ServerUsedAsJump:             "服务器 %q 把它用作跳板，不能删除",
+	ServerCredentialRetarget:     "地址或登录用户已改动，请重新填写%s",
+	ServerUsedByRepo:             "存储位置 %q 经这台服务器连接，不能删除",
+
+	RepoNotFound:                 "存储位置不存在",
+	RepoFieldInvalid:             "%s",
+	RepoTypeInvalid:              "类型须是本地目录、SFTP、S3、REST 或 WebDAV",
+	RepoCredentialRequired:       "%s",
+	RepoCredentialMissing:        "%s没有已保存的值，请填写",
+	RepoHostKeyUnconfirmed:       "SFTP 主机的指纹尚未核对，请先取回主机公钥并核对指纹",
+	RepoHostKeyInvalid:           "SFTP 主机公钥格式不对",
+	RepoHostKeyProbeFailed:       "取不到 SFTP 主机公钥：%s",
+	RepoRecoveryKeyNotSaved:      "恢复密钥只显示一次，请确认已存进密码管理器后再保存",
+	RepoAccessFailed:             "无法访问存储位置：%s",
+	RepoPathMissing:              "目录 %s 不存在或不是目录，NAS 可能没有挂载",
+	RepoNotEmpty:                 "目录 %s 不为空，也不是 restic 仓库，请换一个空目录",
+	RepoExistingPasswordRequired: "这里已经是一个 restic 仓库，请输入它现有的密码后接入",
+	RepoExistingPasswordWrong:    "现有密码不对，无法打开这个 restic 仓库",
+	RepoBusy:                     "存储位置正在备份或维护，请稍后再试",
+	RepoKeyOperationFailed:       "%s失败，密钥保持原状：%s",
+	RepoRecoveryKeyExists:        "已经有一把恢复密钥，如需更换请先移除",
+	RepoRecoveryKeyMissing:       "没有恢复密钥",
+	RepoNotMounted:               "没有挂载：%s",
+	RepoUnlockNotConfirmed:       "解除仓库锁需要二次确认",
+	RepoUnlockFailed:             "解除仓库锁失败：%s",
+	RepoInUse:                    "有 %d 个任务正在使用这个存储位置，不能删除",
+	RepoServerNotFound:           "经由的服务器不存在",
+	RepoRecoveryKeyInvalid:       "请先生成恢复密钥并提交；恢复密钥须是不含空白的可见字符，去掉 - 后至少 %d 个字符",
+	RepoCredentialRetarget:       "地址或用户已改动，请重新填写%s",
+	RepoProbeTimeout:             "%s内没有结果，没能确认这里是空位置还是已有仓库。restic 最后一条输出：%s。请检查地址、端口、bucket 或路径、访问凭据是否正确，网络是否连通，NAS 上的服务是否在运行",
+
+	JobNotFound:        "任务不存在",
+	JobFieldInvalid:    "%s",
+	JobSourceNotListed: "这种数据源没有库列表",
+
+	RunNotFound:         "运行记录不存在",
+	RunAlreadyRunning:   "这个任务正在运行，请等它结束后再试",
+	RunNotRunning:       "这次运行已经结束",
+	RunStopNotConfirmed: "停止运行需要二次确认",
+
+	SnapshotNotFound:     "快照不存在，可能已被保留规则清理",
+	SnapshotPathNotFound: "快照里没有所选路径，请刷新后重新选择",
+	SnapshotRepoLocked:   "仓库被其他进程锁住（可能正在备份或维护），请稍后再试；确认没有进程在用后可在存储位置里解除锁",
+	SnapshotReadFailed:   "读取快照失败：%s",
+	SnapshotNotDatabase:  "这个任务不是数据库任务，没有导出文件",
+
+	OverviewWindowInvalid: "时间线窗口只能是 7d 或 30d",
+}

@@ -1,0 +1,22 @@
+# opsnap 配置文件（cago 默认读取 ./configs/config.yaml，可用 -config 指定其他路径）
+# 主密钥不在这里配置：只从环境变量 OPSNAP_SECRET_KEY 读取，缺失时拒绝启动。
+source: file
+env: prod
+debug: false
+
+# 数据目录：存放 SQLite、文件镜像和 restic 缓存。修改时请同步修改下面 db.dsn 的目录。
+dataDir: /data
+
+db:
+  driver: sqlite
+  dsn: /data/opsnap.db?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)
+
+http:
+  address:
+    - 0.0.0.0:8080
+
+logger:
+  level: info
+  disableConsole: false
+  logFile:
+    enable: false
