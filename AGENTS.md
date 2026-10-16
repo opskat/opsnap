@@ -18,7 +18,7 @@ opsnap：自托管的备份编排服务。它从线上服务器拉取数据库�
 - 后端：Go + [cago](https://github.com/cago-frame/cago) 框架，SQLite 存储
 - 前端：React + shadcn/ui + Tailwind CSS v4，测试用 vitest，代码放在 `frontend/`
 - 产物：单个 Docker 镜像，内含 opsnap 二进制（内嵌前端）以及 restic、rclone、rsync、openssh 和各数据库导出工具
-- 当前状态：v1 已合并到 `main`，按 [`CHANGELOG.md`](CHANGELOG.md) 发版；推送 `v*` 标签后由 `.github/workflows/release.yml` 发布镜像与 Release
+- 当前状态：v1 已合并到 `main`，推送 `v*` 带注释标签后由 `.github/workflows/release.yml` 发布镜像与 Release
 
 ## 工程原则
 

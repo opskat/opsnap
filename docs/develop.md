@@ -71,9 +71,9 @@ AGENTS.md 里的其余原则（凭据不进日志和参数、失败的导出不�
 
 ## 发版
 
-1. 在 `CHANGELOG.md` 顶部加 `## <版本>` 段落，并把 `Makefile` 的 `VERSION` 与 `Dockerfile` 的 `ARG VERSION` 改成同一版本。
-2. 合并到 `main` 后打标签并推送：`git tag v<版本> && git push origin v<版本>`。
-3. `.github/workflows/release.yml` 先跑同样的检查，再构建 linux/amd64 镜像推到 `ghcr.io/opskat/opsnap`（标签 `<版本>`、`<主>.<次>`、`latest`），最后用 CHANGELOG 里该版本的段落创建 GitHub Release。
+1. 把 `Makefile` 的 `VERSION` 与 `Dockerfile` 的 `ARG VERSION` 改成要发布的版本，合并到 `main`。
+2. 在 `main` 上打带注释的标签，标签说明就是这次的更新说明（含已知问题），然后推送：`git tag -a v<版本> -F <说明文件> && git push origin v<版本>`。
+3. `.github/workflows/release.yml` 先跑同样的检查，再构建 linux/amd64 镜像推到 `ghcr.io/opskat/opsnap`（标签 `<版本>`、`<主>.<次>`、`latest`），最后用标签说明创建 GitHub Release。
 
 ## 相关
 

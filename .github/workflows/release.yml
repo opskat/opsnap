@@ -1,5 +1,5 @@
 # 推送 v* 标签时发布：先跑与 CI 相同的检查，再构建 linux/amd64 镜像推到 ghcr.io/opskat/opsnap，
-# 最后用 CHANGELOG.md 里对应版本的段落创建 GitHub Release。
+# 最后用带注释标签的说明创建 GitHub Release。
 # 只发 amd64：运行时镜像里的 mysql-community-client 与 mongodb-database-tools 来自官方 Debian 源，只有 amd64 包。
 name: release
 
@@ -53,14 +53,13 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v5
-      - name: 取出本版本的更新说明
+      # 浅克隆不一定带上标签对象，显式取回，--notes-from-tag 才读得到带注释标签的说明
+      - name: 取回标签
         env:
           TAG: ${{ github.ref_name }}
-        run: |
-          awk -v v="${TAG#v}" '$0 ~ "^## " { if (p) exit; p = index($0, "## " v) == 1; next } p' CHANGELOG.md > notes.md
-          test -s notes.md || { echo "CHANGELOG.md 里没有 ${TAG#v} 的段落" >&2; exit 1; }
+        run: git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
       - name: 创建 GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" --title "opsnap $TAG" --notes-file notes.md --verify-tag
+        run: gh release create "$TAG" --title "opsnap $TAG" --notes-from-tag --verify-tag
