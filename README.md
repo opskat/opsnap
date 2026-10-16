@@ -13,14 +13,14 @@
 ## Docker 部署
 
 ```bash
-docker build -t opsnap .
 docker run -d --name opsnap -p 8080:8080 \
   -e OPSNAP_SECRET_KEY='<足够长的随机串，自行保管>' \
   -v opsnap-data:/data \
   -v /mnt/nas/opsnap:/nas/opsnap \
-  opsnap
+  ghcr.io/opskat/opsnap:0.1.0
 ```
 
+- 发布的镜像只有 linux/amd64，版本见 [`CHANGELOG.md`](CHANGELOG.md)。也可以自己构建：`docker build -t opsnap .`。
 - 镜像基于 Debian bookworm，内含 opsnap（内嵌面板）、restic、rclone、rsync、openssh-client、`mysqldump`（MySQL 8.4 官方客户端）、`mariadb-dump`、`pg_dump`（PGDG 最新大版本）、`mongodump`（mongodb-database-tools）和 `redis-cli`（7.x）。
 - 进程以 uid 10001 的 `opsnap` 用户运行。`/data` 存放 SQLite、文件镜像和 restic 缓存；挂载的 NAS 目录（本地目录仓库）需要对 uid 10001 可写。
 - 配置文件在 `/opt/opsnap/configs/config.yaml`（数据目录 `/data`、监听 `0.0.0.0:8080`），可用 `-config` 指定其他路径。

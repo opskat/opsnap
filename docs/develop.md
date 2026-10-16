@@ -67,7 +67,13 @@ AGENTS.md 里的其余原则（凭据不进日志和参数、失败的导出不�
 
 ## 门禁范围
 
-仓库还没有远程和 CI。上面的检查只在本地执行 `make check` 时生效，不能阻止合并；推送到远程后应在 CI 里跑同一条 `make check`。
+远程仓库是 `github.com/opskat/opsnap`。`.github/workflows/ci.yml` 在 PR 和推送到 `main` 时跑与 `make check` 相同的检查（Go 测试与架构门禁、golangci-lint、前端 typecheck/lint/vitest）；仓库没有开启分支保护，CI 失败不会阻止合并。集成测试（`make it`）依赖 opsctl 与 local-docker，只在本地运行。
+
+## 发版
+
+1. 在 `CHANGELOG.md` 顶部加 `## <版本>` 段落，并把 `Makefile` 的 `VERSION` 与 `Dockerfile` 的 `ARG VERSION` 改成同一版本。
+2. 合并到 `main` 后打标签并推送：`git tag v<版本> && git push origin v<版本>`。
+3. `.github/workflows/release.yml` 先跑同样的检查，再构建 linux/amd64 镜像推到 `ghcr.io/opskat/opsnap`（标签 `<版本>`、`<主>.<次>`、`latest`），最后用 CHANGELOG 里该版本的段落创建 GitHub Release。
 
 ## 相关
 
