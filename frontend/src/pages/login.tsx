@@ -164,7 +164,8 @@ export function LoginPage() {
                   <span className="h-px flex-1 bg-line" />或<span className="h-px flex-1 bg-line" />
                 </div>
               )}
-              <FormError>{ssoError}</FormError>
+              {/* 原因里可能有提供方给的不能折行的长串（被拒账号的显示名回退为 sub、错误码），在任意处折行，不撑出登录框 */}
+              <FormError className="wrap-anywhere">{ssoError}</FormError>
               {ssoLabel && (
                 <Button
                   type="button"

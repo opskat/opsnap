@@ -130,7 +130,8 @@ export function SsoSettings() {
       {bindError && (
         <Sheet className="flex items-start gap-3 border-fail/40 bg-fail-wash px-5 py-4" role="alert">
           <AlertTriangle className="mt-0.5 size-4 shrink-0 text-fail" aria-hidden />
-          <p className="flex-1 text-[13.5px] text-fail">绑定失败：{bindError}</p>
+          {/* 原因里可能有提供方给的不能折行的错误码，在任意处折行，不撑出屏幕 */}
+          <p className="flex-1 text-[13.5px] text-fail wrap-anywhere">绑定失败：{bindError}</p>
         </Sheet>
       )}
       <Provider data={data} onSaved={setData} />
