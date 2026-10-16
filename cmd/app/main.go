@@ -32,6 +32,8 @@ import (
 	"github.com/opskat/opsnap/internal/repository/server_repo"
 	"github.com/opskat/opsnap/internal/repository/session_repo"
 	"github.com/opskat/opsnap/internal/repository/setting_repo"
+	"github.com/opskat/opsnap/internal/repository/sso_repo"
+	"github.com/opskat/opsnap/internal/service/auth_svc"
 	"github.com/opskat/opsnap/internal/service/job_svc"
 	"github.com/opskat/opsnap/internal/service/masterkey_svc"
 	"github.com/opskat/opsnap/internal/service/overview_svc"
@@ -107,6 +109,7 @@ func run(ctx context.Context, getenv func(string) string, configFile string) err
 	apikey_repo.RegisterAPIKey(apikey_repo.NewAPIKey())
 	masterkey_repo.RegisterMasterKey(masterkey_repo.NewMasterKey())
 	setting_repo.RegisterSetting(setting_repo.NewSetting())
+	sso_repo.RegisterSSO(sso_repo.NewSSO())
 	notify_repo.RegisterNotify(notify_repo.NewNotify())
 	server_repo.RegisterServer(server_repo.NewServer())
 	repo_repo.RegisterRepo(repo_repo.NewRepo())
@@ -119,6 +122,11 @@ func run(ctx context.Context, getenv func(string) string, configFile string) err
 	// 运行引擎：文件镜像放在数据目录下；最近一次运行失败的任务标为「需要处理」
 	run_svc.RegisterRun(run_svc.NewRun(run_svc.Deps{DataDir: dataDir}))
 	setting_svc.SetMirrorDir(filepath.Join(dataDir, "mirror"))
+	// 单点登录不可用时的恢复手段：OPSNAP_PASSWORD_LOGIN=1 强制允许用户名密码登录
+	if forced := auth_svc.ParsePasswordLoginEnv(getenv(auth_svc.EnvPasswordLogin)); forced {
+		auth_svc.SetPasswordLoginForced(true)
+		log.Printf("环境变量 %s 已强制打开用户名密码登录；恢复访问后请去掉它并重启", auth_svc.EnvPasswordLogin)
+	}
 	job_svc.RegisterAttention(run_svc.Attention)
 	overview_svc.RegisterOverview(overview_svc.NewOverview(overview_svc.Deps{Planned: plannedRuns}))
 

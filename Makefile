@@ -43,7 +43,7 @@ gen:
 tidy:
 	go mod tidy
 
-# 集成测试：经 opsctl 在资产 local-docker（id 4）的 compose 项目 opsnap-it 里构建镜像、运行、清理（见 scripts/it.sh）
+# 集成测试：经 opsctl 在集成测试主机的 compose 项目 opsnap-it 里构建镜像、运行、清理（见 scripts/it.sh）
 # OPSNAP_IT_SOURCE=head 只用 HEAD 提交的代码（叠加工作区里的集成测试文件）
 it:
 	scripts/it.sh all

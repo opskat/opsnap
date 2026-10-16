@@ -13,7 +13,7 @@
 | 要观察的 | 目标与启动方式 | 观察手段 |
 |---|---|---|
 | 面板、登录、设置、表单校验、不依赖外部工具的接口 | 本机：`make build`，用临时配置启动 `bin/opsnap`（见下） | 无头 Chrome 截图与交互；`curl` 调接口 |
-| 真实备份、快照、下载、代理链、指纹、挂载标记 | local-docker 的 compose 项目 `opsnap-it`：`scripts/it.sh build`、`up`，跑完 `down` | 集成测试或在 runner 容器里调接口；restic 用恢复密钥独立核对 |
+| 真实备份、快照、下载、代理链、指纹、挂载标记 | 集成测试主机上的 compose 项目 `opsnap-it`：`scripts/it.sh build`、`up`，跑完 `down` | 集成测试或在 runner 容器里调接口；restic 用恢复密钥独立核对 |
 
 本机没有 restic 和各数据库导出工具，涉及真实备份的需求只能在 `opsnap-it` 里观察。
 

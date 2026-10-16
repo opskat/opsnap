@@ -27,6 +27,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { CodeBlock, Field, FormError, Mono, PageTitle, Row, Sheet, Skeleton, useCopy } from "@/components/bits";
 import { ChangePasswordDialog } from "@/components/change-password-dialog";
 import { RotateMasterKeyDialog } from "@/components/rotate-master-key-dialog";
+import { SsoSettings } from "@/pages/sso-settings";
 import {
   api,
   errorMessage,
@@ -43,12 +44,13 @@ import { cn } from "@/lib/utils";
 const TABS = [
   { id: "general", label: "通用" },
   { id: "api", label: "API 密钥" },
+  { id: "sso", label: "单点登录" },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
 
 export function SettingsPage() {
   const [params, setParams] = useSearchParams();
-  const tab: TabId = params.get("tab") === "api" ? "api" : "general";
+  const tab: TabId = TABS.find((t) => t.id === params.get("tab"))?.id ?? "general";
   const select = (id: TabId) => setParams(id === "general" ? {} : { tab: id }, { replace: true });
 
   return (
@@ -67,7 +69,8 @@ export function SettingsPage() {
             onClick={() => select(t.id)}
             onKeyDown={(e) => {
               if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
-                const next = TABS[(TABS.findIndex((x) => x.id === t.id) + 1) % TABS.length].id;
+                const step = e.key === "ArrowRight" ? 1 : TABS.length - 1;
+                const next = TABS[(TABS.findIndex((x) => x.id === t.id) + step) % TABS.length].id;
                 select(next);
                 document.getElementById(`settings-tab-${next}`)?.focus();
               }
@@ -82,7 +85,7 @@ export function SettingsPage() {
         ))}
       </div>
       <div role="tabpanel" id={`settings-panel-${tab}`} aria-labelledby={`settings-tab-${tab}`}>
-        {tab === "general" ? <General /> : <ApiKeys />}
+        {tab === "general" ? <General /> : tab === "api" ? <ApiKeys /> : <SsoSettings />}
       </div>
     </>
   );

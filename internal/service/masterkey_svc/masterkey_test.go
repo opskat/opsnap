@@ -17,6 +17,7 @@ import (
 	"github.com/opskat/opsnap/internal/model/entity/notify_entity"
 	"github.com/opskat/opsnap/internal/model/entity/repo_entity"
 	"github.com/opskat/opsnap/internal/model/entity/server_entity"
+	"github.com/opskat/opsnap/internal/model/entity/sso_entity"
 	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/secret"
 	"github.com/opskat/opsnap/internal/repository/masterkey_repo"
@@ -36,6 +37,7 @@ const (
 	repoKey   = "SECRET-opsnap-key"
 	jobPW     = "SECRET-db-pw"
 	headerVal = "SECRET-header"
+	ssoSecret = "SECRET-oidc-client"
 	oldMaster = "old-master-key-0123456789"
 	newMaster = "new-master-key-9876543210"
 )
@@ -88,6 +90,9 @@ func setup(t *testing.T) *fixture {
 	require.NoError(t, gdb.Create(&notify_entity.Notify{
 		ID: notify_entity.SingletonID, URL: "https://hook", Headers: map[string]string{"Authorization": enc(headerVal)}, StaleHours: 48,
 	}).Error)
+	require.NoError(t, gdb.Create(&sso_entity.SSO{
+		ID: sso_entity.SingletonID, Issuer: "https://git.example.com/", ClientID: "cid", ClientSecret: enc(ssoSecret), PasswordLogin: true,
+	}).Error)
 	require.NoError(t, f.svc.Verify(f.ctx), "首次启动写入校验值")
 	return f
 }
@@ -103,8 +108,10 @@ func (f *fixture) plaintexts(t *testing.T, sec secret.Secret) ([]string, error) 
 	require.NoError(t, f.db.First(&j).Error)
 	var n notify_entity.Notify
 	require.NoError(t, f.db.First(&n).Error)
+	var sso sso_entity.SSO
+	require.NoError(t, f.db.First(&sso).Error)
 	var out []string
-	for _, c := range []string{srv.Password, srv.PrivateKey, srv.Passphrase, srv.Hops[0].Password, rp.Credential, rp.PrivateKey, rp.OpsnapKey, j.DBPassword, n.Headers["Authorization"]} {
+	for _, c := range []string{srv.Password, srv.PrivateKey, srv.Passphrase, srv.Hops[0].Password, rp.Credential, rp.PrivateKey, rp.OpsnapKey, j.DBPassword, n.Headers["Authorization"], sso.ClientSecret} {
 		p, err := sec.Decrypt(c)
 		if err != nil {
 			return nil, err
@@ -115,7 +122,7 @@ func (f *fixture) plaintexts(t *testing.T, sec secret.Secret) ([]string, error) 
 	return out, nil
 }
 
-var allPlain = []string{srvPW, srvKey, srvPhrase, hopPW, repoCred, repoPK, repoKey, jobPW, headerVal}
+var allPlain = []string{srvPW, srvKey, srvPhrase, hopPW, repoCred, repoPK, repoKey, jobPW, headerVal, ssoSecret}
 
 func codeOf(t *testing.T, err error) int {
 	t.Helper()

@@ -30,7 +30,7 @@ opsnap：自托管的备份编排服务。它从线上服务器拉取数据库�
 - **凭据不进日志，也不进命令行参数。**（`review-only`；`internal/pkg/cmdbuild` 的测试逐个断言构建器不把凭据放进参数） 服务器密码、私钥、数据库密码、restic 密钥只能经环境变量或标准输入传给子进程。存储时用主密钥 `OPSNAP_SECRET_KEY` 加密；API 密钥只保存哈希；恢复密钥不保存。
 - **任何失败或不完整的导出都不能记为成功的快照。**（`review-only`） 这是 v1 的硬性不变量，见 spec 开头。
 - **前端代码只放在 `frontend/` 下。**（`review-only`；前端的 Hooks 规则与格式由 `pnpm lint` 强制） shadcn 组件用 shadcn CLI 生成在 `frontend/src/components/ui`；颜色、字体等 token 以 spec「视觉系统」一节为准。
-- **集成测试只在 `local-docker` 的 `opsnap-it` 项目里操作。**（`review-only`） opsctl 资产 `local-docker`（id 4）上已有在用的 MySQL、PostgreSQL、Redis、MongoDB、MinIO 等容器。测试只启动、连接、清理 compose 项目 `opsnap-it` 自己的容器、网络和卷，不向宿主机发布默认端口，不碰任何其他容器、镜像或卷。
+- **集成测试只在 compose 项目 `opsnap-it` 里操作。**（`review-only`） 集成测试主机（opsctl 资产，见 `scripts/it.sh`）上还有其他在用的数据库等容器。测试只启动、连接、清理 compose 项目 `opsnap-it` 自己的容器、网络和卷，不向宿主机发布默认端口，不碰任何其他容器、镜像或卷。
 - **只改与任务相关的代码和测试。**（`review-only`） 发现无关的问题，报告出来，不要顺手改掉。
 - **代码注释和提交信息用中文。**（`review-only`）
 

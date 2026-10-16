@@ -137,6 +137,12 @@ export async function request<T>(method: Method, path: string, body?: unknown): 
 
 export interface AuthStatus {
   initialized: boolean;
+  /** 已配置并已绑定账号，可以用单点登录 */
+  sso_enabled?: boolean;
+  /** 登录按钮文字，例如 Gitea */
+  sso_label?: string;
+  /** 是否允许用户名密码登录（已考虑环境变量 OPSNAP_PASSWORD_LOGIN） */
+  password_login?: boolean;
 }
 export interface Credentials {
   username: string;
@@ -189,6 +195,36 @@ export type SettingsUpdate = Pick<
   Settings,
   "max_concurrent_runs" | "retention_days" | "timezone" | "clear_mirror_after_backup"
 >;
+
+// ---- 单点登录 internal/api/sso ----
+
+export interface SSOSettings {
+  /** 是否已保存提供方配置 */
+  configured: boolean;
+  issuer: string;
+  client_id: string;
+  /** 已保存时为 SECRET_MASKED，否则为空；不返回内容 */
+  client_secret: string;
+  button_label: string;
+  panel_url: string;
+  /** 要填到提供方 OAuth2 应用里的重定向 URI */
+  callback_url: string;
+  /** 绑定的提供方账号；只认 issuer + sub，name 只用于展示 */
+  binding: SSOBinding | null;
+  /** 设置里保存的「允许用户名密码登录」 */
+  password_login: boolean;
+  /** 环境变量 OPSNAP_PASSWORD_LOGIN 正在强制打开密码登录 */
+  password_login_forced: boolean;
+}
+export interface SSOBinding {
+  issuer: string;
+  sub: string;
+  name: string;
+  /** Unix 秒 */
+  bound_at: number;
+}
+/** client_secret 为空表示保留已保存的值 */
+export type SSOUpdate = Pick<SSOSettings, "issuer" | "client_id" | "client_secret" | "button_label" | "panel_url">;
 
 // ---- 通知 internal/api/notify ----
 
@@ -672,11 +708,24 @@ export const api = {
     logout: () => request<Record<string, never>>("POST", "/auth/logout"),
     me: () => request<Me>("GET", "/auth/me"),
     changePassword: (body: ChangePasswordBody) => request<Record<string, never>>("PUT", "/auth/password", body),
+    /** 开始单点登录，返回提供方授权页地址 */
+    oidcLogin: (next: string) => request<{ url: string }>("POST", "/auth/oidc/login", { next }),
+    /** 单点登录失败的原因；id 来自回调跳转地址里的 sso_error */
+    oidcResult: (id: string) => request<{ message: string }>("GET", `/auth/oidc/result?id=${encodeURIComponent(id)}`),
   },
   apikeys: {
     list: () => request<{ list: APIKey[] | null }>("GET", "/apikeys"),
     create: (body: { name: string; expires_in: APIKeyExpiry }) => request<CreatedAPIKey>("POST", "/apikeys", body),
     revoke: (id: number) => request<Record<string, never>>("DELETE", `/apikeys/${id}`),
+  },
+  sso: {
+    get: () => request<SSOSettings>("GET", "/settings/sso"),
+    update: (body: SSOUpdate) => request<SSOSettings>("PUT", "/settings/sso", body),
+    disable: () => request<SSOSettings>("DELETE", "/settings/sso"),
+    /** 开始绑定，返回提供方授权页地址 */
+    bind: () => request<{ url: string }>("POST", "/settings/sso/bind"),
+    unbind: () => request<SSOSettings>("DELETE", "/settings/sso/binding"),
+    setPasswordLogin: (enabled: boolean) => request<SSOSettings>("PUT", "/settings/sso/password-login", { enabled }),
   },
   settings: {
     get: () => request<Settings>("GET", "/settings"),

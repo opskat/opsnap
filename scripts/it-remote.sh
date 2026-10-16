@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 在集成测试主机（opsctl 资产 local-docker）上运行，由 scripts/it.sh 调用；也可登录主机后手工分步执行。
+# 在集成测试主机（opsctl 资产）上运行，由 scripts/it.sh 调用；也可登录主机后手工分步执行。
 #
 #   it-remote.sh all        构建镜像 → 启动 → 主流程测试 → 重建 target 换主机密钥 → 指纹测试 → 清理（默认）
 #   it-remote.sh build|up|test|rekey|test-rekeyed|status|down

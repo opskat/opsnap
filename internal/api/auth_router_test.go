@@ -12,6 +12,8 @@ import (
 
 	"github.com/opskat/opsnap/internal/repository/admin_repo"
 	"github.com/opskat/opsnap/internal/repository/admin_repo/mock_admin_repo"
+	"github.com/opskat/opsnap/internal/repository/sso_repo"
+	"github.com/opskat/opsnap/internal/repository/sso_repo/mock_sso_repo"
 )
 
 func TestAuthRoutes(t *testing.T) {
@@ -27,6 +29,12 @@ func TestAuthRoutes(t *testing.T) {
 				{http.MethodDelete, "/api/v1/apikeys/1"},
 				{http.MethodGet, "/api/v1/settings"},
 				{http.MethodPut, "/api/v1/settings"},
+				{http.MethodGet, "/api/v1/settings/sso"},
+				{http.MethodPut, "/api/v1/settings/sso"},
+				{http.MethodDelete, "/api/v1/settings/sso"},
+				{http.MethodPost, "/api/v1/settings/sso/bind"},
+				{http.MethodDelete, "/api/v1/settings/sso/binding"},
+				{http.MethodPut, "/api/v1/settings/sso/password-login"},
 				{http.MethodGet, "/api/v1/notify"},
 				{http.MethodPut, "/api/v1/notify"},
 				{http.MethodPost, "/api/v1/notify/test"},
@@ -73,6 +81,10 @@ func TestAuthRoutes(t *testing.T) {
 				"GET /api/v1/auth/status":  true,
 				"POST /api/v1/auth/setup":  true,
 				"POST /api/v1/auth/login":  true,
+				// 单点登录：开始登录、提供方回调、读取失败原因
+				"POST /api/v1/auth/oidc/login":   true,
+				"GET /api/v1/auth/oidc/callback": true,
+				"GET /api/v1/auth/oidc/result":   true,
 			}
 			checked := 0
 			for _, rt := range engine.Routes() {
@@ -88,14 +100,31 @@ func TestAuthRoutes(t *testing.T) {
 			assert.Greater(t, checked, 50)
 		})
 
+		convey.Convey("单点登录的开始、回调和失败原因无需登录", func() {
+			for _, p := range []struct{ method, path string }{
+				{http.MethodPost, "/api/v1/auth/oidc/login"},
+				{http.MethodGet, "/api/v1/auth/oidc/callback?state=x"},
+				{http.MethodGet, "/api/v1/auth/oidc/result?id=x"},
+			} {
+				w := httptest.NewRecorder()
+				engine.ServeHTTP(w, httptest.NewRequest(p.method, p.path, strings.NewReader("{}")))
+				assert.NotEqual(t, http.StatusUnauthorized, w.Code, p.method+" "+p.path)
+				assert.NotEqual(t, http.StatusNotFound, w.Code, p.method+" "+p.path)
+			}
+		})
+
 		convey.Convey("状态接口无需登录", func() {
 			ctrl := gomock.NewController(t)
 			repo := mock_admin_repo.NewMockAdminRepo(ctrl)
 			repo.EXPECT().Find(gomock.Any()).Return(nil, nil)
 			admin_repo.RegisterAdmin(repo)
+			ssoRepo := mock_sso_repo.NewMockSSORepo(ctrl)
+			ssoRepo.EXPECT().Get(gomock.Any()).Return(nil, nil)
+			sso_repo.RegisterSSO(ssoRepo)
 			w := get(t, engine, "/api/v1/auth/status")
 			assert.Equal(t, http.StatusOK, w.Code)
 			assert.Contains(t, w.Body.String(), `"initialized":false`)
+			assert.Contains(t, w.Body.String(), `"sso_enabled":false`)
 		})
 	})
 }

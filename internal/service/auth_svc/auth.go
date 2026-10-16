@@ -1,10 +1,12 @@
-// Package auth_svc 管理员登录、会话与 API 密钥认证
+// Package auth_svc 管理员登录、会话与 API 密钥认证；单点登录的流程在 sso_svc，通过后调用这里签发会话
 package auth_svc
 
 import (
 	"context"
 	"crypto/subtle"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cago-frame/cago/pkg/i18n"
@@ -19,6 +21,7 @@ import (
 	"github.com/opskat/opsnap/internal/repository/admin_repo"
 	"github.com/opskat/opsnap/internal/repository/apikey_repo"
 	"github.com/opskat/opsnap/internal/repository/session_repo"
+	"github.com/opskat/opsnap/internal/repository/sso_repo"
 )
 
 const (
@@ -30,6 +33,24 @@ const (
 	maxPasswordBytes  = 72 // bcrypt 只处理前 72 字节
 	lastUsedThreshold = time.Minute
 )
+
+// EnvPasswordLogin 设为 1 或 true 时，不管设置里保存的是什么，都允许用户名密码登录（单点登录不可用时恢复访问）
+const EnvPasswordLogin = "OPSNAP_PASSWORD_LOGIN"
+
+// passwordLoginForced 启动时由环境变量决定
+var passwordLoginForced atomic.Bool
+
+// SetPasswordLoginForced 设置是否被环境变量强制打开密码登录
+func SetPasswordLoginForced(v bool) { passwordLoginForced.Store(v) }
+
+// PasswordLoginForced 是否被环境变量强制打开密码登录
+func PasswordLoginForced() bool { return passwordLoginForced.Load() }
+
+// ParsePasswordLoginEnv 解析 OPSNAP_PASSWORD_LOGIN：1 或 true（不区分大小写）为强制打开，其他取值不起作用
+func ParsePasswordLoginEnv(v string) bool {
+	v = strings.TrimSpace(v)
+	return v == "1" || strings.EqualFold(v, "true")
+}
 
 // passwordCost bcrypt 开销；测试里调低
 var passwordCost = bcrypt.DefaultCost
@@ -55,6 +76,8 @@ type AuthSvc interface {
 	Me(ctx context.Context) (*authapi.MeResponse, error)
 	// ChangePassword 修改密码，并使 currentToken 以外的会话失效
 	ChangePassword(ctx context.Context, req *authapi.ChangePasswordRequest, currentToken string) (*authapi.ChangePasswordResponse, error)
+	// IssueSession 单点登录通过后签发管理员会话（与密码登录相同的有效期）；不经过、也不影响密码错误计数
+	IssueSession(ctx context.Context) (*LoginResult, error)
 	// Authenticate 用会话令牌或 Bearer API 密钥确认身份；带了 Bearer 时只认密钥
 	Authenticate(ctx context.Context, sessionToken, bearer string) (auth.Actor, error)
 }
@@ -83,7 +106,15 @@ func (s *authSvc) Status(ctx context.Context) (*authapi.StatusResponse, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &authapi.StatusResponse{Initialized: a != nil}, nil
+	cfg, err := sso_repo.SSO().Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	resp := &authapi.StatusResponse{Initialized: a != nil, PasswordLogin: cfg.PasswordLoginAllowed(PasswordLoginForced())}
+	if cfg.Configured() && cfg.Bound() {
+		resp.SSOEnabled, resp.SSOLabel = true, cfg.ButtonLabel
+	}
+	return resp, nil
 }
 
 func checkPassword(ctx context.Context, pw string) error {
@@ -133,6 +164,13 @@ func (s *authSvc) Login(ctx context.Context, req *authapi.LoginRequest) (*LoginR
 	if admin == nil {
 		return nil, i18n.NewError(ctx, code.AdminNotInitialized)
 	}
+	cfg, err := sso_repo.SSO().Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !cfg.PasswordLoginAllowed(PasswordLoginForced()) {
+		return nil, i18n.NewForbiddenError(ctx, code.PasswordLoginDisabled, cfg.ButtonLabel)
+	}
 	if admin.IsLocked(now) {
 		return nil, lockedError(ctx, admin.LockRemaining(now))
 	}
@@ -159,6 +197,11 @@ func (s *authSvc) Login(ctx context.Context, req *authapi.LoginRequest) (*LoginR
 			return nil, err
 		}
 	}
+	return newSession(ctx, now, admin.Username)
+}
+
+// newSession 创建一个会话，密码登录与单点登录共用
+func newSession(ctx context.Context, now time.Time, username string) (*LoginResult, error) {
 	token, hash, err := session_entity.NewToken()
 	if err != nil {
 		return nil, err
@@ -170,7 +213,18 @@ func (s *authSvc) Login(ctx context.Context, req *authapi.LoginRequest) (*LoginR
 	}); err != nil {
 		return nil, err
 	}
-	return &LoginResult{Token: token, ExpiresAt: expires, Username: admin.Username}, nil
+	return &LoginResult{Token: token, ExpiresAt: expires, Username: username}, nil
+}
+
+func (s *authSvc) IssueSession(ctx context.Context) (*LoginResult, error) {
+	admin, err := admin_repo.Admin().Find(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if admin == nil {
+		return nil, i18n.NewError(ctx, code.AdminNotInitialized)
+	}
+	return newSession(ctx, s.now(), admin.Username)
 }
 
 // lockedError 向上取整到分钟，保证提示的时间不会短于实际剩余时间

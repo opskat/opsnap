@@ -245,10 +245,13 @@ export function FormError({
   );
 }
 
-/** 设置类页面的一行：左边标题，右边内容 */
+/**
+ * 设置类页面的一行：左边标题，右边内容。
+ * 列宽用 minmax(0,1fr)：内容里有不能折行的长文本（如回调地址）时由它自己滚动，不把整列撑出屏幕。
+ */
 export function Row({ title, note, children }: { title: string; note?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <section className="grid gap-4 border-t border-line pt-8 first:border-t-0 first:pt-0 sm:grid-cols-[180px_1fr] sm:gap-10">
+    <section className="grid grid-cols-1 gap-4 border-t border-line pt-8 first:border-t-0 first:pt-0 sm:grid-cols-[180px_minmax(0,1fr)] sm:gap-10">
       <div>
         <h2 className="text-[15px] font-semibold">{title}</h2>
         {note && <p className="mt-1 text-[13px] text-ink-2">{note}</p>}

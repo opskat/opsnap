@@ -22,7 +22,7 @@
 | SSH 代理链、端口转发、指纹 | 进程内服务 | `internal/pkg/sshconn/sshconntest`：`StartSSH`、`StartSOCKS5`、`StartHTTPConnect`、`StartEcho`、`StartBlackhole` |
 | 时间相关（锁定、调度、告警） | 注入时钟 | 服务暴露可替换的 now，不在测试里 sleep 等真实时间 |
 | 前端渲染与交互 | 组件 | vitest + happy-dom + Testing Library；`src/test/render.tsx` 的 `renderPage`、`src/test/api-mock.ts` 的 `mockApi`/`ok`/`fail` |
-| 真实工具与真实数据库全链路 | 集成 | 只在 `local-docker` 的 compose 项目 `opsnap-it` 里，规则见下 |
+| 真实工具与真实数据库全链路 | 集成 | 只在 compose 项目 `opsnap-it` 里，规则见下 |
 
 ## 断言与替身
 
@@ -36,7 +36,7 @@
 
 ## 集成测试
 
-只在 opsctl 资产 `local-docker`（id 4）上的 compose 项目 `opsnap-it` 里运行：独立网络，不向宿主机发布默认端口，只连接本项目启动的容器，清理只针对本项目的容器、网络和卷，数据全部虚构。宿主机上已有在用的 MySQL、PostgreSQL、Redis、MongoDB、MinIO 等容器，不能碰。
+经 `scripts/it.sh` 在集成测试主机（opsctl 资产，由 `OPSNAP_IT_ASSET` 指定）上的 compose 项目 `opsnap-it` 里运行：独立网络，不向宿主机发布默认端口，只连接本项目启动的容器，清理只针对本项目的容器、网络和卷，数据全部虚构。宿主机上可能还有其他在用的容器，不能碰。
 
 ## 怎么跑
 
