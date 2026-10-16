@@ -30,7 +30,7 @@ var (
 
 // probeRepo 用新生成的 opsnap 密钥探测位置，返回这里是否已经是 restic 仓库：
 // 仓库不存在返回 10，已有仓库但密码不对返回 12（restic ≥ 0.17）；S3 bucket 不存在也算空位置，
-// restic init 会建 bucket。到时限仍没有结果时返回说明原因的错误，带上 restic 最后一条输出。
+// restic init 会建 bucket。到时限仍没有结果时返回说明原因的错误，带上 restic 最后一次重试的错误。
 func (s *repoSvc) probeRepo(ctx context.Context, ent *repo_entity.Repo, sess *session, opsnapKey string) (bool, error) {
 	pctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
@@ -52,7 +52,7 @@ func (s *repoSvc) probeRepo(ctx context.Context, ent *repo_entity.Repo, sess *se
 	case res.err == nil && res.code == exitWrongPassword:
 		return true, nil
 	case errors.Is(res.err, errProbeTimeout):
-		return false, i18n.NewError(ctx, code.RepoProbeTimeout, fmtLimit(s.probeLimit), res.lastLine())
+		return false, i18n.NewError(ctx, code.RepoProbeTimeout, fmtLimit(s.probeLimit), res.lastRetryError())
 	}
 	return false, i18n.NewError(ctx, code.RepoAccessFailed, res.reason())
 }
@@ -102,6 +102,28 @@ func (w *bucketWatch) seen() bool {
 func bucketMissing(out string) bool {
 	lower := strings.ToLower(out)
 	return strings.Contains(lower, "nosuchbucket") || strings.Contains(lower, "the specified bucket does not exist")
+}
+
+// resticRetryMarker restic 每次重试打印的「<操作> returned error, retrying after <间隔>: <错误>」中间的部分
+const resticRetryMarker = " returned error, retrying after "
+
+// lastRetryError restic 最后一次重试打印的错误本身（已遮盖凭据）。restic 被取消后最后一行是 exit_error，
+// 只说 context canceled，看不出原因；没有重试记录时退回最后一条输出。
+func (r result) lastRetryError() string {
+	lines := strings.Split(strings.TrimSpace(r.out), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		at := strings.Index(lines[i], resticRetryMarker)
+		if at < 0 {
+			continue
+		}
+		rest := lines[i][at+len(resticRetryMarker):]
+		if sep := strings.Index(rest, ": "); sep >= 0 {
+			if msg := strings.TrimSpace(rest[sep+2:]); msg != "" {
+				return clipTail(msg)
+			}
+		}
+	}
+	return r.lastLine()
 }
 
 // lastLine restic 输出的最后一条非空行（已遮盖凭据），没有输出时说明没有输出

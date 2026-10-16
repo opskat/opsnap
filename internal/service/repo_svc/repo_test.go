@@ -509,6 +509,23 @@ func TestCreateProbeBounded(t *testing.T) {
 		f.assertNoRepos(t)
 	})
 
+	t.Run("restic 被取消后还会输出 exit_error：带上的是重试时的真实错误，不是 context canceled", func(t *testing.T) {
+		f := setupRepoTest(t)
+		f.svc.probeLimit = 50 * time.Millisecond
+		// restic 0.19 实测：被取消后最后一行是 exit_error，只说 context canceled
+		exitErr := `{"message_type":"exit_error","code":130,"message":"Fatal: unable to open config file: context canceled\ns3:http://nas:9000/opsnap"}` + "\n"
+		f.fake.On(restic("snapshots"), executor.Step{Stderr: retry + exitErr, Block: true})
+
+		_, err := createWithin(t, f, s3Req(), 5*time.Second)
+		require.Error(t, err)
+		assert.Equal(t, code.RepoProbeTimeout, codeOf(t, err))
+		msg := err.Error()
+		assert.Contains(t, msg, "connection refused")
+		assert.NotContains(t, msg, "context canceled")
+		assert.NotContains(t, msg, "retrying after", "只带错误本身")
+		assert.NotContains(t, msg, "SECRET-s3-key")
+	})
+
 	t.Run("不是 S3：同样的输出不当作 bucket 不存在", func(t *testing.T) {
 		f := setupRepoTest(t)
 		f.svc.probeLimit = 50 * time.Millisecond

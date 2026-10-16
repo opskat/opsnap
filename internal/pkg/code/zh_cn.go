@@ -73,7 +73,7 @@ var zhCN = map[int]string{
 	RepoServerNotFound:           "经由的服务器不存在",
 	RepoRecoveryKeyInvalid:       "请先生成恢复密钥并提交；恢复密钥须是不含空白的可见字符，去掉 - 后至少 %d 个字符",
 	RepoCredentialRetarget:       "地址或用户已改动，请重新填写%s",
-	RepoProbeTimeout:             "%s内没有结果，没能确认这里是空位置还是已有仓库。restic 最后一条输出：%s。请检查地址、端口、bucket 或路径、访问凭据是否正确，网络是否连通，NAS 上的服务是否在运行",
+	RepoProbeTimeout:             "%s内没有结果，没能确认这里是空位置还是已有仓库。restic 报告的错误：%s。请检查地址、端口、bucket 或路径、访问凭据是否正确，网络是否连通，NAS 上的服务是否在运行",
 
 	JobNotFound:        "任务不存在",
 	JobFieldInvalid:    "%s",
