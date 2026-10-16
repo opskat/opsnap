@@ -374,8 +374,9 @@ function Binding({ data, onChanged }: { data: SSOSettings; onChanged: (s: SSOSet
       {b ? (
         <div className="grid gap-1.5">
           <div className="flex flex-wrap items-center gap-3">
-            {/* 提供方不给 preferred_username 和 name 时名字就是 sub，同样可能是不能折行的长串：只让名字折行，「已绑定」不被挤窄 */}
-            <p className="flex min-w-0 flex-1 items-center gap-1.5 text-[13.5px]">
+            {/* 提供方不给 preferred_username 和 name 时名字就是 sub，同样可能是不能折行的长串：只让名字折行，「已绑定」不被挤窄。
+                <p> 不加 min-w-0：保留它的最小宽度，放不下时让「解除绑定」换到下一行，而不是压在「已绑定」上 */}
+            <p className="flex flex-1 items-center gap-1.5 text-[13.5px]">
               <Check className="size-4 shrink-0 text-ok" aria-hidden />
               <span className="shrink-0">已绑定</span>
               <span className="min-w-0 font-medium wrap-anywhere">{b.name}</span>
