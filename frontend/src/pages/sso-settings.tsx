@@ -386,7 +386,8 @@ function Binding({ data, onChanged }: { data: SSOSettings; onChanged: (s: SSOSet
               解除绑定
             </Button>
           </div>
-          <p className="text-xs text-ink-3 num">
+          {/* sub 可能是不能折行的长串（如 Authentik 默认的 64 位哈希），窄屏下在任意处折行，不撑出屏幕 */}
+          <p className="text-xs text-ink-3 num wrap-anywhere">
             sub {b.sub} · {b.issuer} · 绑定于 {fmtDate(b.bound_at)}
           </p>
           {isLocked(data) && <p className="text-xs text-ink-3">密码登录关闭期间不能解除绑定。</p>}
