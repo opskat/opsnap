@@ -1,5 +1,5 @@
 # 与本地 make check 相同的检查：Go 测试（含架构门禁）、golangci-lint、前端类型检查 + ESLint/Prettier + vitest。
-# 集成测试（make it）依赖 opsctl 与 local-docker，不在 CI 里运行。
+# 集成测试（make it）依赖 opsctl 与集成测试主机，不在 CI 里运行。
 name: ci
 
 on:

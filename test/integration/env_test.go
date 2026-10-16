@@ -3,7 +3,7 @@
 // Package integration 是 opsnap 的集成测试：在 compose 项目 opsnap-it 的内部网络里，
 // 通过 opsnap 真实的 HTTP API 驱动真实的 restic、rsync、SSH 代理链和各数据库导出工具。
 //
-// 只能经 scripts/it.sh（make it）在 opsctl 资产 local-docker 上运行，测试二进制跑在 runner 容器里，
+// 只能经 scripts/it.sh（make it）在集成测试主机（opsctl 资产）上运行，测试二进制跑在 runner 容器里，
 // 不向宿主机发布任何端口。所需的地址和一次性密码都由 compose 经环境变量传入，见 compose.yaml。
 package integration
 

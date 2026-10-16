@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# 集成测试入口（make it）：把构建上下文打包，经 opsctl 传到资产 local-docker 的专用目录，
+# 集成测试入口（make it）：把构建上下文打包，经 opsctl 传到集成测试主机的专用目录，
 # 在那里执行 scripts/it-remote.sh，结束后删除远端构建目录。
 #
 #   scripts/it.sh [all|build|up|status|test|rekey|test-rekeyed|down]   默认 all
 #
 # 环境变量：
-#   OPSNAP_IT_ASSET   opsctl 资产，默认 4（local-docker）
+#   OPSNAP_IT_ASSET   opsctl 资产 ID，默认 4
 #   OPSNAP_IT_SOURCE  worktree（默认：工作区里已跟踪和未忽略的文件）| head（HEAD 提交，
 #                     再叠加工作区里的 Dockerfile、.dockerignore、test/integration、scripts）
 #

@@ -67,7 +67,7 @@ AGENTS.md 里的其余原则（凭据不进日志和参数、失败的导出不�
 
 ## 门禁范围
 
-远程仓库是 `github.com/opskat/opsnap`。`.github/workflows/ci.yml` 在 PR 和推送到 `main` 时跑与 `make check` 相同的检查（Go 测试与架构门禁、golangci-lint、前端 typecheck/lint/vitest）；仓库没有开启分支保护，CI 失败不会阻止合并。集成测试（`make it`）依赖 opsctl 与 local-docker，只在本地运行。
+远程仓库是 `github.com/opskat/opsnap`。`.github/workflows/ci.yml` 在 PR 和推送到 `main` 时跑与 `make check` 相同的检查（Go 测试与架构门禁、golangci-lint、前端 typecheck/lint/vitest）；仓库没有开启分支保护，CI 失败不会阻止合并。集成测试（`make it`）依赖 opsctl 与集成测试主机，只在本地运行。
 
 ## 发版
 
