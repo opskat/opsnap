@@ -198,7 +198,7 @@ function Provider({ data, onSaved }: { data: SSOSettings; onSaved: (s: SSOSettin
   return (
     <form onSubmit={save} noValidate>
       <Row title="提供方" note="任何支持 OIDC 的服务，例如 Gitea、Authentik、Keycloak。">
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field
             label="Issuer 地址"
             className="sm:col-span-2"
