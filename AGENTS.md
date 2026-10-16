@@ -18,11 +18,11 @@ opsnap：自托管的备份编排服务。它从线上服务器拉取数据库�
 - 后端：Go + [cago](https://github.com/cago-frame/cago) 框架，SQLite 存储
 - 前端：React + shadcn/ui + Tailwind CSS v4，测试用 vitest，代码放在 `frontend/`
 - 产物：单个 Docker 镜像，内含 opsnap 二进制（内嵌前端）以及 restic、rclone、rsync、openssh 和各数据库导出工具
-- 当前状态：v1 开发中，在 `opsnap-v1` 分支上
+- 当前状态：v1 已合并到 `main`，推送 `v*` 带注释标签后由 `.github/workflows/release.yml` 发布镜像与 Release
 
 ## 工程原则
 
-标注 `review-only` 的条目只靠评审把关；其余条目的可判定部分由 `make check` 强制（门禁见 [`docs/develop.md`](docs/develop.md#机器强制的规则)）。仓库还没有 CI，门禁只在本地运行 `make check` 时生效。
+标注 `review-only` 的条目只靠评审把关；其余条目的可判定部分由 `make check` 强制（门禁见 [`docs/develop.md`](docs/develop.md#机器强制的规则)）。GitHub Actions（`.github/workflows/ci.yml`）在 PR 和推送到 `main` 时跑同样的检查；仓库没有开启分支保护，CI 失败不会阻止合并。
 
 - **严格遵循 cago 的目录与分层。**（分层依赖方向由 `internal/pkg/archtest` 强制；目录与职责划分 `review-only`） 入口是 `cmd/app/main.go`，配置在 `configs/`，业务代码按 `internal/{api,controller,service,repository,model/entity,task,pkg/code}` 分层，迁移放在 `migrations/`。controller 只做校验和转发，业务逻辑放在 service，数据访问只在 repository，简单的业务规则放在 entity 方法里。不要另起一套目录或分层。
 - **按 cago 的方式处理错误、迁移和并发。**（禁止裸 `go` 语句、禁止 `AutoMigrate` 由 `internal/pkg/archtest` 强制；错误码用法 `review-only`） 对外的错误一律通过 `internal/pkg/code` 里的错误码和 `i18n.NewError` 返回。迁移用 gormigrate 编写原生 DDL 并在迁移注册表里登记，不用 `AutoMigrate`。启动 goroutine 用 `gogo.Go`，不要把请求的 ctx 传进去。
