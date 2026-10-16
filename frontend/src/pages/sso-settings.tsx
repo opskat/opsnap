@@ -372,7 +372,8 @@ function Binding({ data, onChanged }: { data: SSOSettings; onChanged: (s: SSOSet
       {b ? (
         <div className="grid gap-1.5">
           <div className="flex flex-wrap items-center gap-3">
-            <p className="flex flex-1 items-center gap-1.5 text-[13.5px]">
+            {/* 提供方不给 preferred_username 和 name 时名字就是 sub，同样可能是不能折行的长串 */}
+            <p className="flex flex-1 items-center gap-1.5 text-[13.5px] wrap-anywhere">
               <Check className="size-4 text-ok" aria-hidden />
               已绑定 <span className="font-medium">{b.name}</span>
             </p>
