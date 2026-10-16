@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SettingsPage } from "./settings";
 import { renderPage } from "@/test/render";
 import { fail, mockApi, ok } from "@/test/api-mock";
+import { redirect } from "@/lib/redirect";
 
 const EMPTY = {
   configured: false,
@@ -13,6 +14,7 @@ const EMPTY = {
   button_label: "Gitea",
   panel_url: "",
   callback_url: "",
+  binding: null,
 };
 
 const SAVED = {
@@ -23,6 +25,12 @@ const SAVED = {
   button_label: "Gitea",
   panel_url: "https://opsnap.example.com",
   callback_url: "https://opsnap.example.com/api/v1/auth/oidc/callback",
+  binding: null,
+};
+
+const BOUND = {
+  ...SAVED,
+  binding: { issuer: "https://git.example.com/", sub: "3", name: "alice-ops", bound_at: 1_800_000_000 },
 };
 
 function open() {
@@ -116,5 +124,74 @@ describe("设置 · 单点登录 · 提供方", () => {
     await waitFor(() => expect(m.find("DELETE", "/settings/sso")).toHaveLength(1));
     expect(await screen.findByRole("button", { name: "保存并检查" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "停用单点登录" })).not.toBeInTheDocument();
+  });
+});
+
+describe("设置 · 单点登录 · 绑定账号", () => {
+  it("未保存提供方配置时不能绑定", async () => {
+    mockApi({ "GET /settings/sso": ok(EMPTY) });
+    open();
+    expect(await screen.findByText("先保存提供方配置。")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "绑定 Gitea 账号" })).toBeDisabled();
+  });
+
+  it("未绑定时点击绑定跳到提供方授权", async () => {
+    const to = vi.spyOn(redirect, "to").mockImplementation(() => {});
+    const m = mockApi({
+      "GET /settings/sso": ok(SAVED),
+      "POST /settings/sso/bind": ok({ url: "https://git.example.com/login/oauth/authorize?state=b" }),
+    });
+    open();
+    const user = userEvent.setup();
+    expect(await screen.findByText("还没有绑定。点击后跳转到 Gitea 授权，完成后回到这里。")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "绑定 Gitea 账号" }));
+    await waitFor(() => expect(to).toHaveBeenCalledWith("https://git.example.com/login/oauth/authorize?state=b"));
+    expect(m.find("POST", "/settings/sso/bind")).toHaveLength(1);
+    to.mockRestore();
+  });
+
+  it("已绑定时显示账号、sub 和 issuer，解除绑定需要确认", async () => {
+    const m = mockApi({ "GET /settings/sso": ok(BOUND), "DELETE /settings/sso/binding": ok(SAVED) });
+    open();
+    const user = userEvent.setup();
+    expect(await screen.findByText("alice-ops")).toBeInTheDocument();
+    expect(screen.getByText(/sub 3 · https:\/\/git\.example\.com\//)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "解除绑定" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent("解除后不能再用 Gitea 登录，直到重新绑定");
+    await user.click(within(dialog).getByRole("button", { name: "解除绑定" }));
+    await waitFor(() => expect(m.find("DELETE", "/settings/sso/binding")).toHaveLength(1));
+    expect(await screen.findByRole("button", { name: "绑定 Gitea 账号" })).toBeInTheDocument();
+  });
+
+  it("绑定失败跳回来时在顶部显示原因", async () => {
+    mockApi({
+      "GET /settings/sso": ok(SAVED),
+      "GET /auth/oidc/result": ok({ message: "Gitea 拒绝了授权（access_denied）。" }),
+    });
+    renderPage(<SettingsPage />, { path: "/settings", at: "/settings?tab=sso&sso_error=e1" });
+    expect(await screen.findByText("绑定失败：Gitea 拒绝了授权（access_denied）。")).toBeInTheDocument();
+  });
+
+  it("已绑定时修改 Issuer 或 Client ID，保存前确认会解除绑定；只改按钮文字不确认", async () => {
+    const m = mockApi({ "GET /settings/sso": ok(BOUND), "PUT /settings/sso": ok(BOUND) });
+    open();
+    const user = userEvent.setup();
+    const label = await screen.findByLabelText("按钮文字");
+    await user.clear(label);
+    await user.type(label, "公司 Git");
+    await user.click(screen.getByRole("button", { name: "保存并检查" }));
+    await waitFor(() => expect(m.find("PUT", "/settings/sso")).toHaveLength(1));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+
+    const cid = screen.getByLabelText("Client ID");
+    await user.clear(cid);
+    await user.type(cid, "another-client");
+    await user.click(screen.getByRole("button", { name: "保存并检查" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent("保存后会解除当前绑定");
+    expect(m.find("PUT", "/settings/sso")).toHaveLength(1);
+    await user.click(within(dialog).getByRole("button", { name: "保存并解除绑定" }));
+    await waitFor(() => expect(m.find("PUT", "/settings/sso")).toHaveLength(2));
   });
 });

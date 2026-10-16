@@ -137,6 +137,10 @@ export async function request<T>(method: Method, path: string, body?: unknown): 
 
 export interface AuthStatus {
   initialized: boolean;
+  /** 已配置并已绑定账号，可以用单点登录 */
+  sso_enabled?: boolean;
+  /** 登录按钮文字，例如 Gitea */
+  sso_label?: string;
 }
 export interface Credentials {
   username: string;
@@ -203,6 +207,15 @@ export interface SSOSettings {
   panel_url: string;
   /** 要填到提供方 OAuth2 应用里的重定向 URI */
   callback_url: string;
+  /** 绑定的提供方账号；只认 issuer + sub，name 只用于展示 */
+  binding: SSOBinding | null;
+}
+export interface SSOBinding {
+  issuer: string;
+  sub: string;
+  name: string;
+  /** Unix 秒 */
+  bound_at: number;
 }
 /** client_secret 为空表示保留已保存的值 */
 export type SSOUpdate = Pick<SSOSettings, "issuer" | "client_id" | "client_secret" | "button_label" | "panel_url">;
@@ -689,6 +702,10 @@ export const api = {
     logout: () => request<Record<string, never>>("POST", "/auth/logout"),
     me: () => request<Me>("GET", "/auth/me"),
     changePassword: (body: ChangePasswordBody) => request<Record<string, never>>("PUT", "/auth/password", body),
+    /** 开始单点登录，返回提供方授权页地址 */
+    oidcLogin: (next: string) => request<{ url: string }>("POST", "/auth/oidc/login", { next }),
+    /** 单点登录失败的原因；id 来自回调跳转地址里的 sso_error */
+    oidcResult: (id: string) => request<{ message: string }>("GET", `/auth/oidc/result?id=${encodeURIComponent(id)}`),
   },
   apikeys: {
     list: () => request<{ list: APIKey[] | null }>("GET", "/apikeys"),
@@ -699,6 +716,9 @@ export const api = {
     get: () => request<SSOSettings>("GET", "/settings/sso"),
     update: (body: SSOUpdate) => request<SSOSettings>("PUT", "/settings/sso", body),
     disable: () => request<SSOSettings>("DELETE", "/settings/sso"),
+    /** 开始绑定，返回提供方授权页地址 */
+    bind: () => request<{ url: string }>("POST", "/settings/sso/bind"),
+    unbind: () => request<SSOSettings>("DELETE", "/settings/sso/binding"),
   },
   settings: {
     get: () => request<Settings>("GET", "/settings"),

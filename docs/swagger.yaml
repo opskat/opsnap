@@ -92,6 +92,31 @@ definitions:
         description: 管理员用户名
         type: string
     type: object
+  auth.OIDCBindRequest:
+    type: object
+  auth.OIDCBindResponse:
+    properties:
+      url:
+        description: 提供方授权页
+        type: string
+    type: object
+  auth.OIDCLoginRequest:
+    properties:
+      next:
+        type: string
+    type: object
+  auth.OIDCLoginResponse:
+    properties:
+      url:
+        description: 提供方授权页
+        type: string
+    type: object
+  auth.OIDCResultResponse:
+    properties:
+      message:
+        description: 失败原因；id 不存在或已过期时为空
+        type: string
+    type: object
   auth.SetupRequest:
     properties:
       password:
@@ -106,6 +131,12 @@ definitions:
       initialized:
         description: 是否已创建管理员
         type: boolean
+      sso_enabled:
+        description: 是否可以用单点登录（已配置并已绑定账号）
+        type: boolean
+      sso_label,omitempty:
+        description: 登录按钮文字，例如 Gitea
+        type: string
     type: object
   httputils.PageRequest:
     properties:
@@ -1454,12 +1485,27 @@ definitions:
       source_type:
         type: string
     type: object
+  sso.Binding:
+    properties:
+      bound_at:
+        description: Unix 秒
+        type: integer
+      issuer:
+        type: string
+      name:
+        type: string
+      sub:
+        type: string
+    type: object
   sso.DisableRequest:
     type: object
   sso.DisableResponse:
     type: object
   sso.GetResponse:
     properties:
+      binding:
+        $ref: '#/definitions/sso.Binding'
+        description: 绑定的提供方账号；未绑定时为 null
       button_label:
         type: string
       callback_url:
@@ -1477,6 +1523,10 @@ definitions:
         type: string
       panel_url:
         type: string
+    type: object
+  sso.UnbindRequest:
+    type: object
+  sso.UnbindResponse:
     type: object
   sso.UpdateRequest:
     properties:
@@ -1668,6 +1718,108 @@ paths:
           schema:
             $ref: '#/definitions/BadRequest'
       summary: 当前身份
+      tags:
+      - auth
+  /auth/oidc/callback:
+    get:
+      consumes:
+      - application/json
+      description: |-
+        提供方授权后浏览器回到这里（未登录可访问）。
+        校验通过后建立会话并跳到登录前的页面（绑定时回到设置页）；不通过时跳回登录页，地址里带 sso_error。
+      parameters:
+      - in: query
+        name: code
+        type: string
+      - in: query
+        name: state
+        type: string
+      - in: query
+        name: error
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              code:
+                type: integer
+              data:
+                $ref: '#/definitions/auth.OIDCCallbackResponse'
+              msg:
+                type: string
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/BadRequest'
+      summary: |-
+        提供方授权后浏览器回到这里（未登录可访问）。
+        校验通过后建立会话并跳到登录前的页面（绑定时回到设置页）；不通过时跳回登录页，地址里带 sso_error。
+      tags:
+      - auth
+  /auth/oidc/login:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        开始单点登录（未登录可访问）：返回提供方授权页地址。
+        next 是登录后要回到的站内路径，不是站内路径时回到首页。
+      parameters:
+      - in: body
+        name: body
+        schema:
+          $ref: '#/definitions/auth.OIDCLoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              code:
+                type: integer
+              data:
+                $ref: '#/definitions/auth.OIDCLoginResponse'
+              msg:
+                type: string
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/BadRequest'
+      summary: |-
+        开始单点登录（未登录可访问）：返回提供方授权页地址。
+        next 是登录后要回到的站内路径，不是站内路径时回到首页。
+      tags:
+      - auth
+  /auth/oidc/result:
+    get:
+      consumes:
+      - application/json
+      description: 读取单点登录失败的原因（未登录可访问）；id 来自回调跳转地址里的 sso_error
+      parameters:
+      - in: query
+        name: id
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              code:
+                type: integer
+              data:
+                $ref: '#/definitions/auth.OIDCResultResponse'
+              msg:
+                type: string
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/BadRequest'
+      summary: 读取单点登录失败的原因（未登录可访问）；id 来自回调跳转地址里的 sso_error
       tags:
       - auth
   /auth/password:
@@ -3446,7 +3598,7 @@ paths:
     delete:
       consumes:
       - application/json
-      description: 停用单点登录：清空提供方配置
+      description: 停用单点登录：清空提供方配置并解除绑定
       parameters:
       - in: body
         name: body
@@ -3469,7 +3621,7 @@ paths:
           description: Bad Request
           schema:
             $ref: '#/definitions/BadRequest'
-      summary: 停用单点登录：清空提供方配置
+      summary: 停用单点登录：清空提供方配置并解除绑定
       tags:
       - sso
     get:
@@ -3501,7 +3653,7 @@ paths:
       - application/json
       description: |-
         保存提供方配置：先读取 <Issuer>/.well-known/openid-configuration 检查，通过才保存。
-        client_secret 为空或为「已设置」时保留已保存的值。
+        client_secret 为空或为「已设置」时保留已保存的值。修改 issuer 或 client_id 会解除已有的绑定。
       parameters:
       - in: body
         name: body
@@ -3526,7 +3678,71 @@ paths:
             $ref: '#/definitions/BadRequest'
       summary: |-
         保存提供方配置：先读取 <Issuer>/.well-known/openid-configuration 检查，通过才保存。
-        client_secret 为空或为「已设置」时保留已保存的值。
+        client_secret 为空或为「已设置」时保留已保存的值。修改 issuer 或 client_id 会解除已有的绑定。
+      tags:
+      - sso
+  /settings/sso/bind:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        开始绑定提供方账号：返回提供方授权页地址，浏览器跳过去授权，完成后回到「设置 → 单点登录」。
+        只能由已登录面板的管理员（会话）发起，API 密钥返回 403。
+      parameters:
+      - in: body
+        name: body
+        schema:
+          $ref: '#/definitions/auth.OIDCBindRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              code:
+                type: integer
+              data:
+                $ref: '#/definitions/auth.OIDCBindResponse'
+              msg:
+                type: string
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/BadRequest'
+      summary: |-
+        开始绑定提供方账号：返回提供方授权页地址，浏览器跳过去授权，完成后回到「设置 → 单点登录」。
+        只能由已登录面板的管理员（会话）发起，API 密钥返回 403。
+      tags:
+      - auth
+  /settings/sso/binding:
+    delete:
+      consumes:
+      - application/json
+      description: 解除绑定
+      parameters:
+      - in: body
+        name: body
+        schema:
+          $ref: '#/definitions/sso.UnbindRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              code:
+                type: integer
+              data:
+                $ref: '#/definitions/sso.UnbindResponse'
+              msg:
+                type: string
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/BadRequest'
+      summary: 解除绑定
       tags:
       - sso
 swagger: "2.0"

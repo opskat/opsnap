@@ -24,3 +24,8 @@ func (s *SSO) Update(ctx context.Context, req *ssoapi.UpdateRequest) (*ssoapi.Up
 func (s *SSO) Disable(ctx context.Context, req *ssoapi.DisableRequest) (*ssoapi.DisableResponse, error) {
 	return sso_svc.SSO().Disable(ctx)
 }
+
+// Unbind 解除绑定
+func (s *SSO) Unbind(ctx context.Context, req *ssoapi.UnbindRequest) (*ssoapi.UnbindResponse, error) {
+	return sso_svc.SSO().Unbind(ctx)
+}

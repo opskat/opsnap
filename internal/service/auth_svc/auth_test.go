@@ -18,10 +18,12 @@ import (
 	"github.com/opskat/opsnap/internal/model/auth"
 	"github.com/opskat/opsnap/internal/model/entity/admin_entity"
 	"github.com/opskat/opsnap/internal/model/entity/session_entity"
+	"github.com/opskat/opsnap/internal/model/entity/sso_entity"
 	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/repository/admin_repo"
 	"github.com/opskat/opsnap/internal/repository/apikey_repo"
 	"github.com/opskat/opsnap/internal/repository/session_repo"
+	"github.com/opskat/opsnap/internal/repository/sso_repo"
 	"github.com/opskat/opsnap/migrations"
 )
 
@@ -49,6 +51,7 @@ func setupAuthTest(t *testing.T) (context.Context, *authSvc, *fakeClock, *gorm.D
 	admin_repo.RegisterAdmin(admin_repo.NewAdmin())
 	session_repo.RegisterSession(session_repo.NewSession())
 	apikey_repo.RegisterAPIKey(apikey_repo.NewAPIKey())
+	sso_repo.RegisterSSO(sso_repo.NewSSO())
 
 	clock := &fakeClock{t: time.Unix(1_800_000_000, 0)}
 	svc := newAuth(clock.Now)
@@ -240,4 +243,49 @@ func TestChangePasswordCountsWrongOldPassword(t *testing.T) {
 	clock.Advance(admin_entity.LockDuration + time.Second)
 	_, err = svc.ChangePassword(ctx, &authapi.ChangePasswordRequest{OldPassword: "correct-horse", NewPassword: "brand-new-password"}, cur.Token)
 	require.NoError(t, err)
+}
+
+func TestIssueSession(t *testing.T) {
+	convey.Convey("单点登录通过后签发会话", t, func() {
+		ctx, svc, clock, _ := setupAuthTest(t)
+		convey.Convey("尚未创建管理员时拒绝", func() {
+			_, err := svc.IssueSession(ctx)
+			assert.Equal(t, code.AdminNotInitialized, errCode(t, err))
+		})
+		convey.Convey("与密码登录相同的 7 天会话，不受密码锁定影响", func() {
+			mustSetup(t, ctx, svc)
+			for i := 0; i < 5; i++ {
+				_, _ = login(ctx, svc, "wrong-pass")
+			}
+			res, err := svc.IssueSession(ctx)
+			require.NoError(t, err)
+			assert.Equal(t, "admin", res.Username)
+			assert.Equal(t, clock.Now().Add(7*24*time.Hour), res.ExpiresAt)
+			a, err := svc.Authenticate(ctx, res.Token, "")
+			require.NoError(t, err)
+			assert.Equal(t, auth.KindAdmin, a.Kind)
+		})
+	})
+}
+
+func TestStatusSSO(t *testing.T) {
+	convey.Convey("登录页公开信息：是否可以单点登录", t, func() {
+		ctx, svc, _, _ := setupAuthTest(t)
+		mustSetup(t, ctx, svc)
+		st, err := svc.Status(ctx)
+		require.NoError(t, err)
+		assert.False(t, st.SSOEnabled)
+		assert.Empty(t, st.SSOLabel)
+
+		cfg := &sso_entity.SSO{Issuer: "https://git.example.com/", ClientID: "cid", ClientSecret: "c", ButtonLabel: "Gitea", PasswordLogin: true}
+		require.NoError(t, sso_repo.SSO().Save(ctx, cfg))
+		st, _ = svc.Status(ctx)
+		assert.False(t, st.SSOEnabled, "已配置但未绑定")
+
+		cfg.BoundIssuer, cfg.BoundSub = "https://git.example.com/", "3"
+		require.NoError(t, sso_repo.SSO().Save(ctx, cfg))
+		st, _ = svc.Status(ctx)
+		assert.True(t, st.SSOEnabled)
+		assert.Equal(t, "Gitea", st.SSOLabel)
+	})
 }

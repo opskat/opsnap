@@ -11,6 +11,7 @@ import (
 
 	authapi "github.com/opskat/opsnap/internal/api/auth"
 	"github.com/opskat/opsnap/internal/service/auth_svc"
+	"github.com/opskat/opsnap/internal/service/sso_svc"
 )
 
 type Auth struct{}
@@ -58,4 +59,57 @@ func setSessionCookie(c *gin.Context, value string, maxAge int) {
 	secure := c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
 	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie(auth_svc.SessionCookie, value, maxAge, "/", "", secure, true)
+}
+
+// OIDCCookie 单点登录进行中时写给浏览器的 Cookie：回调时据此确认是同一个浏览器发起的
+const OIDCCookie = "opsnap_oidc"
+
+// oidcCookiePath 只在回调时带上
+const oidcCookiePath = "/api/v1/auth/oidc"
+
+// oidcCookieMaxAge 与服务端保留进行中请求的时长一致（10 分钟）
+const oidcCookieMaxAge = 600
+
+// OIDCLogin 开始单点登录：记下浏览器，返回提供方授权页地址
+func (a *Auth) OIDCLogin(c *gin.Context, req *authapi.OIDCLoginRequest) (*authapi.OIDCLoginResponse, error) {
+	st, err := sso_svc.SSO().StartLogin(c.Request.Context(), req.Next)
+	if err != nil {
+		return nil, err
+	}
+	setOIDCCookie(c, st.Browser, oidcCookieMaxAge)
+	return &authapi.OIDCLoginResponse{URL: st.URL}, nil
+}
+
+// OIDCBind 开始绑定提供方账号（需要面板会话）
+func (a *Auth) OIDCBind(c *gin.Context, req *authapi.OIDCBindRequest) (*authapi.OIDCBindResponse, error) {
+	st, err := sso_svc.SSO().StartBind(c.Request.Context())
+	if err != nil {
+		return nil, err
+	}
+	setOIDCCookie(c, st.Browser, oidcCookieMaxAge)
+	return &authapi.OIDCBindResponse{URL: st.URL}, nil
+}
+
+// OIDCCallback 提供方授权后回到这里：交给服务校验，成功时写会话 Cookie，然后跳转
+func (a *Auth) OIDCCallback(c *gin.Context, req *authapi.OIDCCallbackRequest) error {
+	browser, _ := c.Cookie(OIDCCookie)
+	res := sso_svc.SSO().Callback(c.Request.Context(), browser, req)
+	setOIDCCookie(c, "", -1)
+	if res.Session != nil {
+		setSessionCookie(c, res.Session.Token, int(time.Until(res.Session.ExpiresAt).Seconds()))
+	}
+	c.Header("Cache-Control", "no-store")
+	c.Redirect(http.StatusFound, res.Redirect)
+	return nil
+}
+
+// OIDCResult 读取单点登录失败的原因
+func (a *Auth) OIDCResult(ctx context.Context, req *authapi.OIDCResultRequest) (*authapi.OIDCResultResponse, error) {
+	return &authapi.OIDCResultResponse{Message: sso_svc.SSO().Result(req.ID)}, nil
+}
+
+func setOIDCCookie(c *gin.Context, value string, maxAge int) {
+	secure := c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie(OIDCCookie, value, maxAge, oidcCookiePath, "", secure, true)
 }

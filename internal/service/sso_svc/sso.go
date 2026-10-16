@@ -1,4 +1,4 @@
-// Package sso_svc 单点登录（OIDC）：提供方配置
+// Package sso_svc 单点登录（OIDC）：提供方配置、绑定账号、授权码 + PKCE 登录
 package sso_svc
 
 import (
@@ -8,6 +8,7 @@ import (
 
 	"github.com/cago-frame/cago/pkg/i18n"
 
+	authapi "github.com/opskat/opsnap/internal/api/auth"
 	ssoapi "github.com/opskat/opsnap/internal/api/sso"
 	"github.com/opskat/opsnap/internal/model/entity/sso_entity"
 	"github.com/opskat/opsnap/internal/pkg/code"
@@ -26,16 +27,30 @@ type SSOSvc interface {
 	Update(ctx context.Context, req *ssoapi.UpdateRequest) (*ssoapi.UpdateResponse, error)
 	// Disable 停用单点登录
 	Disable(ctx context.Context) (*ssoapi.DisableResponse, error)
+	// Unbind 解除绑定
+	Unbind(ctx context.Context) (*ssoapi.UnbindResponse, error)
+	// StartLogin 开始单点登录（需要已配置并已绑定）
+	StartLogin(ctx context.Context, next string) (*Start, error)
+	// StartBind 开始绑定（需要已配置）；只接受面板会话，API 密钥返回 403
+	StartBind(ctx context.Context) (*Start, error)
+	// Callback 处理提供方的回调；browser 是开始时写进浏览器 Cookie 的值。失败也返回跳转地址
+	Callback(ctx context.Context, browser string, req *authapi.OIDCCallbackRequest) *CallbackResult
+	// Result 回调失败的原因，id 来自跳转地址里的 sso_error；不存在或已过期时为空
+	Result(id string) string
 }
 
 type ssoSvc struct {
 	now              func() time.Time
 	client           *http.Client
 	discoveryTimeout time.Duration
+	flow             flowState
 }
 
 func newSSO(now func() time.Time) *ssoSvc {
-	return &ssoSvc{now: now, client: &http.Client{}, discoveryTimeout: defaultDiscoveryTimeout}
+	return &ssoSvc{
+		now: now, client: &http.Client{}, discoveryTimeout: defaultDiscoveryTimeout,
+		flow: flowState{pending: map[string]*pending{}, results: map[string]result{}},
+	}
 }
 
 var defaultSSO SSOSvc = newSSO(time.Now)
@@ -74,6 +89,9 @@ func view(s *sso_entity.SSO) *ssoapi.GetResponse {
 	if resp.ButtonLabel == "" {
 		resp.ButtonLabel = sso_entity.DefaultButtonLabel
 	}
+	if s.Bound() {
+		resp.Binding = &ssoapi.Binding{Issuer: s.BoundIssuer, Sub: s.BoundSub, Name: s.BoundName, BoundAt: s.BoundAt}
+	}
 	return resp
 }
 
@@ -110,8 +128,12 @@ func (s *ssoSvc) Update(ctx context.Context, req *ssoapi.UpdateRequest) (*ssoapi
 	if next.ClientSecret == "" {
 		return nil, i18n.NewError(ctx, code.SSOClientSecretRequired)
 	}
-	if _, err := s.fetchDiscovery(ctx, next.Issuer); err != nil {
+	if err := s.checkDiscovery(ctx, next.Issuer); err != nil {
 		return nil, err
+	}
+	// 同一个 sub 在不同提供方或不同应用下代表的不是同一个人
+	if next.Issuer != cur.Issuer || next.ClientID != cur.ClientID {
+		next.ClearBinding()
 	}
 	next.Updatetime = s.now().Unix()
 	if err := sso_repo.SSO().Save(ctx, &next); err != nil {
@@ -125,4 +147,19 @@ func (s *ssoSvc) Disable(ctx context.Context) (*ssoapi.DisableResponse, error) {
 		return nil, err
 	}
 	return &ssoapi.DisableResponse{GetResponse: *view(sso_entity.Default())}, nil
+}
+
+func (s *ssoSvc) Unbind(ctx context.Context) (*ssoapi.UnbindResponse, error) {
+	cur, err := load(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if cur.Bound() {
+		cur.ClearBinding()
+		cur.Updatetime = s.now().Unix()
+		if err := sso_repo.SSO().Save(ctx, cur); err != nil {
+			return nil, err
+		}
+	}
+	return &ssoapi.UnbindResponse{GetResponse: *view(cur)}, nil
 }

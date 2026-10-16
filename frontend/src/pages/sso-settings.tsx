@@ -1,5 +1,7 @@
-// 设置 → 单点登录：提供方配置
+// 设置 → 单点登录：提供方配置、绑定账号
 import * as React from "react";
+import { useSearchParams } from "react-router";
+import { AlertTriangle, Check } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,10 +15,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { CodeBlock, Field, FormError, Mono, Row, Skeleton } from "@/components/bits";
+import { CodeBlock, Field, FormError, Mono, Row, Sheet, Skeleton } from "@/components/bits";
 import { LoadError } from "@/pages/settings";
 import { SECRET_MASKED, api, errorMessage, type SSOSettings, type SSOUpdate } from "@/lib/api";
 import { useLoad } from "@/lib/use-load";
+import { fmtDate } from "@/lib/format";
+import { redirect } from "@/lib/redirect";
 
 /** 与后端 sso_entity 一致 */
 const MAX_BUTTON_LABEL = 32;
@@ -83,11 +87,37 @@ export function validateProvider(f: ProviderForm, secretSaved: boolean): { body?
 
 export function SsoSettings() {
   const { data, error, loading, reload, setData } = useLoad(api.sso.get);
+  const [params] = useSearchParams();
+  const bindErrorId = params.get("sso_error");
+  const [bindError, setBindError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!bindErrorId) return;
+    let cancelled = false;
+    // 绑定失败从提供方跳回来时，地址里只带失败原因的 id
+    api.auth
+      .oidcResult(bindErrorId)
+      .then((r) => {
+        if (!cancelled && r.message) setBindError(r.message);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [bindErrorId]);
+
   if (error) return <LoadError what="单点登录设置" message={error} onRetry={reload} />;
   if (loading || !data) return <SsoSkeleton />;
   return (
     <div className="flex max-w-3xl flex-col gap-10">
+      {bindError && (
+        <Sheet className="flex items-start gap-3 px-5 py-4" role="alert">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-fail" aria-hidden />
+          <p className="flex-1 text-[13.5px]">绑定失败：{bindError}</p>
+        </Sheet>
+      )}
       <Provider data={data} onSaved={setData} />
+      <Binding data={data} onChanged={setData} />
     </div>
   );
 }
@@ -98,6 +128,8 @@ function Provider({ data, onSaved }: { data: SSOSettings; onSaved: (s: SSOSettin
   const [submitError, setSubmitError] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [disabling, setDisabling] = React.useState(false);
+  // 已绑定时修改 Issuer 或 Client ID 会解除绑定，先确认
+  const [confirmBody, setConfirmBody] = React.useState<SSOUpdate | null>(null);
 
   // 保存或停用后服务端返回新数据：重置表单
   const [prevData, setPrevData] = React.useState(data);
@@ -116,6 +148,14 @@ function Provider({ data, onSaved }: { data: SSOSettings; onSaved: (s: SSOSettin
     setErrors(errors);
     setSubmitError(null);
     if (!body) return;
+    if (data.binding && (body.issuer !== data.issuer || body.client_id !== data.client_id)) {
+      setConfirmBody(body);
+      return;
+    }
+    await submit(body);
+  }
+
+  async function submit(body: SSOUpdate) {
     setSaving(true);
     try {
       onSaved(await api.sso.update(body));
@@ -223,6 +263,27 @@ function Provider({ data, onSaved }: { data: SSOSettings; onSaved: (s: SSOSettin
         </div>
       </Row>
 
+      <AlertDialog open={confirmBody !== null} onOpenChange={(v) => !v && setConfirmBody(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>保存后会解除当前绑定</AlertDialogTitle>
+            <AlertDialogDescription>
+              修改了 Issuer 或 Client ID，原来绑定的 {data.binding?.name} 不再有效，保存后需要重新绑定。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (confirmBody) void submit(confirmBody);
+              }}
+            >
+              保存并解除绑定
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <AlertDialog open={disabling} onOpenChange={setDisabling}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -243,6 +304,88 @@ function Provider({ data, onSaved }: { data: SSOSettings; onSaved: (s: SSOSettin
         </AlertDialogContent>
       </AlertDialog>
     </form>
+  );
+}
+
+function Binding({ data, onChanged }: { data: SSOSettings; onChanged: (s: SSOSettings) => void }) {
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [unbinding, setUnbinding] = React.useState(false);
+  const label = data.button_label;
+
+  async function bind() {
+    setBusy(true);
+    setError(null);
+    try {
+      const { url } = await api.sso.bind();
+      redirect.to(url);
+    } catch (err) {
+      setError(errorMessage(err));
+      setBusy(false);
+    }
+  }
+
+  async function unbind() {
+    try {
+      onChanged(await api.sso.unbind());
+      toast.success("已解除绑定");
+    } catch (err) {
+      toast.error(`解除绑定失败：${errorMessage(err)}`);
+    }
+  }
+
+  const b = data.binding;
+  return (
+    <Row title="绑定账号" note="只有绑定的这个账号能用单点登录进入 opsnap。">
+      {b ? (
+        <div className="grid gap-1.5">
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="flex flex-1 items-center gap-1.5 text-[13.5px]">
+              <Check className="size-4 text-ok" aria-hidden />
+              已绑定 <span className="font-medium">{b.name}</span>
+            </p>
+            <Button size="sm" variant="ghost" className="text-fail hover:text-fail" onClick={() => setUnbinding(true)}>
+              解除绑定
+            </Button>
+          </div>
+          <p className="text-xs text-ink-3 num">
+            sub {b.sub} · {b.issuer} · 绑定于 {fmtDate(b.bound_at)}
+          </p>
+        </div>
+      ) : (
+        <div className="grid gap-2">
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="flex-1 text-[13.5px] text-ink-2">
+              {data.configured ? `还没有绑定。点击后跳转到 ${label} 授权，完成后回到这里。` : "先保存提供方配置。"}
+            </p>
+            <Button size="sm" disabled={!data.configured || busy} onClick={bind}>
+              绑定 {label} 账号
+            </Button>
+          </div>
+          <FormError>{error}</FormError>
+        </div>
+      )}
+
+      <AlertDialog open={unbinding} onOpenChange={setUnbinding}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>解除绑定 {b?.name}？</AlertDialogTitle>
+            <AlertDialogDescription>
+              解除后不能再用 {label} 登录，直到重新绑定。当前会话不受影响。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={() => void unbind()}
+            >
+              解除绑定
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Row>
   );
 }
 

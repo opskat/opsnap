@@ -35,10 +35,24 @@ func discoveryURL(issuer string) string {
 	return strings.TrimRight(issuer, "/") + discoveryPath
 }
 
-// fetchDiscovery 读取并检查发现文档；失败时返回写明地址和原因的错误
-func (s *ssoSvc) fetchDiscovery(ctx context.Context, issuer string) (*discovery, error) {
+// discoveryError 读取发现文档失败的原因；Declared 不为空表示文档声明的 issuer 与填写的不一致
+type discoveryError struct {
+	URL      string
+	Reason   string
+	Declared string
+}
+
+func (e *discoveryError) Error() string {
+	if e.Declared != "" {
+		return "提供方声明的 issuer 是 " + e.Declared
+	}
+	return e.Reason
+}
+
+// fetchDiscovery 读取并检查发现文档
+func (s *ssoSvc) fetchDiscovery(ctx context.Context, issuer string) (*discovery, *discoveryError) {
 	addr := discoveryURL(issuer)
-	fail := func(reason string) error { return i18n.NewError(ctx, code.SSODiscoveryFailed, addr, reason) }
+	fail := func(reason string) *discoveryError { return &discoveryError{URL: addr, Reason: reason} }
 
 	reqCtx, cancel := context.WithTimeout(ctx, s.discoveryTimeout)
 	defer cancel()
@@ -77,9 +91,21 @@ func (s *ssoSvc) fetchDiscovery(ctx context.Context, issuer string) (*discovery,
 		}
 	}
 	if d.Issuer != issuer {
-		return nil, i18n.NewError(ctx, code.SSOIssuerMismatch, d.Issuer)
+		return nil, &discoveryError{URL: addr, Declared: d.Issuer}
 	}
 	return d, nil
+}
+
+// checkDiscovery 保存配置前的检查：失败时返回写明地址和原因的错误
+func (s *ssoSvc) checkDiscovery(ctx context.Context, issuer string) error {
+	_, de := s.fetchDiscovery(ctx, issuer)
+	if de == nil {
+		return nil
+	}
+	if de.Declared != "" {
+		return i18n.NewError(ctx, code.SSOIssuerMismatch, de.Declared)
+	}
+	return i18n.NewError(ctx, code.SSODiscoveryFailed, de.URL, de.Reason)
 }
 
 // transportReason 去掉 url.Error 里重复的方法和地址，只留底层原因（例如 connection refused）

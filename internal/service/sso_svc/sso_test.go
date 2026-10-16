@@ -19,7 +19,10 @@ import (
 	ssoapi "github.com/opskat/opsnap/internal/api/sso"
 	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/secret"
+	"github.com/opskat/opsnap/internal/repository/admin_repo"
+	"github.com/opskat/opsnap/internal/repository/session_repo"
 	"github.com/opskat/opsnap/internal/repository/sso_repo"
+	"github.com/opskat/opsnap/internal/service/auth_svc"
 	"github.com/opskat/opsnap/migrations"
 )
 
@@ -39,6 +42,8 @@ func setupSSOTest(t *testing.T) (context.Context, *ssoSvc, *fakeClock) {
 	t.Cleanup(func() { _ = sqlDB.Close() })
 	require.NoError(t, migrations.RunMigrations(gdb))
 	sso_repo.RegisterSSO(sso_repo.NewSSO())
+	admin_repo.RegisterAdmin(admin_repo.NewAdmin())
+	session_repo.RegisterSession(session_repo.NewSession())
 
 	old := secret.Default()
 	sec, err := secret.New("test-master-key")
@@ -47,6 +52,9 @@ func setupSSOTest(t *testing.T) (context.Context, *ssoSvc, *fakeClock) {
 	t.Cleanup(func() { secret.SetDefault(old) })
 
 	clock := &fakeClock{t: time.Unix(1_800_000_000, 0)}
+	oldAuth := auth_svc.Auth()
+	auth_svc.RegisterAuth(auth_svc.NewAuth(clock.Now))
+	t.Cleanup(func() { auth_svc.RegisterAuth(oldAuth) })
 	return db.WithContextDB(context.Background(), gdb), newSSO(clock.Now), clock
 }
 

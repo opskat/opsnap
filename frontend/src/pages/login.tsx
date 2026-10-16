@@ -6,6 +6,8 @@ import { Field, FormError } from "@/components/bits";
 import { Mark } from "@/components/shell";
 import { ApiError, ErrorCode, api, errorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { redirect } from "@/lib/redirect";
+import { LogIn, Loader2 } from "lucide-react";
 
 /** 登录后要回到的地址；只接受站内路径，防止跳到外站 */
 export function safeNext(next: string | null): string {
@@ -38,6 +40,52 @@ export function LoginPage() {
   const [password, setPassword] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
+  // 单点登录：按钮文字（未启用时为 null）、跳转中、失败原因
+  const [ssoLabel, setSsoLabel] = React.useState<string | null>(null);
+  const [ssoBusy, setSsoBusy] = React.useState(false);
+  const [ssoError, setSsoError] = React.useState<string | null>(null);
+  const ssoErrorId = params.get("sso_error");
+
+  React.useEffect(() => {
+    let cancelled = false;
+    // 读不到状态时按未启用处理，密码登录照常可用
+    api.auth
+      .status()
+      .then((st) => {
+        if (!cancelled && st.sso_enabled) setSsoLabel(st.sso_label || "单点登录");
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  React.useEffect(() => {
+    if (!ssoErrorId) return;
+    let cancelled = false;
+    // 失败原因由服务端整理后保存，地址里只带一个 id，不把任意文本放进页面
+    api.auth
+      .oidcResult(ssoErrorId)
+      .then((r) => {
+        if (!cancelled && r.message) setSsoError(r.message);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [ssoErrorId]);
+
+  async function startSso() {
+    setSsoBusy(true);
+    setSsoError(null);
+    try {
+      const { url } = await api.auth.oidcLogin(safeNext(params.get("next")));
+      redirect.to(url);
+    } catch (err) {
+      setSsoError(errorMessage(err));
+      setSsoBusy(false);
+    }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -96,10 +144,26 @@ export function LoginPage() {
               />
             </Field>
             <FormError id="login-err">{error}</FormError>
-            <Button type="submit" className="h-10 w-full" disabled={busy}>
+            <Button type="submit" className="h-10 w-full" disabled={busy || ssoBusy}>
               登录
             </Button>
           </div>
+          {(ssoLabel || ssoError) && (
+            <div className="mt-4 grid gap-4">
+              {ssoLabel && (
+                <div className="flex items-center gap-3 text-xs text-ink-3" aria-hidden>
+                  <span className="h-px flex-1 bg-line" />或<span className="h-px flex-1 bg-line" />
+                </div>
+              )}
+              <FormError>{ssoError}</FormError>
+              {ssoLabel && (
+                <Button type="button" variant="outline" className="h-10 w-full" disabled={ssoBusy} onClick={startSso}>
+                  {ssoBusy ? <Loader2 className="animate-spin" /> : <LogIn />}
+                  {ssoBusy ? `正在跳转到 ${ssoLabel}…` : `用 ${ssoLabel} 登录`}
+                </Button>
+              )}
+            </div>
+          )}
         </form>
       </div>
     </div>

@@ -99,4 +99,12 @@ var zhCN = map[int]string{
 	SSOPanelURLInvalid:      "面板对外地址须是以 http:// 或 https:// 开头的完整地址，例如 https://opsnap.example.com",
 	SSODiscoveryFailed:      "读取 %s 失败：%s。检查 Issuer 地址和网络后再保存",
 	SSOIssuerMismatch:       "提供方声明的 issuer 是 %s，与填写的不一致。请把 Issuer 地址改成它",
+	SSONotConfigured:        "先保存提供方配置",
+	SSONotEnabled:           "单点登录未启用。",
+	SSOBindRequiresSession:  "绑定只能由已登录面板的管理员在浏览器里发起，API 密钥不能绑定",
+	SSOStateInvalid:         "登录请求已过期（超过 10 分钟）或已用过，请重新点击登录。",
+	SSOProviderDenied:       "%s 拒绝了授权（%s）。",
+	SSOProviderUnreachable:  "连不上 %s（%s）：%s。稍后再试。",
+	SSOTokenInvalid:         "%s 返回的身份令牌无效：%s。",
+	SSOAccountMismatch:      "%s 账号 %s 不是绑定的管理员账号，换成绑定的账号再试。",
 }

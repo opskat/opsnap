@@ -50,6 +50,14 @@ func Default() *SSO {
 // Configured 是否已保存提供方配置
 func (s *SSO) Configured() bool { return s != nil && s.Issuer != "" }
 
+// Bound 是否已绑定提供方账号
+func (s *SSO) Bound() bool { return s != nil && s.BoundSub != "" }
+
+// ClearBinding 解除绑定
+func (s *SSO) ClearBinding() {
+	s.BoundIssuer, s.BoundSub, s.BoundName, s.BoundAt = "", "", "", 0
+}
+
 // CallbackURL 由面板对外地址拼出的回调地址；未填写面板地址时为空
 func (s *SSO) CallbackURL() string {
 	if s == nil || s.PanelURL == "" {
