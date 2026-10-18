@@ -36,12 +36,12 @@ func TestRunMigrations(t *testing.T) {
 
 			var ids []string
 			require.NoError(t, db.Table("migrations").Pluck("id", &ids).Error)
-			assert.Contains(t, ids, "202610150001")
+			assert.Contains(t, ids, "202610180001")
 
 			convey.Convey("重复执行不报错，也不重复记录", func() {
 				require.NoError(t, RunMigrations(db))
 				var count int64
-				require.NoError(t, db.Table("migrations").Where("id = ?", "202610150001").Count(&count).Error)
+				require.NoError(t, db.Table("migrations").Where("id = ?", "202610180001").Count(&count).Error)
 				assert.Equal(t, int64(1), count)
 			})
 		})
