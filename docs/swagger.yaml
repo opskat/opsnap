@@ -141,6 +141,97 @@ definitions:
         description: 登录按钮文字，例如 Gitea
         type: string
     type: object
+  credential.CreateRequest:
+    properties:
+      kind:
+        description: password | ssh_key
+        type: string
+      name:
+        type: string
+      note:
+        type: string
+      passphrase:
+        type: string
+      password:
+        type: string
+      private_key:
+        type: string
+      username:
+        type: string
+    type: object
+  credential.CreateResponse:
+    type: object
+  credential.DeleteRequest:
+    type: object
+  credential.DeleteResponse:
+    type: object
+  credential.GetResponse:
+    type: object
+  credential.Item:
+    properties:
+      created_at:
+        description: Unix 秒
+        type: integer
+      has_passphrase:
+        description: 私钥有没有口令
+        type: boolean
+      has_secret:
+        description: 有没有密码（password 类型）或私钥（ssh_key 类型）
+        type: boolean
+      id:
+        type: integer
+      kind:
+        description: password | ssh_key
+        type: string
+      name:
+        type: string
+      note:
+        type: string
+      servers:
+        description: 使用这条密钥的服务器；没有时是空数组
+        items:
+          $ref: '#/definitions/credential.ServerRef'
+        type: array
+      updated_at:
+        description: Unix 秒
+        type: integer
+      username:
+        type: string
+    type: object
+  credential.ListResponse:
+    properties:
+      list:
+        items:
+          $ref: '#/definitions/credential.Item'
+        type: array
+    type: object
+  credential.ServerRef:
+    properties:
+      id:
+        type: integer
+      name:
+        type: string
+    type: object
+  credential.UpdateRequest:
+    properties:
+      kind:
+        description: password | ssh_key
+        type: string
+      name:
+        type: string
+      note:
+        type: string
+      passphrase:
+        type: string
+      password:
+        type: string
+      private_key:
+        type: string
+      username:
+        type: string
+    type: object
+  credential.UpdateResponse:
+    type: object
   httputils.PageRequest:
     properties:
       order:
@@ -1127,6 +1218,8 @@ definitions:
     properties:
       auth_type:
         type: string
+      credential_id:
+        type: integer
       hops:
         items:
           $ref: '#/definitions/server.HopInput'
@@ -1145,10 +1238,38 @@ definitions:
         type: integer
       private_key:
         type: string
+      share_as:
+        type: string
       username:
         type: string
     type: object
   server.CreateResponse:
+    type: object
+  server.CredentialView:
+    properties:
+      has_passphrase:
+        description: 私钥有没有口令
+        type: boolean
+      has_secret:
+        description: 有没有密码（password 类型）或私钥（ssh_key 类型）
+        type: boolean
+      id:
+        type: integer
+      kind:
+        description: password | ssh_key
+        type: string
+      name:
+        description: 共享密钥的名称；私有凭据为空串
+        type: string
+      note:
+        description: 备注，仅共享密钥使用
+        type: string
+      shared:
+        description: 是共享密钥（能在密钥页看到、被多台服务器选用）
+        type: boolean
+      username:
+        description: 默认用户，仅共享密钥使用
+        type: string
     type: object
   server.DeleteRequest:
     type: object
@@ -1221,10 +1342,10 @@ definitions:
     type: object
   server.Item:
     properties:
-      auth_type:
-        type: string
       created_at:
         type: integer
+      credential:
+        $ref: '#/definitions/server.CredentialView'
       fail_since:
         description: 从何时起连不上，Unix 秒，0 表示正常
         type: integer
@@ -1253,17 +1374,8 @@ definitions:
         type: integer
       name:
         type: string
-      passphrase:
-        description: 占位「已设置」或空
-        type: string
-      password:
-        description: 占位「已设置」或空
-        type: string
       port:
         type: integer
-      private_key:
-        description: 占位「已设置」或空
-        type: string
       status:
         description: unknown | ok | failed
         type: string
@@ -1283,6 +1395,8 @@ definitions:
     properties:
       auth_type:
         type: string
+      credential_id:
+        type: integer
       hops:
         items:
           $ref: '#/definitions/server.HopInput'
@@ -1302,6 +1416,8 @@ definitions:
       port:
         type: integer
       private_key:
+        type: string
+      share_as:
         type: string
       username:
         type: string
@@ -1323,6 +1439,8 @@ definitions:
     properties:
       auth_type:
         type: string
+      credential_id:
+        type: integer
       hops:
         items:
           $ref: '#/definitions/server.HopInput'
@@ -1340,6 +1458,8 @@ definitions:
       port:
         type: integer
       private_key:
+        type: string
+      share_as:
         type: string
       username:
         type: string
@@ -1923,6 +2043,160 @@ paths:
       summary: 查询是否已创建管理员（未登录可访问）
       tags:
       - auth
+  /credentials:
+    get:
+      consumes:
+      - application/json
+      description: 列出共享密钥，按名称排序
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              code:
+                type: integer
+              data:
+                $ref: '#/definitions/credential.ListResponse'
+              msg:
+                type: string
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/BadRequest'
+      summary: 列出共享密钥，按名称排序
+      tags:
+      - credential
+    post:
+      consumes:
+      - application/json
+      description: 添加共享密钥；密码或私钥必填
+      parameters:
+      - in: body
+        name: body
+        schema:
+          $ref: '#/definitions/credential.CreateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              code:
+                type: integer
+              data:
+                $ref: '#/definitions/credential.CreateResponse'
+              msg:
+                type: string
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/BadRequest'
+      summary: 添加共享密钥；密码或私钥必填
+      tags:
+      - credential
+  /credentials/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: 删除一条共享密钥；被服务器使用时拒绝，并带出使用者名称
+      parameters:
+      - in: path
+        name: id
+        required: true
+        type: integer
+      - in: body
+        name: body
+        schema:
+          $ref: '#/definitions/credential.DeleteRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              code:
+                type: integer
+              data:
+                $ref: '#/definitions/credential.DeleteResponse'
+              msg:
+                type: string
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/BadRequest'
+      summary: 删除一条共享密钥；被服务器使用时拒绝，并带出使用者名称
+      tags:
+      - credential
+    get:
+      consumes:
+      - application/json
+      description: 读取一条共享密钥
+      parameters:
+      - in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              code:
+                type: integer
+              data:
+                $ref: '#/definitions/credential.GetResponse'
+              msg:
+                type: string
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/BadRequest'
+      summary: 读取一条共享密钥
+      tags:
+      - credential
+    put:
+      consumes:
+      - application/json
+      description: |-
+        整体保存一条共享密钥；密码、私钥、口令留空表示保留已保存的值。
+        类型从一端切到另一端时，不属于新类型的内容会被清掉。
+      parameters:
+      - in: path
+        name: id
+        required: true
+        type: integer
+      - in: body
+        name: body
+        schema:
+          $ref: '#/definitions/credential.UpdateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              code:
+                type: integer
+              data:
+                $ref: '#/definitions/credential.UpdateResponse'
+              msg:
+                type: string
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/BadRequest'
+      summary: |-
+        整体保存一条共享密钥；密码、私钥、口令留空表示保留已保存的值。
+        类型从一端切到另一端时，不属于新类型的内容会被清掉。
+      tags:
+      - credential
   /jobs:
     get:
       consumes:
@@ -3492,7 +3766,7 @@ paths:
       - application/json
       description: |-
         测试一份未保存的配置。ID 非 0 时表示编辑中的已保存服务器，
-        凭据为占位「已设置」时取它已保存的值。目标没有已核对的指纹时只取回指纹、不发送凭据。
+        凭据为占位「已设置」或留空时取它已保存的值。目标没有已核对的指纹时只取回指纹、不发送凭据。
       parameters:
       - in: body
         name: body
@@ -3517,7 +3791,7 @@ paths:
             $ref: '#/definitions/BadRequest'
       summary: |-
         测试一份未保存的配置。ID 非 0 时表示编辑中的已保存服务器，
-        凭据为占位「已设置」时取它已保存的值。目标没有已核对的指纹时只取回指纹、不发送凭据。
+        凭据为占位「已设置」或留空时取它已保存的值。目标没有已核对的指纹时只取回指纹、不发送凭据。
       tags:
       - server
   /settings:
