@@ -22,6 +22,7 @@ import (
 
 	runapi "github.com/opskat/opsnap/internal/api/run"
 	"github.com/opskat/opsnap/internal/model/auth"
+	"github.com/opskat/opsnap/internal/model/entity/credential_entity"
 	"github.com/opskat/opsnap/internal/model/entity/job_entity"
 	"github.com/opskat/opsnap/internal/model/entity/notify_entity"
 	"github.com/opskat/opsnap/internal/model/entity/repo_entity"
@@ -34,6 +35,7 @@ import (
 	"github.com/opskat/opsnap/internal/pkg/secret"
 	"github.com/opskat/opsnap/internal/pkg/sshconn/sshconntest"
 	"github.com/opskat/opsnap/internal/repository/alert_repo"
+	"github.com/opskat/opsnap/internal/repository/credential_repo"
 	"github.com/opskat/opsnap/internal/repository/job_repo"
 	"github.com/opskat/opsnap/internal/repository/notify_repo"
 	"github.com/opskat/opsnap/internal/repository/repo_repo"
@@ -127,6 +129,7 @@ func setupRunTest(t *testing.T) *fixture {
 	job_repo.RegisterJob(job_repo.NewJob())
 	repo_repo.RegisterRepo(repo_repo.NewRepo())
 	server_repo.RegisterServer(server_repo.NewServer())
+	credential_repo.RegisterCredential(credential_repo.NewCredential())
 	setting_repo.RegisterSetting(setting_repo.NewSetting())
 	run_repo.RegisterRun(run_repo.NewRun())
 	alert_repo.RegisterAlert(alert_repo.NewAlert())
@@ -206,9 +209,11 @@ func (f *fixture) sshServer(t *testing.T) (*sshconntest.SSHServer, int64) {
 	host, port := sshconntest.HostPort(t, s.Addr)
 	enc, err := secret.Default().Encrypt(sshPassword)
 	require.NoError(t, err)
+	cred := &credential_entity.Credential{Kind: credential_entity.KindPassword, Password: enc}
+	require.NoError(t, credential_repo.Credential().Create(f.ctx, cred))
 	srv := &server_entity.Server{
-		Name: "web-1", Host: host, Port: port, Username: "app", AuthType: server_entity.AuthPassword,
-		Password: enc, Hops: []server_entity.Hop{}, HostKeyFingerprint: s.Fingerprint,
+		Name: "web-1", Host: host, Port: port, Username: "app", CredentialID: cred.ID,
+		Hops: []server_entity.Hop{}, HostKeyFingerprint: s.Fingerprint,
 	}
 	require.NoError(t, server_repo.Server().Create(f.ctx, srv))
 	return s, srv.ID

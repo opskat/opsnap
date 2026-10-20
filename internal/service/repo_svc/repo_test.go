@@ -26,6 +26,7 @@ import (
 	"github.com/opskat/opsnap/internal/pkg/executor"
 	"github.com/opskat/opsnap/internal/pkg/repolock"
 	"github.com/opskat/opsnap/internal/pkg/secret"
+	"github.com/opskat/opsnap/internal/repository/credential_repo"
 	"github.com/opskat/opsnap/internal/repository/repo_repo"
 	"github.com/opskat/opsnap/internal/repository/server_repo"
 	"github.com/opskat/opsnap/migrations"
@@ -58,6 +59,7 @@ func setupRepoTest(t *testing.T) *fixture {
 	db.SetDefault(gdb)
 	repo_repo.RegisterRepo(repo_repo.NewRepo())
 	server_repo.RegisterServer(server_repo.NewServer())
+	credential_repo.RegisterCredential(credential_repo.NewCredential())
 	RegisterJobCounter(nil)
 	t.Cleanup(func() { RegisterJobCounter(nil) })
 	f := &fixture{

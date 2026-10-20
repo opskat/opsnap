@@ -12,11 +12,7 @@ import (
 	"github.com/opskat/opsnap/internal/pkg/code"
 )
 
-// 认证方式
-const (
-	AuthPassword   = "password"
-	AuthPrivateKey = "private_key"
-)
+// 认证方式由所引用凭据的类型决定（见 credential_entity.KindPassword / KindSSHKey）
 
 // 代理链中一跳的类型
 const (
@@ -55,17 +51,14 @@ func (h Hop) SameProxy(o Hop) bool {
 	return h.Type == o.Type && h.Host == o.Host && h.Port == o.Port && h.Username == o.Username
 }
 
-// Server 服务器。Password、PrivateKey、Passphrase 与各跳的 Password 都是主密钥加密后的密文。
+// Server 服务器。CredentialID 指向凭据表里的一条登录凭据；各跳的 Password 都是主密钥加密后的密文。
 type Server struct {
 	ID                 int64  `gorm:"column:id;primaryKey;autoIncrement"`
 	Name               string `gorm:"column:name;not null"`
 	Host               string `gorm:"column:host;not null"`
 	Port               int    `gorm:"column:port;not null"`
 	Username           string `gorm:"column:username;not null"`
-	AuthType           string `gorm:"column:auth_type;not null"`
-	Password           string `gorm:"column:password;not null"`
-	PrivateKey         string `gorm:"column:private_key;not null"`
-	Passphrase         string `gorm:"column:passphrase;not null"`
+	CredentialID       int64  `gorm:"column:credential_id;not null"`
 	Hops               []Hop  `gorm:"column:hops;serializer:json;not null"`
 	HostKeyFingerprint string `gorm:"column:host_key_fingerprint;not null"`
 	LastCheckAt        int64  `gorm:"column:last_check_at;not null"`
@@ -97,18 +90,8 @@ func (s *Server) ValidateConnection(ctx context.Context) error {
 		return i18n.NewError(ctx, code.ServerFieldInvalid, "端口须在 1 到 65535 之间")
 	case s.Username == "":
 		return i18n.NewError(ctx, code.ServerFieldInvalid, "用户不能为空")
-	}
-	switch s.AuthType {
-	case AuthPassword:
-		if s.Password == "" {
-			return i18n.NewError(ctx, code.ServerCredentialRequired, "请填写密码")
-		}
-	case AuthPrivateKey:
-		if s.PrivateKey == "" {
-			return i18n.NewError(ctx, code.ServerCredentialRequired, "请填写私钥")
-		}
-	default:
-		return i18n.NewError(ctx, code.ServerAuthTypeInvalid)
+	case s.CredentialID <= 0:
+		return i18n.NewError(ctx, code.ServerCredentialRequired, "请选择密码或私钥")
 	}
 	for i, h := range s.Hops {
 		if err := h.validate(ctx, i+1, s.ID); err != nil {

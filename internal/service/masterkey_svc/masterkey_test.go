@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	settingapi "github.com/opskat/opsnap/internal/api/setting"
+	"github.com/opskat/opsnap/internal/model/entity/credential_entity"
 	"github.com/opskat/opsnap/internal/model/entity/job_entity"
 	"github.com/opskat/opsnap/internal/model/entity/notify_entity"
 	"github.com/opskat/opsnap/internal/model/entity/repo_entity"
@@ -43,10 +44,11 @@ const (
 )
 
 type fixture struct {
-	ctx context.Context
-	db  *gorm.DB
-	svc *masterKeySvc
-	old secret.Secret
+	ctx    context.Context
+	db     *gorm.DB
+	svc    *masterKeySvc
+	old    secret.Secret
+	credID int64
 }
 
 func setup(t *testing.T) *fixture {
@@ -74,9 +76,15 @@ func setup(t *testing.T) *fixture {
 		require.NoError(t, err)
 		return c
 	}
-	require.NoError(t, gdb.Create(&server_entity.Server{
-		Name: "web", Host: "h", Port: 22, Username: "u", AuthType: server_entity.AuthPrivateKey,
+	// 服务器登录凭据都在 credentials 里；servers 只剩代理链的密码
+	cred := &credential_entity.Credential{
+		Name: "web-root", Kind: credential_entity.KindSSHKey, Shared: true,
 		Password: enc(srvPW), PrivateKey: enc(srvKey), Passphrase: enc(srvPhrase),
+	}
+	require.NoError(t, gdb.Create(cred).Error)
+	f.credID = cred.ID
+	require.NoError(t, gdb.Create(&server_entity.Server{
+		Name: "web", Host: "h", Port: 22, Username: "u", CredentialID: cred.ID,
 		Hops:               []server_entity.Hop{{Type: "socks5", Host: "p", Port: 1080, Username: "pu", Password: enc(hopPW)}, {Type: "http", Host: "q", Port: 3128}},
 		HostKeyFingerprint: "SHA256:x",
 	}).Error)
@@ -102,6 +110,8 @@ func (f *fixture) plaintexts(t *testing.T, sec secret.Secret) ([]string, error) 
 	t.Helper()
 	var srv server_entity.Server
 	require.NoError(t, f.db.First(&srv).Error)
+	var cred credential_entity.Credential
+	require.NoError(t, f.db.First(&cred, f.credID).Error)
 	var rp repo_entity.Repo
 	require.NoError(t, f.db.First(&rp).Error)
 	var j job_entity.Job
@@ -111,7 +121,7 @@ func (f *fixture) plaintexts(t *testing.T, sec secret.Secret) ([]string, error) 
 	var sso sso_entity.SSO
 	require.NoError(t, f.db.First(&sso).Error)
 	var out []string
-	for _, c := range []string{srv.Password, srv.PrivateKey, srv.Passphrase, srv.Hops[0].Password, rp.Credential, rp.PrivateKey, rp.OpsnapKey, j.DBPassword, n.Headers["Authorization"], sso.ClientSecret} {
+	for _, c := range []string{cred.Password, cred.PrivateKey, cred.Passphrase, srv.Hops[0].Password, rp.Credential, rp.PrivateKey, rp.OpsnapKey, j.DBPassword, n.Headers["Authorization"], sso.ClientSecret} {
 		p, err := sec.Decrypt(c)
 		if err != nil {
 			return nil, err
@@ -156,6 +166,36 @@ func TestRotate(t *testing.T) {
 	err = f.svc.Verify(f.ctx)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "主密钥")
+}
+
+func TestRotateRekeysCredentials(t *testing.T) {
+	f := setup(t)
+	var before credential_entity.Credential
+	require.NoError(t, f.db.First(&before, f.credID).Error)
+
+	_, err := f.svc.Rotate(f.ctx, &settingapi.RotateMasterKeyRequest{NewKey: newMaster})
+	require.NoError(t, err)
+
+	var after credential_entity.Credential
+	require.NoError(t, f.db.First(&after, f.credID).Error)
+	newSec, err := secret.New(newMaster)
+	require.NoError(t, err)
+
+	// 三项都重新加密：旧主密钥解不开，新主密钥解得回原值
+	for i, pair := range [][2]string{
+		{before.Password, after.Password},
+		{before.PrivateKey, after.PrivateKey},
+		{before.Passphrase, after.Passphrase},
+	} {
+		assert.NotEqual(t, pair[0], pair[1], "第 %d 项换成了新密文", i+1)
+		_, err := f.old.Decrypt(pair[1])
+		assert.Error(t, err, "第 %d 项旧主密钥不再能解开", i+1)
+		plain, err := newSec.Decrypt(pair[1])
+		require.NoError(t, err, "第 %d 项新主密钥能解开", i+1)
+		old, err := f.old.Decrypt(pair[0])
+		require.NoError(t, err)
+		assert.Equal(t, old, plain, "第 %d 项内容不变", i+1)
+	}
 }
 
 func TestRotateWaitsForCredentialWrite(t *testing.T) {
@@ -205,10 +245,10 @@ func TestRotateRejects(t *testing.T) {
 		require.NoError(t, f.db.Model(&job_entity.Job{}).Where("1 = 1").Update("db_password", "broken").Error)
 		_, err := f.svc.Rotate(f.ctx, &settingapi.RotateMasterKeyRequest{NewKey: newMaster})
 		assert.Equal(t, code.MasterKeyRotateFailed, codeOf(t, err))
-		var srv server_entity.Server
-		require.NoError(t, f.db.First(&srv).Error)
-		p, err := f.old.Decrypt(srv.Password)
-		require.NoError(t, err, "已处理的服务器密码也回滚为旧密文")
+		var cred credential_entity.Credential
+		require.NoError(t, f.db.First(&cred, f.credID).Error)
+		p, err := f.old.Decrypt(cred.Password)
+		require.NoError(t, err, "已处理的密钥库密码也回滚为旧密文")
 		assert.Equal(t, srvPW, p)
 		assert.Same(t, f.old, secret.Default(), "本进程仍用旧主密钥")
 		assert.NoError(t, f.svc.Verify(f.ctx))

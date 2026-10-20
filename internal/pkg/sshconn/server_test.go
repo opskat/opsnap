@@ -11,9 +11,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
+	"github.com/opskat/opsnap/internal/model/entity/credential_entity"
 	"github.com/opskat/opsnap/internal/model/entity/server_entity"
 	"github.com/opskat/opsnap/internal/pkg/secret"
 	"github.com/opskat/opsnap/internal/pkg/sshconn/sshconntest"
+	"github.com/opskat/opsnap/internal/repository/credential_repo"
 	"github.com/opskat/opsnap/internal/repository/server_repo"
 	"github.com/opskat/opsnap/migrations"
 )
@@ -32,21 +34,31 @@ func setupRepo(t *testing.T) context.Context {
 	secret.SetDefault(s)
 	t.Cleanup(func() { secret.SetDefault(nil) })
 	server_repo.RegisterServer(server_repo.NewServer())
+	credential_repo.RegisterCredential(credential_repo.NewCredential())
 	return db.WithContextDB(context.Background(), gdb)
 }
 
-// saveServer 保存一台用密码认证的服务器，密码加密存储
+// saveServer 保存一台用密码认证的服务器：密码写在它自己的私有凭据行里
 func saveServer(t *testing.T, ctx context.Context, name string, s *sshconntest.SSHServer, user, password string, hops ...server_entity.Hop) *server_entity.Server {
 	t.Helper()
+	cred := savePasswordCredential(t, ctx, password)
 	host, port := sshconntest.HostPort(t, s.Addr)
-	enc, err := secret.Default().Encrypt(password)
-	require.NoError(t, err)
 	srv := &server_entity.Server{
-		Name: name, Host: host, Port: port, Username: user, AuthType: server_entity.AuthPassword,
-		Password: enc, Hops: hops, HostKeyFingerprint: s.Fingerprint,
+		Name: name, Host: host, Port: port, Username: user, CredentialID: cred.ID,
+		Hops: hops, HostKeyFingerprint: s.Fingerprint,
 	}
 	require.NoError(t, server_repo.Server().Create(ctx, srv))
 	return srv
+}
+
+// savePasswordCredential 保存一条私有的密码凭据，密码加密存储
+func savePasswordCredential(t *testing.T, ctx context.Context, password string) *credential_entity.Credential {
+	t.Helper()
+	enc, err := secret.Default().Encrypt(password)
+	require.NoError(t, err)
+	cred := &credential_entity.Credential{Kind: credential_entity.KindPassword, Password: enc}
+	require.NoError(t, credential_repo.Credential().Create(ctx, cred))
+	return cred
 }
 
 func TestDialSavedServer(t *testing.T) {
@@ -117,5 +129,64 @@ func TestDialSavedServer(t *testing.T) {
 		got, err := server_repo.Server().Find(ctx, srv.ID)
 		require.NoError(t, err)
 		assert.Equal(t, server_entity.StatusUnknown, got.Status())
+	})
+}
+
+func TestServerConfigUsesCredentialRow(t *testing.T) {
+	t.Run("连接用的是凭据行里的密码：改掉密文后连接随之失败", func(t *testing.T) {
+		ctx := setupRepo(t)
+		target := sshconntest.StartSSH(t, sshconntest.SSHOptions{User: "app", Password: "app-pw"})
+		srv := saveServer(t, ctx, "app", target, "app", "app-pw")
+
+		// 用正确的密码能连上
+		_, _, err := Dial(ctx, srv.ID)
+		require.NoError(t, err)
+		require.Equal(t, 1, target.AuthAttempts())
+
+		// 把凭据行的密文换成另一个密码的密文：服务器行没动，连接必须跟着变
+		enc, err := secret.Default().Encrypt("wrong-pw")
+		require.NoError(t, err)
+		require.NoError(t, db.Ctx(ctx).Model(&credential_entity.Credential{}).
+			Where("id = ?", srv.CredentialID).Update("password", enc).Error)
+
+		c, results, err := Dial(ctx, srv.ID)
+		assert.Nil(t, c)
+		var he *HopError
+		require.ErrorAs(t, err, &he)
+		assert.Equal(t, ReasonAuthFailed, he.Reason)
+		require.Len(t, results, 1)
+	})
+
+	t.Run("私钥认证按凭据行的类型决定", func(t *testing.T) {
+		ctx := setupRepo(t)
+		key := sshconntest.GenerateKey(t, "")
+		target := sshconntest.StartSSH(t, sshconntest.SSHOptions{User: "app", AuthorizedKey: key.Public})
+		host, port := sshconntest.HostPort(t, target.Addr)
+		encKey, err := secret.Default().Encrypt(key.PrivatePEM)
+		require.NoError(t, err)
+		cred := &credential_entity.Credential{Kind: credential_entity.KindSSHKey, PrivateKey: encKey}
+		require.NoError(t, credential_repo.Credential().Create(ctx, cred))
+		srv := &server_entity.Server{
+			Name: "app", Host: host, Port: port, Username: "app", CredentialID: cred.ID,
+			Hops: []server_entity.Hop{}, HostKeyFingerprint: target.Fingerprint,
+		}
+		require.NoError(t, server_repo.Server().Create(ctx, srv))
+
+		c, _, err := Dial(ctx, srv.ID)
+		require.NoError(t, err)
+		defer func() { _ = c.Close() }()
+		assert.Equal(t, 1, target.AuthAttempts())
+	})
+
+	t.Run("凭据不存在时报错，不去认证", func(t *testing.T) {
+		ctx := setupRepo(t)
+		target := sshconntest.StartSSH(t, sshconntest.SSHOptions{User: "app", Password: "pw"})
+		srv := saveServer(t, ctx, "app", target, "app", "pw")
+		require.NoError(t, db.Ctx(ctx).Where("id = ?", srv.CredentialID).
+			Delete(&credential_entity.Credential{}).Error)
+
+		_, _, err := Dial(ctx, srv.ID)
+		require.Error(t, err)
+		assert.Zero(t, target.AuthAttempts())
 	})
 }

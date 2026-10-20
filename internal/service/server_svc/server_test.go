@@ -13,11 +13,13 @@ import (
 	"gorm.io/gorm"
 
 	serverapi "github.com/opskat/opsnap/internal/api/server"
+	"github.com/opskat/opsnap/internal/model/entity/credential_entity"
 	"github.com/opskat/opsnap/internal/model/entity/repo_entity"
 	"github.com/opskat/opsnap/internal/model/entity/server_entity"
 	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/secret"
 	"github.com/opskat/opsnap/internal/pkg/sshconn/sshconntest"
+	"github.com/opskat/opsnap/internal/repository/credential_repo"
 	"github.com/opskat/opsnap/internal/repository/repo_repo"
 	"github.com/opskat/opsnap/internal/repository/server_repo"
 	"github.com/opskat/opsnap/migrations"
@@ -46,6 +48,7 @@ func setupServerTest(t *testing.T) *fixture {
 	t.Cleanup(func() { secret.SetDefault(nil) })
 
 	server_repo.RegisterServer(server_repo.NewServer())
+	credential_repo.RegisterCredential(credential_repo.NewCredential())
 	repo_repo.RegisterRepo(repo_repo.NewRepo())
 	RegisterJobCounter(nil)
 	t.Cleanup(func() { RegisterJobCounter(nil) })
@@ -85,6 +88,14 @@ func (f *fixture) raw(t *testing.T, id int64) *server_entity.Server {
 	t.Helper()
 	got := &server_entity.Server{}
 	require.NoError(t, f.db.Where("id = ?", id).First(got).Error)
+	return got
+}
+
+// rawCredential 直接读服务器引用的凭据行
+func (f *fixture) rawCredential(t *testing.T, serverID int64) *credential_entity.Credential {
+	t.Helper()
+	got := &credential_entity.Credential{}
+	require.NoError(t, f.db.Where("id = (SELECT credential_id FROM servers WHERE id = ?)", serverID).First(got).Error)
 	return got
 }
 
@@ -164,10 +175,12 @@ func TestServerCredentials(t *testing.T) {
 		assert.Equal(t, secret.Masked, item.Hops[0].Password)
 		assert.Equal(t, "px", item.Hops[0].Username)
 
-		row := f.raw(t, item.ID)
+		row, cred := f.raw(t, item.ID), f.rawCredential(t, item.ID)
+		assert.Equal(t, credential_entity.KindSSHKey, cred.Kind)
+		assert.False(t, cred.Shared, "直接填写的凭据默认不进密钥库")
 		for plain, cipher := range map[string]string{
-			key.PrivatePEM: row.PrivateKey,
-			"key-pass":     row.Passphrase,
+			key.PrivatePEM: cred.PrivateKey,
+			"key-pass":     cred.Passphrase,
 			"px-secret":    row.Hops[0].Password,
 		} {
 			assert.NotEmpty(t, cipher)
@@ -190,7 +203,7 @@ func TestServerCredentials(t *testing.T) {
 		in.Hops[0].Password = secret.Masked
 		_, err = f.svc.Update(f.ctx, updateReq(item.ID, in))
 		require.NoError(t, err)
-		assert.Equal(t, row.PrivateKey, f.raw(t, item.ID).PrivateKey)
+		assert.Equal(t, cred.PrivateKey, f.rawCredential(t, item.ID).PrivateKey)
 		res, err := f.svc.TestSaved(f.ctx, item.ID)
 		require.NoError(t, err)
 		assert.True(t, res.OK, "%+v", res.Hops)
@@ -377,7 +390,7 @@ func TestSavedPasswordStaysWithTarget(t *testing.T) {
 	renamed := passwordInput(t, "web-1-renamed", target, "app", secret.Masked)
 	_, err = f.svc.Update(f.ctx, updateReq(item.ID, renamed))
 	require.NoError(t, err)
-	p, err := secret.Default().Decrypt(f.raw(t, item.ID).Password)
+	p, err := secret.Default().Decrypt(f.rawCredential(t, item.ID).Password)
 	require.NoError(t, err)
 	assert.Equal(t, "SECRET-saved-pw", p)
 }
@@ -434,4 +447,79 @@ func TestMovedServerStatusReset(t *testing.T) {
 	got := f.raw(t, item.ID)
 	assert.Equal(t, server_entity.StatusUnknown, got.Status())
 	assert.Zero(t, got.LastLatencyMs)
+}
+
+func TestServerUsesCredentialRow(t *testing.T) {
+	t.Run("直接填写的凭据落在私有凭据行，服务器只记 credential_id", func(t *testing.T) {
+		f := setupServerTest(t)
+		target := sshconntest.StartSSH(t, sshconntest.SSHOptions{User: "app", Password: "app-pw"})
+		item := f.create(t, passwordInput(t, "web-1", target, "app", "app-pw"))
+
+		srv := f.raw(t, item.ID)
+		require.NotZero(t, srv.CredentialID)
+		cred := f.rawCredential(t, item.ID)
+		assert.Equal(t, credential_entity.KindPassword, cred.Kind)
+		assert.False(t, cred.Shared, "没勾选「同时存成密钥」的凭据是这台服务器私有的")
+		assert.Equal(t, "", cred.Name)
+		p, err := secret.Default().Decrypt(cred.Password)
+		require.NoError(t, err)
+		assert.Equal(t, "app-pw", p)
+
+		// 同一台服务器再次保存不会新建第二条私有凭据
+		_, err = f.svc.Update(f.ctx, updateReq(item.ID, passwordInput(t, "web-1", target, "app", secret.Masked)))
+		require.NoError(t, err)
+		var n int64
+		require.NoError(t, f.db.Model(&credential_entity.Credential{}).Count(&n).Error)
+		assert.Equal(t, int64(1), n)
+		assert.Equal(t, srv.CredentialID, f.raw(t, item.ID).CredentialID)
+	})
+
+	t.Run("连接用的是凭据行：改掉它的密文后测试连接随之失败", func(t *testing.T) {
+		f := setupServerTest(t)
+		target := sshconntest.StartSSH(t, sshconntest.SSHOptions{User: "app", Password: "app-pw"})
+		item := f.create(t, passwordInput(t, "web-1", target, "app", "app-pw"))
+
+		res, err := f.svc.TestSaved(f.ctx, item.ID)
+		require.NoError(t, err)
+		require.True(t, res.OK, "%+v", res.Hops)
+
+		// 只改凭据行、不动 servers：连接行为必须跟着变
+		enc, err := secret.Default().Encrypt("wrong-pw")
+		require.NoError(t, err)
+		require.NoError(t, f.db.Model(&credential_entity.Credential{}).
+			Where("id = ?", f.raw(t, item.ID).CredentialID).Update("password", enc).Error)
+
+		res, err = f.svc.TestSaved(f.ctx, item.ID)
+		require.NoError(t, err)
+		assert.False(t, res.OK)
+		require.Len(t, res.Hops, 1)
+		assert.Equal(t, "auth_failed", res.Hops[0].Reason)
+	})
+
+	t.Run("删除服务器一并删掉它的私有凭据，共享凭据不动", func(t *testing.T) {
+		f := setupServerTest(t)
+		target := sshconntest.StartSSH(t, sshconntest.SSHOptions{User: "app", Password: "pw"})
+		other := sshconntest.StartSSH(t, sshconntest.SSHOptions{User: "app", Password: "pw"})
+		item := f.create(t, passwordInput(t, "web-1", target, "app", "pw"))
+		private := f.raw(t, item.ID).CredentialID
+
+		// 共享凭据：两台服务器都引用它
+		enc, err := secret.Default().Encrypt("shared-pw")
+		require.NoError(t, err)
+		shared := &credential_entity.Credential{Name: "生产 root", Kind: credential_entity.KindPassword, Password: enc, Shared: true}
+		require.NoError(t, credential_repo.Credential().Create(f.ctx, shared))
+		h2, p2 := sshconntest.HostPort(t, other.Addr)
+		otherSrv := &server_entity.Server{
+			Name: "web-2", Host: h2, Port: p2, Username: "app", CredentialID: shared.ID,
+			Hops: []server_entity.Hop{}, HostKeyFingerprint: other.Fingerprint,
+		}
+		require.NoError(t, server_repo.Server().Create(f.ctx, otherSrv))
+
+		require.NoError(t, f.svc.Delete(f.ctx, item.ID))
+		var n int64
+		require.NoError(t, f.db.Model(&credential_entity.Credential{}).Where("id = ?", private).Count(&n).Error)
+		assert.Zero(t, n, "私有凭据随服务器一起删除")
+		require.NoError(t, f.db.Model(&credential_entity.Credential{}).Where("id = ?", shared.ID).Count(&n).Error)
+		assert.Equal(t, int64(1), n, "共享凭据保持不动")
+	})
 }

@@ -11,13 +11,19 @@ import (
 	"github.com/cago-frame/cago/pkg/i18n"
 
 	serverapi "github.com/opskat/opsnap/internal/api/server"
+	"github.com/opskat/opsnap/internal/model/entity/credential_entity"
 	"github.com/opskat/opsnap/internal/model/entity/server_entity"
 	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/secret"
 	"github.com/opskat/opsnap/internal/pkg/sshconn"
+	"github.com/opskat/opsnap/internal/repository/credential_repo"
 	"github.com/opskat/opsnap/internal/repository/repo_repo"
 	"github.com/opskat/opsnap/internal/repository/server_repo"
 )
+
+// credentialPending 新凭据还没落库时的占位 ID：校验阶段它只需要是一个合法的正整数，
+// 落库前会被真实的凭据 ID 覆盖。取一个远大于自增范围的固定值，不会被当成真实 ID。
+const credentialPending int64 = 1 << 62
 
 // JobCounter 统计每台服务器被多少个任务使用，键是服务器 ID。
 // 任务模块落地后通过 RegisterJobCounter 注册；未注册时任务数都是 0。
@@ -92,7 +98,11 @@ func (s *serverSvc) List(ctx context.Context) (*serverapi.ListResponse, error) {
 	}
 	resp := &serverapi.ListResponse{List: make([]*serverapi.Item, 0, len(list))}
 	for _, srv := range list {
-		resp.List = append(resp.List, toItem(srv, names, counts))
+		cred, err := s.credentialOf(ctx, srv)
+		if err != nil {
+			return nil, err
+		}
+		resp.List = append(resp.List, toItem(srv, cred, names, counts))
 	}
 	return resp, nil
 }
@@ -128,18 +138,34 @@ func (s *serverSvc) view(ctx context.Context, id int64) (*serverapi.Item, error)
 	if err != nil {
 		return nil, err
 	}
-	return toItem(srv, names, counts), nil
+	cred, err := s.credentialOf(ctx, srv)
+	if err != nil {
+		return nil, err
+	}
+	return toItem(srv, cred, names, counts), nil
+}
+
+// credentialOf 读取服务器引用的登录凭据；引用不到时返回 nil（不能让一台坏数据拖垮整个列表）
+func (s *serverSvc) credentialOf(ctx context.Context, srv *server_entity.Server) (*credential_entity.Credential, error) {
+	if srv.CredentialID <= 0 {
+		return nil, nil
+	}
+	return credential_repo.Credential().Find(ctx, srv.CredentialID)
 }
 
 func (s *serverSvc) Create(ctx context.Context, req *serverapi.CreateRequest) (*serverapi.CreateResponse, error) {
 	// 与轮换主密钥互斥，见 secret.BeginWrite
 	endWrite := secret.BeginWrite()
 	defer endWrite()
-	srv, err := s.build(ctx, nil, req.Input())
+	srv, cred, err := s.build(ctx, nil, req.Input())
 	if err != nil {
 		return nil, err
 	}
 	if err := srv.Validate(ctx); err != nil {
+		return nil, err
+	}
+	// 配置已全部校验通过，先落凭据再写服务器
+	if err := s.persistCredential(ctx, srv, cred); err != nil {
 		return nil, err
 	}
 	now := s.now().Unix()
@@ -162,11 +188,14 @@ func (s *serverSvc) Update(ctx context.Context, req *serverapi.UpdateRequest) (*
 	if err != nil {
 		return nil, err
 	}
-	srv, err := s.build(ctx, old, req.Input())
+	srv, cred, err := s.build(ctx, old, req.Input())
 	if err != nil {
 		return nil, err
 	}
 	if err := srv.Validate(ctx); err != nil {
+		return nil, err
+	}
+	if err := s.persistCredential(ctx, srv, cred); err != nil {
 		return nil, err
 	}
 	srv.Updatetime = s.now().Unix()
@@ -187,7 +216,8 @@ func (s *serverSvc) Update(ctx context.Context, req *serverapi.UpdateRequest) (*
 }
 
 func (s *serverSvc) Delete(ctx context.Context, id int64) error {
-	if _, err := s.find(ctx, id); err != nil {
+	srv, err := s.find(ctx, id)
+	if err != nil {
 		return err
 	}
 	list, err := server_repo.Server().List(ctx)
@@ -215,7 +245,11 @@ func (s *serverSvc) Delete(ctx context.Context, id int64) error {
 	if n := counts[id]; n > 0 {
 		return i18n.NewError(ctx, code.ServerInUse, n)
 	}
-	return server_repo.Server().Delete(ctx, id)
+	if err := server_repo.Server().Delete(ctx, id); err != nil {
+		return err
+	}
+	// 删除服务器时一并删掉它的私有凭据；共享凭据不动
+	return s.deletePrivateCredential(ctx, srv)
 }
 
 func (s *serverSvc) Test(ctx context.Context, req *serverapi.TestRequest) (*serverapi.TestResponse, error) {
@@ -226,7 +260,7 @@ func (s *serverSvc) Test(ctx context.Context, req *serverapi.TestRequest) (*serv
 			return nil, err
 		}
 	}
-	srv, err := s.build(ctx, old, req.Input())
+	srv, cred, err := s.build(ctx, old, req.Input())
 	if err != nil {
 		return nil, err
 	}
@@ -236,7 +270,11 @@ func (s *serverSvc) Test(ctx context.Context, req *serverapi.TestRequest) (*serv
 	if srv.HostKeyFingerprint != "" && !server_entity.ValidFingerprint(srv.HostKeyFingerprint) {
 		return nil, i18n.NewError(ctx, code.ServerFingerprintInvalid)
 	}
-	cfg, err := sshconn.ServerConfig(ctx, srv)
+	// 测试连接不落库，所以待写入的凭据只交给连接层，不写进 credentials
+	if cred != nil {
+		srv.CredentialID = credentialPending
+	}
+	cfg, err := sshconn.ServerConfigWithCredential(ctx, srv, cred)
 	if err != nil {
 		return nil, err
 	}
@@ -287,9 +325,13 @@ func testResponse(conn *sshconn.Conn, results []sshconn.HopResult, err error, pr
 	return resp, nil
 }
 
-// build 把提交的配置合并成实体：加密新填写的凭据，占位保留 old 中已保存的值，
-// 校验 SSH 跳板引用的服务器存在。old 为 nil 表示新建。
-func (s *serverSvc) build(ctx context.Context, old *server_entity.Server, in *serverapi.ServerInput) (*server_entity.Server, error) {
+// build 把提交的配置合并成实体：登录凭据合并成一条待写入的私有凭据（或沿用已保存的），
+// 服务器只记 credential_id，并校验 SSH 跳板引用的服务器存在。old 为 nil 表示新建。
+//
+// 本阶段（数据层先落地）对外形状暂不变：auth_type 仍由请求传入。
+// build 本身只读不写：返回待写入的凭据（nil 表示沿用现有的），由调用方在全部校验通过后落库，
+// 这样「测试连接」不会凭空写出一条凭据，校验失败也不会留下孤立的行。
+func (s *serverSvc) build(ctx context.Context, old *server_entity.Server, in *serverapi.ServerInput) (*server_entity.Server, *credential_entity.Credential, error) {
 	if old == nil {
 		old = &server_entity.Server{}
 	}
@@ -299,7 +341,7 @@ func (s *serverSvc) build(ctx context.Context, old *server_entity.Server, in *se
 		Host:               strings.TrimSpace(in.Host),
 		Port:               in.Port,
 		Username:           strings.TrimSpace(in.Username),
-		AuthType:           in.AuthType,
+		CredentialID:       old.CredentialID,
 		HostKeyFingerprint: strings.TrimSpace(in.HostKeyFingerprint),
 		Hops:               make([]server_entity.Hop, 0, len(in.Hops)),
 		Createtime:         old.Createtime,
@@ -309,39 +351,130 @@ func (s *serverSvc) build(ctx context.Context, old *server_entity.Server, in *se
 		srv.HostKeyFingerprint = old.HostKeyFingerprint
 	}
 
-	var err error
-	switch in.AuthType {
-	case server_entity.AuthPassword:
-		// 密码会原样发给对方：地址、端口或用户改了就不能沿用已保存的，否则能借「测试连接」把它发到任意主机
-		if in.Password == secret.Masked && old.ID != 0 &&
-			(old.Host != srv.Host || old.Port != srv.Port || old.Username != srv.Username) {
-			return nil, i18n.NewError(ctx, code.ServerCredentialRetarget, "登录密码")
-		}
-		if srv.Password, err = credential(ctx, "密码", in.Password, old.Password); err != nil {
-			return nil, err
-		}
-	case server_entity.AuthPrivateKey:
-		if srv.PrivateKey, err = credential(ctx, "私钥", in.PrivateKey, old.PrivateKey); err != nil {
-			return nil, err
-		}
-		if srv.Passphrase, err = credential(ctx, "私钥口令", in.Passphrase, old.Passphrase); err != nil {
-			return nil, err
-		}
-	default:
-		return nil, i18n.NewError(ctx, code.ServerAuthTypeInvalid)
+	cred, err := s.buildCredential(ctx, old, srv, in)
+	if err != nil {
+		return nil, nil, err
 	}
-	if err := checkPrivateKey(ctx, srv); err != nil {
-		return nil, err
+	if cred != nil {
+		if err := checkPrivateKey(ctx, cred); err != nil {
+			return nil, nil, err
+		}
 	}
 
 	for i, h := range in.Hops {
 		hop, err := buildHop(ctx, i+1, srv.ID, h, old.Hops)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		srv.Hops = append(srv.Hops, hop)
 	}
-	return srv, nil
+	if srv.CredentialID == 0 {
+		// 新凭据还没落库；用非 0 的占位通过「必须有凭据」，凭据内容已在 buildCredential 里校验过
+		srv.CredentialID = credentialPending
+	}
+	return srv, cred, nil
+}
+
+// buildCredential 合并出这台服务器的登录凭据。旧凭据是私有的就原地更新（占位保留已保存的值），
+// 旧凭据是共享的则新建一条私有凭据，不动原来那条共享的。返回 nil 表示这次没有要写的凭据。
+func (s *serverSvc) buildCredential(ctx context.Context, old, srv *server_entity.Server, in *serverapi.ServerInput) (*credential_entity.Credential, error) {
+	var saved *credential_entity.Credential
+	if old.CredentialID > 0 {
+		var err error
+		if saved, err = credential_repo.Credential().Find(ctx, old.CredentialID); err != nil {
+			return nil, err
+		}
+	}
+	// 已经有一条自己的私有凭据：原地改写它
+	var cred *credential_entity.Credential
+	if saved != nil && !saved.IsShared() {
+		cred = saved
+	}
+	if cred == nil {
+		cred = &credential_entity.Credential{Shared: false}
+	}
+
+	enc := func(label, input, current string) (string, error) {
+		// 密码会原样发给对方：地址、端口或用户改了就不能沿用已保存的，否则能借「测试连接」把它发到任意主机
+		if input == secret.Masked && saved != nil &&
+			(old.Host != srv.Host || old.Port != srv.Port || old.Username != srv.Username) {
+			return "", i18n.NewError(ctx, code.ServerCredentialRetarget, label)
+		}
+		return credential(ctx, label, input, current)
+	}
+
+	var err error
+	switch in.AuthType {
+	case serverapi.AuthPassword:
+		cred.Kind = credential_entity.KindPassword
+		cred.PrivateKey, cred.Passphrase = "", ""
+		if cred.Password, err = enc("密码", in.Password, cred.Password); err != nil {
+			return nil, err
+		}
+	case serverapi.AuthPrivateKey:
+		cred.Kind = credential_entity.KindSSHKey
+		cred.Password = ""
+		if cred.PrivateKey, err = enc("私钥", in.PrivateKey, cred.PrivateKey); err != nil {
+			return nil, err
+		}
+		if cred.Passphrase, err = credential(ctx, "私钥口令", in.Passphrase, cred.Passphrase); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, i18n.NewError(ctx, code.ServerAuthTypeInvalid)
+	}
+	// 对应类型的内容必须有（占位且没有已保存值时 credential 已经报错了，这里盖住新建时留空的情况）
+	switch cred.Kind {
+	case credential_entity.KindPassword:
+		if cred.Password == "" {
+			return nil, i18n.NewError(ctx, code.ServerCredentialRequired, "请填写密码")
+		}
+	case credential_entity.KindSSHKey:
+		if cred.PrivateKey == "" {
+			return nil, i18n.NewError(ctx, code.ServerCredentialRequired, "请填写私钥")
+		}
+	}
+	return cred, nil
+}
+
+// persistCredential 把待写入的私有凭据落库，并把它的 ID 记到服务器上。
+// cred 为 nil 表示沿用已有凭据，什么都不做。
+func (s *serverSvc) persistCredential(ctx context.Context, srv *server_entity.Server, cred *credential_entity.Credential) error {
+	if cred == nil {
+		return nil
+	}
+	if err := s.saveCredential(ctx, cred); err != nil {
+		return err
+	}
+	srv.CredentialID = cred.ID
+	return nil
+}
+
+// saveCredential 在事务外写入或更新一条私有凭据
+func (s *serverSvc) saveCredential(ctx context.Context, cred *credential_entity.Credential) error {
+	now := s.now().Unix()
+	cred.Updatetime = now
+	if cred.ID == 0 {
+		cred.Createtime = now
+		return credential_repo.Credential().Create(ctx, cred)
+	}
+	return credential_repo.Credential().Update(ctx, cred)
+}
+
+// deletePrivateCredential 删除服务器自己的私有凭据；共享凭据不动。
+// 这里只处理本阶段的最低行为：删除服务器时一并清理它的私有凭据。
+func (s *serverSvc) deletePrivateCredential(ctx context.Context, srv *server_entity.Server) error {
+	if srv.CredentialID <= 0 {
+		return nil
+	}
+	cred, err := credential_repo.Credential().Find(ctx, srv.CredentialID)
+	if err != nil {
+		return err
+	}
+	if cred == nil || cred.IsShared() {
+		return nil
+	}
+	return credential_repo.Credential().Delete(ctx, cred.ID)
 }
 
 // buildHop 合并一跳。SSH 跳板只保留 ServerID，并校验它是已添加的其他服务器；
@@ -397,21 +530,21 @@ func credential(ctx context.Context, label, input, saved string) (string, error)
 }
 
 // checkPrivateKey 私钥认证时确认私钥能用口令解析
-func checkPrivateKey(ctx context.Context, srv *server_entity.Server) error {
-	if srv.AuthType != server_entity.AuthPrivateKey || srv.PrivateKey == "" {
+func checkPrivateKey(ctx context.Context, cred *credential_entity.Credential) error {
+	if cred.Kind != credential_entity.KindSSHKey || cred.PrivateKey == "" {
 		return nil
 	}
 	sec := secret.Default()
 	if sec == nil {
 		return errors.New("主密钥未加载，无法解密服务器凭据")
 	}
-	key, err := sec.Decrypt(srv.PrivateKey)
+	key, err := sec.Decrypt(cred.PrivateKey)
 	if err != nil {
 		return err
 	}
 	pass := ""
-	if srv.Passphrase != "" {
-		if pass, err = sec.Decrypt(srv.Passphrase); err != nil {
+	if cred.Passphrase != "" {
+		if pass, err = sec.Decrypt(cred.Passphrase); err != nil {
 			return err
 		}
 	}
@@ -421,18 +554,14 @@ func checkPrivateKey(ctx context.Context, srv *server_entity.Server) error {
 	return nil
 }
 
-// toItem 转换成接口返回的结构；凭据只返回占位
-func toItem(srv *server_entity.Server, names map[int64]string, counts map[int64]int) *serverapi.Item {
+// toItem 转换成接口返回的结构。本阶段接口形状未变：认证方式由凭据类型推出，凭据只返回占位。
+func toItem(srv *server_entity.Server, cred *credential_entity.Credential, names map[int64]string, counts map[int64]int) *serverapi.Item {
 	item := &serverapi.Item{
 		ID:                 srv.ID,
 		Name:               srv.Name,
 		Host:               srv.Host,
 		Port:               srv.Port,
 		Username:           srv.Username,
-		AuthType:           srv.AuthType,
-		Password:           secret.Mask(srv.Password),
-		PrivateKey:         secret.Mask(srv.PrivateKey),
-		Passphrase:         secret.Mask(srv.Passphrase),
 		Hops:               make([]*serverapi.HopView, 0, len(srv.Hops)),
 		HostKeyFingerprint: srv.HostKeyFingerprint,
 		Status:             srv.Status(),
@@ -445,6 +574,15 @@ func toItem(srv *server_entity.Server, names map[int64]string, counts map[int64]
 	}
 	if item.Status == server_entity.StatusOK {
 		item.LatencyMs = srv.LastLatencyMs
+	}
+	if cred != nil {
+		switch cred.Kind {
+		case credential_entity.KindPassword:
+			item.AuthType, item.Password = serverapi.AuthPassword, secret.Mask(cred.Password)
+		case credential_entity.KindSSHKey:
+			item.AuthType = serverapi.AuthPrivateKey
+			item.PrivateKey, item.Passphrase = secret.Mask(cred.PrivateKey), secret.Mask(cred.Passphrase)
+		}
 	}
 	for _, h := range srv.Hops {
 		item.Hops = append(item.Hops, &serverapi.HopView{

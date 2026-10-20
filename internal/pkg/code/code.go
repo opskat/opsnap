@@ -135,3 +135,13 @@ const (
 	PasswordLoginDisabled                       // 密码登录已关闭（带按钮文字）
 	SSOConfigChanged                            // 授权期间提供方配置被修改或停用
 )
+
+// 密钥库（服务器登录用的密码与私钥）相关错误码
+const (
+	CredentialNotFound      = iota + 11900 // 密钥不存在
+	CredentialFieldInvalid                 // 名称、类型、密码、私钥、口令、备注不合法
+	CredentialNameDuplicate                // 密钥名称已被其他共享密钥使用
+	CredentialEmpty                        // 密钥没有内容（既没有密码也没有私钥）
+	CredentialInUse                        // 被服务器使用，不能删除
+	CredentialKindInvalid                  // 密钥类型不合法
+)

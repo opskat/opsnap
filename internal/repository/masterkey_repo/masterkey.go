@@ -8,6 +8,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"github.com/opskat/opsnap/internal/model/entity/credential_entity"
 	"github.com/opskat/opsnap/internal/model/entity/job_entity"
 	"github.com/opskat/opsnap/internal/model/entity/masterkey_entity"
 	"github.com/opskat/opsnap/internal/model/entity/notify_entity"
@@ -78,19 +79,34 @@ func (r *masterKeyRepo) Rekey(ctx context.Context, fn func(string) (string, erro
 			return nil
 		}
 
+		// 服务器登录凭据都在 credentials 里：密码、私钥与口令
+		var creds []*credential_entity.Credential
+		if err := tx.Find(&creds).Error; err != nil {
+			return err
+		}
+		for _, c := range creds {
+			if err := conv(&c.Password, &c.PrivateKey, &c.Passphrase); err != nil {
+				return err
+			}
+			if err := tx.Model(c).Select("password", "private_key", "passphrase").Updates(c).Error; err != nil {
+				return err
+			}
+		}
+
 		var servers []*server_entity.Server
 		if err := tx.Find(&servers).Error; err != nil {
 			return err
 		}
 		for _, s := range servers {
-			fields := []*string{&s.Password, &s.PrivateKey, &s.Passphrase}
+			// 服务器只存代理链上各代理的密码，登录凭据在 credentials 里
+			fields := make([]*string, 0, len(s.Hops))
 			for i := range s.Hops {
 				fields = append(fields, &s.Hops[i].Password)
 			}
 			if err := conv(fields...); err != nil {
 				return err
 			}
-			if err := tx.Model(s).Select("password", "private_key", "passphrase", "hops").Updates(s).Error; err != nil {
+			if err := tx.Model(s).Select("hops").Updates(s).Error; err != nil {
 				return err
 			}
 		}

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/glebarez/sqlite"
+	"github.com/go-gormigrate/gormigrate/v2"
 	"github.com/smartystreets/goconvey/convey"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -23,6 +24,53 @@ func openTempDB(t *testing.T) *gorm.DB {
 		}
 	})
 	return db
+}
+
+// columnsOf 读取表的列名
+func columnsOf(t *testing.T, db *gorm.DB, table string) []string {
+	t.Helper()
+	var cols []string
+	require.NoError(t, db.Raw(`SELECT name FROM pragma_table_info(?)`, table).Scan(&cols).Error)
+	return cols
+}
+
+// rollbackOnly 用单个迁移构造 gormigrate，用来在已迁移的库上回滚这一条
+func rollbackOnly(t *testing.T, db *gorm.DB, m *gormigrate.Migration) error {
+	t.Helper()
+	g := gormigrate.New(db, &gormigrate.Options{
+		TableName: "migrations", IDColumnName: "id", IDColumnSize: 200, UseTransaction: true,
+	}, []*gormigrate.Migration{m})
+	return g.RollbackMigration(m)
+}
+
+func TestCredentialsAndServersMigration(t *testing.T) {
+	db := openTempDB(t)
+	require.NoError(t, RunMigrations(db))
+
+	// credentials 表：一条凭据一种内容，shared 区分共享与私有
+	assert.True(t, db.Migrator().HasTable("credentials"))
+	cols := columnsOf(t, db, "credentials")
+	for _, c := range []string{"id", "name", "kind", "password", "private_key", "passphrase", "username", "note", "shared", "createtime", "updatetime"} {
+		assert.Contains(t, cols, c)
+	}
+
+	// servers 只引用凭据，不再自带凭据列
+	srvCols := columnsOf(t, db, "servers")
+	assert.Contains(t, srvCols, "credential_id")
+	for _, c := range []string{"auth_type", "password", "private_key", "passphrase"} {
+		assert.NotContains(t, srvCols, c)
+	}
+
+	// 共享凭据的名称唯一，私有凭据不受约束
+	var indexSQL string
+	require.NoError(t, db.Raw(`SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'uk_credentials_shared_name'`).Scan(&indexSQL).Error)
+	assert.Contains(t, indexSQL, "UNIQUE")
+	assert.Contains(t, indexSQL, "WHERE shared = 1")
+
+	// 可回滚：先删 servers 再删 credentials，两张表都不在了
+	require.NoError(t, rollbackOnly(t, db, T202610180001()))
+	assert.False(t, db.Migrator().HasTable("servers"))
+	assert.False(t, db.Migrator().HasTable("credentials"))
 }
 
 func TestRunMigrations(t *testing.T) {

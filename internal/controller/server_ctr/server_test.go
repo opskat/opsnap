@@ -15,6 +15,7 @@ import (
 	serverapi "github.com/opskat/opsnap/internal/api/server"
 	"github.com/opskat/opsnap/internal/pkg/secret"
 	"github.com/opskat/opsnap/internal/pkg/sshconn/sshconntest"
+	"github.com/opskat/opsnap/internal/repository/credential_repo"
 	"github.com/opskat/opsnap/internal/repository/repo_repo"
 	"github.com/opskat/opsnap/internal/repository/server_repo"
 	"github.com/opskat/opsnap/internal/service/server_svc"
@@ -36,6 +37,7 @@ func setupServerTest(t *testing.T) (context.Context, *muxtest.TestMux) {
 	t.Cleanup(func() { secret.SetDefault(nil) })
 
 	server_repo.RegisterServer(server_repo.NewServer())
+	credential_repo.RegisterCredential(credential_repo.NewCredential())
 	repo_repo.RegisterRepo(repo_repo.NewRepo())
 	server_svc.RegisterServer(server_svc.NewServer(time.Now))
 	testMux := muxtest.NewTestMux()
