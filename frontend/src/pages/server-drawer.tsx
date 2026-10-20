@@ -3,33 +3,44 @@ import {
   ArrowDown,
   ArrowUp,
   Check,
+  ChevronDown,
   Copy,
+  Eye,
+  EyeOff,
+  FileKey,
   KeyRound,
   Laptop,
   Loader2,
   Plus,
   RefreshCw,
+  Search,
   ShieldCheck,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Popover as PopoverPrimitive } from "radix-ui";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogClose, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { DrawerContent, Field, FormError, Mono, Segmented, useCopy } from "@/components/bits";
 import {
+  CREDENTIAL_KIND_LABEL,
   SECRET_MASKED,
   api,
   errorMessage,
+  type CredentialItem,
   type HopResult,
   type HopType,
   type ServerAuthType,
+  type ServerCredential,
   type ServerItem,
   type ServerTestResult,
 } from "@/lib/api";
 import {
+  AUTH_LABEL,
   HOP_LABEL,
   buildInput,
   emptyForm,
@@ -39,11 +50,16 @@ import {
   moveHop,
   newHop,
   passwordSaved,
+  pickCredential,
   reasonText,
   removeHop,
+  switchAuthType,
+  switchSource,
   targetAddr,
   targetResult,
+  type CredentialSource,
   type HopForm,
+  type PickerCredential,
   type ServerForm,
 } from "@/lib/servers";
 import { cn } from "@/lib/utils";
@@ -72,7 +88,34 @@ export function ServerDrawer({
   const [testing, setTesting] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [creds, setCreds] = React.useState<CredentialItem[] | null>(null);
+  const [credsError, setCredsError] = React.useState<string | null>(null);
 
+  // 「用已保存的」要列出可选的共享密钥；私有凭据不会出现在这里
+  React.useEffect(() => {
+    let cancelled = false;
+    api.credentials
+      .list()
+      .then((r) => {
+        if (!cancelled) setCreds(r.list ?? []);
+      })
+      .catch((err) => {
+        if (!cancelled) setCredsError(errorMessage(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const pickerItems: PickerCredential[] = (creds ?? []).map((c) => ({
+    id: c.id,
+    name: c.name,
+    kind: c.kind,
+    username: c.username,
+    servers: c.servers,
+    hasPassphrase: c.has_passphrase,
+  }));
+  const selectedShared = selectedCredential(form, pickerItems, item?.credential ?? null);
   const set = (patch: Partial<ServerForm>) => setForm((f) => ({ ...f, ...patch }));
   const setHops = (fn: (h: HopForm[]) => HopForm[]) => setForm((f) => ({ ...f, hops: fn(f.hops) }));
   const setHop = (key: number, patch: Partial<HopForm>) =>
@@ -138,7 +181,9 @@ export function ServerDrawer({
       <DrawerContent showCloseButton={false}>
         <div className="flex items-center justify-between border-b border-line px-6 py-4">
           <DialogTitle className="text-[17px] font-semibold">{title}</DialogTitle>
-          <DialogDescription className="sr-only">填写 SSH 连接信息和代理链</DialogDescription>
+          <DialogDescription className="sr-only">
+            填写 SSH 连接信息、凭据来源和代理链；直接填写的凭据只用于这台服务器，也可以顺手存成一条密钥
+          </DialogDescription>
           <DialogClose asChild>
             <Button variant="ghost" size="icon-sm" aria-label="关闭">
               <X />
@@ -179,54 +224,34 @@ export function ServerDrawer({
           </section>
 
           <section className="mt-8">
-            <div className="mb-3 flex items-center justify-between">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-[14px] font-semibold">认证</h3>
-              <Segmented<ServerAuthType>
-                label="认证方式"
-                value={form.authType}
-                onChange={(authType) => set({ authType })}
+              <Segmented<CredentialSource>
+                label="凭据来源"
+                value={form.source}
+                onChange={(source) => setForm((f) => switchSource(f, source))}
                 options={[
-                  { value: "password", label: "密码" },
-                  { value: "private_key", label: "私钥" },
+                  { value: "saved", label: "用已保存的" },
+                  { value: "inline", label: "直接填写" },
                 ]}
               />
             </div>
-            {form.authType === "password" ? (
-              <Field label="密码">
-                <Input
-                  type="password"
-                  value={form.password}
-                  onChange={(e) => set({ password: e.target.value })}
-                  placeholder={passwordSaved(form) ? `${SECRET_MASKED}，留空保持不变` : undefined}
-                  autoComplete="new-password"
-                  className="bg-surface"
-                />
-              </Field>
+            {form.source === "inline" && <p className="mb-3 text-xs text-ink-3">类型决定这次连接用密码还是私钥</p>}
+            {form.source === "saved" ? (
+              <SavedCredential
+                items={pickerItems}
+                loading={creds === null && credsError === null}
+                error={credsError}
+                selected={selectedShared}
+                onSelect={(c) => setForm((f) => pickCredential(f, c))}
+                onInline={() => setForm((f) => switchSource(f, "inline"))}
+              />
             ) : (
-              <div className="grid gap-3">
-                <Field label="私钥">
-                  <Textarea
-                    rows={4}
-                    value={form.privateKey}
-                    onChange={(e) => set({ privateKey: e.target.value })}
-                    placeholder={
-                      form.saved.privateKey ? `${SECRET_MASKED}，留空保持不变` : "-----BEGIN OPENSSH PRIVATE KEY-----"
-                    }
-                    spellCheck={false}
-                    className="bg-surface font-mono text-xs"
-                  />
-                </Field>
-                <Field label="私钥口令" hint="没有就留空">
-                  <Input
-                    type="password"
-                    value={form.passphrase}
-                    onChange={(e) => set({ passphrase: e.target.value })}
-                    placeholder={form.saved.passphrase ? `${SECRET_MASKED}，留空保持不变` : undefined}
-                    autoComplete="new-password"
-                    className="bg-surface"
-                  />
-                </Field>
-              </div>
+              <InlineCredential
+                form={form}
+                onPatch={set}
+                onSwitchType={(authType) => setForm((f) => switchAuthType(f, authType))}
+              />
             )}
           </section>
 
@@ -387,6 +412,390 @@ export function ServerDrawer({
         </div>
       </DrawerContent>
     </Dialog>
+  );
+}
+
+/** 选中的共享密钥：优先看列表里的那一项，列表还没读到或已经不在列表里时用服务器上的凭据兜底 */
+function selectedCredential(
+  f: ServerForm,
+  items: PickerCredential[],
+  view: ServerCredential | null
+): PickerCredential | null {
+  if (f.source !== "saved" || !f.credentialId) return null;
+  const found = items.find((c) => c.id === f.credentialId);
+  if (found) return found;
+  if (view && view.shared && view.id === f.credentialId) {
+    return {
+      id: view.id,
+      name: view.name,
+      kind: view.kind,
+      username: view.username,
+      servers: [],
+      hasPassphrase: view.has_passphrase,
+    };
+  }
+  return { id: f.credentialId, name: `密钥 ${f.credentialId}`, kind: f.authType, username: "", servers: [] };
+}
+
+/** 密钥类型图标 */
+function CredentialIcon({ kind }: { kind: PickerCredential["kind"] }) {
+  return (
+    <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-sunken text-ink-2" aria-hidden>
+      {kind === "ssh_key" ? <FileKey className="size-4" /> : <KeyRound className="size-4" />}
+    </span>
+  );
+}
+
+function KindTag({ kind }: { kind: PickerCredential["kind"] }) {
+  return (
+    <span className="rounded bg-sunken px-1.5 py-0.5 text-[11px] whitespace-nowrap text-ink-2">
+      {CREDENTIAL_KIND_LABEL[kind]}
+    </span>
+  );
+}
+
+/** 使用某条密钥的服务器数量 */
+function usageText(c: PickerCredential): string {
+  const n = c.servers?.length ?? 0;
+  return n ? `${n} 台在用` : "未使用";
+}
+
+/**
+ * 「用已保存的」：可搜索的共享密钥组合框（Popover + 输入框 + 列表）。
+ * 键盘：输入过滤，↓/↑ 移动，Enter 选中，Esc 关闭，底部固定「直接填写…」。
+ */
+function SavedCredential({
+  items,
+  loading,
+  error,
+  selected,
+  onSelect,
+  onInline,
+}: {
+  items: PickerCredential[];
+  loading: boolean;
+  error: string | null;
+  selected: PickerCredential | null;
+  onSelect: (c: PickerCredential) => void;
+  onInline: () => void;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const [query, setQuery] = React.useState("");
+  const [active, setActive] = React.useState(0);
+  const inputRef = React.useRef<HTMLInputElement>(null);
+  const listRef = React.useRef<HTMLUListElement>(null);
+  const labelId = React.useId();
+
+  const q = query.trim().toLowerCase();
+  const shown = items.filter((c) => !q || c.name.toLowerCase().includes(q) || c.username.toLowerCase().includes(q));
+
+  function openPicker() {
+    setQuery("");
+    setActive(0);
+    setOpen(true);
+  }
+
+  function choose(c: PickerCredential) {
+    onSelect(c);
+    setOpen(false);
+  }
+
+  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActive((i) => Math.min(i + 1, Math.max(shown.length - 1, 0)));
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActive((i) => Math.max(i - 1, 0));
+      return;
+    }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const c = shown[active];
+      if (c) choose(c);
+      return;
+    }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      setOpen(false);
+      return;
+    }
+  }
+
+  React.useEffect(() => {
+    if (!open) return;
+    const el = listRef.current?.children[active] as HTMLElement | undefined;
+    el?.scrollIntoView({ block: "nearest" });
+  }, [open, active]);
+
+  return (
+    <div className="grid gap-2">
+      <span id={labelId} className="text-[13px] font-medium text-ink">
+        密码 / 私钥
+      </span>
+      <PopoverPrimitive.Root open={open} onOpenChange={(v) => (v ? openPicker() : setOpen(false))}>
+        <PopoverPrimitive.Trigger asChild>
+          <button
+            type="button"
+            aria-label="选择密钥"
+            aria-describedby={labelId}
+            aria-haspopup="listbox"
+            aria-expanded={open}
+            onClick={() => (open ? setOpen(false) : openPicker())}
+            className={cn(
+              "flex w-full items-center gap-2.5 rounded-lg border border-line-strong bg-surface px-3 py-2 text-left hover:border-ink-3",
+              "focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+            )}
+          >
+            {selected ? (
+              <>
+                <CredentialIcon kind={selected.kind} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13.5px] font-medium">{selected.name}</span>
+                </span>
+                <KindTag kind={selected.kind} />
+              </>
+            ) : (
+              <>
+                <CredentialIcon kind="password" />
+                <span className="flex-1 text-[13.5px] text-ink-3">选择密码或私钥</span>
+              </>
+            )}
+            <ChevronDown
+              className={cn("size-4 shrink-0 text-ink-3 transition-transform", open && "rotate-180")}
+              aria-hidden
+            />
+          </button>
+        </PopoverPrimitive.Trigger>
+        <PopoverPrimitive.Content
+          align="start"
+          sideOffset={6}
+          className="z-50 w-[--radix-popover-trigger-width] min-w-[320px] overflow-hidden rounded-lg border border-line bg-surface p-0 shadow-lg"
+          onOpenAutoFocus={(e) => {
+            // 焦点交给搜索框，不用 Popover 默认的第一项
+            e.preventDefault();
+            inputRef.current?.focus();
+          }}
+        >
+          <div className="relative border-b border-line p-2">
+            <Search
+              className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-ink-3"
+              aria-hidden
+            />
+            <Input
+              ref={inputRef}
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setActive(0);
+              }}
+              onKeyDown={onKeyDown}
+              placeholder="搜索名称、用户"
+              aria-label="搜索密钥"
+              role="combobox"
+              aria-expanded
+              aria-controls="credential-options"
+              aria-autocomplete="list"
+              className="h-9 bg-surface pl-9"
+              autoComplete="off"
+            />
+          </div>
+          <ul
+            id="credential-options"
+            ref={listRef}
+            role="listbox"
+            aria-label="密钥"
+            className="max-h-64 overflow-y-auto py-1"
+          >
+            {shown.map((c, i) => (
+              <li key={c.id} role="option" aria-selected={i === active}>
+                <button
+                  type="button"
+                  onClick={() => choose(c)}
+                  onMouseEnter={() => setActive(i)}
+                  className={cn("flex w-full items-center gap-2.5 px-3 py-2 text-left", i === active && "bg-sunken")}
+                >
+                  <CredentialIcon kind={c.kind} />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-1.5">
+                      <span className="truncate text-[13.5px] font-medium">{c.name}</span>
+                      <KindTag kind={c.kind} />
+                    </span>
+                    {c.username && <span className="block truncate text-xs text-ink-3">{c.username}</span>}
+                  </span>
+                  <span className={cn("text-xs whitespace-nowrap", c.servers?.length ? "text-ink-2" : "text-ink-3")}>
+                    {usageText(c)}
+                  </span>
+                </button>
+              </li>
+            ))}
+            {!shown.length && (
+              <li className="px-3 py-6 text-center text-[13px] text-ink-2">
+                {loading
+                  ? "正在读取密钥"
+                  : error
+                    ? `读取密钥失败：${error}`
+                    : items.length
+                      ? `没有匹配「${query.trim()}」的密钥`
+                      : "还没有密钥"}
+              </li>
+            )}
+          </ul>
+          <div className="border-t border-line">
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                onInline();
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-[13px] text-brand-ink hover:bg-sunken"
+            >
+              <Plus className="size-4" aria-hidden />
+              直接填写…
+            </button>
+          </div>
+        </PopoverPrimitive.Content>
+      </PopoverPrimitive.Root>
+      {selected && (
+        <p className="text-xs text-ink-3">
+          {[
+            selected.username,
+            selected.kind === "ssh_key" ? (selected.hasPassphrase ? "私钥带口令" : "私钥没有口令") : "密码",
+            selected.servers?.length ? `还有 ${selected.servers.length} 台服务器用它` : "没有别的服务器用它",
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** 「直接填写」：类型、密码或私钥，以及「同时存成密钥」 */
+function InlineCredential({
+  form,
+  onPatch,
+  onSwitchType,
+}: {
+  form: ServerForm;
+  onPatch: (patch: Partial<ServerForm>) => void;
+  onSwitchType: (authType: ServerAuthType) => void;
+}) {
+  const [reveal, setReveal] = React.useState(false);
+  const [revealPassphrase, setRevealPassphrase] = React.useState(false);
+  const isKey = form.authType === "ssh_key";
+  const keep = `${SECRET_MASKED}，留空保持不变`;
+  // 控件包在用来放显示/隐藏按钮的容器里，Field 无法自动关联，这里显式给 id
+  const passwordId = React.useId();
+  const passphraseId = React.useId();
+
+  return (
+    <div className="grid gap-3">
+      <div className="flex justify-end">
+        <Segmented<ServerAuthType>
+          label="认证方式"
+          value={form.authType}
+          onChange={onSwitchType}
+          options={(Object.keys(AUTH_LABEL) as ServerAuthType[]).map((t) => ({ value: t, label: AUTH_LABEL[t] }))}
+        />
+      </div>
+      {isKey ? (
+        <>
+          <Field label="私钥" hint="OpenSSH 或 PEM 格式">
+            <Textarea
+              rows={4}
+              value={form.privateKey}
+              onChange={(e) => onPatch({ privateKey: e.target.value })}
+              placeholder={form.saved.privateKey ? keep : "-----BEGIN OPENSSH PRIVATE KEY-----"}
+              spellCheck={false}
+              className="bg-surface font-mono text-xs"
+            />
+          </Field>
+          <Field label="私钥口令" hint="没有就留空" htmlFor={passphraseId}>
+            <div className="relative">
+              <Input
+                id={passphraseId}
+                type={revealPassphrase ? "text" : "password"}
+                value={form.passphrase}
+                onChange={(e) => onPatch({ passphrase: e.target.value })}
+                placeholder={form.saved.passphrase ? keep : undefined}
+                autoComplete="new-password"
+                className="bg-surface pr-10"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                className="absolute top-1/2 right-1 -translate-y-1/2"
+                aria-label={revealPassphrase ? "隐藏私钥口令" : "显示私钥口令"}
+                onClick={() => setRevealPassphrase((v) => !v)}
+              >
+                {revealPassphrase ? <EyeOff /> : <Eye />}
+              </Button>
+            </div>
+          </Field>
+        </>
+      ) : (
+        <Field label="密码" htmlFor={passwordId}>
+          <div className="relative">
+            <Input
+              id={passwordId}
+              type={reveal ? "text" : "password"}
+              value={form.password}
+              onChange={(e) => onPatch({ password: e.target.value })}
+              placeholder={passwordSaved(form) ? keep : undefined}
+              autoComplete="new-password"
+              className="bg-surface pr-10"
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              className="absolute top-1/2 right-1 -translate-y-1/2"
+              aria-label={reveal ? "隐藏密码" : "显示密码"}
+              onClick={() => setReveal((v) => !v)}
+            >
+              {reveal ? <EyeOff /> : <Eye />}
+            </Button>
+          </div>
+        </Field>
+      )}
+
+      <div className="rounded-lg border border-line bg-surface p-3">
+        <label className="flex items-start gap-2.5">
+          <Checkbox
+            checked={form.share}
+            onCheckedChange={(v) =>
+              // 默认填服务器名；已经写过的名称不动
+              onPatch({ share: v === true, shareAs: v === true ? form.shareAs || form.name.trim() : "" })
+            }
+            aria-label="同时存成密钥"
+            className="mt-0.5"
+          />
+          <span className="min-w-0">
+            <span className="block text-[13px] font-medium">同时存成密钥</span>
+            <span className="mt-0.5 block text-xs text-ink-3">
+              勾选后这份凭据进密钥库，别的服务器也能选它；不勾选只属于这台服务器，在「密钥」页看不到。
+            </span>
+          </span>
+        </label>
+        {form.share && (
+          <div className="mt-3 pl-6">
+            <Field label="密钥名称" hint="重名会自动加序号，之后可以在「密钥」页改名">
+              <Input
+                value={form.shareAs}
+                onChange={(e) => onPatch({ shareAs: e.target.value })}
+                placeholder={form.name.trim()}
+                className="bg-surface"
+                autoComplete="off"
+              />
+            </Field>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 

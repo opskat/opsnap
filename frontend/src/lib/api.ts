@@ -245,7 +245,8 @@ export interface NotifyTestResult {
 
 // ---- 服务器与代理链 internal/api/server ----
 
-export type ServerAuthType = "password" | "private_key";
+/** 直接填写私有凭据时的认证方式，与密钥类型一一对应（credential_id > 0 时由密钥的类型决定） */
+export type ServerAuthType = CredentialKind;
 export type HopType = "ssh" | "socks5" | "http";
 export type ServerStatus = "unknown" | "ok" | "failed";
 
@@ -268,22 +269,52 @@ export interface HopView {
   password: string;
 }
 
-/** 提交的服务器配置；添加、修改、测试都带这一组字段 */
+/**
+ * 提交的服务器配置；添加、修改、测试都带这一组字段。
+ * 登录凭据有两种来源：credential_id > 0 时引用一条共享密钥，下面四个凭据字段不使用；
+ * credential_id 为 0 时按 auth_type 直接填写，占位「已设置」表示保留这台服务器已有的私有凭据。
+ */
 export interface ServerInput {
   name: string;
   host: string;
   port: number;
   username: string;
-  auth_type: ServerAuthType;
+  /** > 0：使用这条共享密钥；0：直接填写 */
+  credential_id: number;
+  /** 仅直接填写时使用；引用共享密钥时留空 */
+  auth_type: ServerAuthType | "";
   password: string;
   private_key: string;
   passphrase: string;
+  /** 直接填写时把它存成这个名称的共享密钥；空串或省略表示保持私有 */
+  share_as?: string;
   hops: HopInput[];
   host_key_fingerprint: string;
 }
-export interface ServerItem extends Omit<ServerInput, "hops"> {
+
+/** 服务器用的登录凭据；只告诉调用方有没有内容与名称，永不返回密文或明文 */
+export interface ServerCredential {
   id: number;
+  kind: CredentialKind;
+  /** 共享密钥的名称；私有凭据（直接填写的那份）为空串 */
+  name: string;
+  /** 是共享密钥（能在密钥页看到、被多台服务器选用） */
+  shared: boolean;
+  username: string;
+  note: string;
+  has_secret: boolean;
+  has_passphrase: boolean;
+}
+
+export interface ServerItem {
+  id: number;
+  name: string;
+  host: string;
+  port: number;
+  username: string;
+  credential: ServerCredential | null;
   hops: HopView[] | null;
+  host_key_fingerprint: string;
   status: ServerStatus;
   latency_ms: number;
   /** 从何时起连不上，Unix 秒，0 表示正常 */
@@ -291,6 +322,8 @@ export interface ServerItem extends Omit<ServerInput, "hops"> {
   last_error: string;
   last_check_at: number;
   job_count: number;
+  created_at?: number;
+  updated_at?: number;
 }
 export type HopFailReason =
   "timeout" | "auth_failed" | "fingerprint_mismatch" | "fingerprint_unconfirmed" | "unreachable" | "canceled";
