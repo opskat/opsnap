@@ -314,6 +314,48 @@ export interface ServerTestResult {
   fingerprint: string;
 }
 
+// ---- 密钥库 internal/api/credential ----
+
+/** 密钥类型，与服务器的认证方式一一对应 */
+export type CredentialKind = "password" | "ssh_key";
+
+export const CREDENTIAL_KIND_LABEL: Record<CredentialKind, string> = { password: "密码", ssh_key: "私钥" };
+
+/** 使用某条密钥的服务器 */
+export interface CredentialServerRef {
+  id: number;
+  name: string;
+}
+
+/** 一条共享密钥；只告诉调用方有没有内容，永不返回密文或明文 */
+export interface CredentialItem {
+  id: number;
+  name: string;
+  kind: CredentialKind;
+  /** 默认用户：选了这条密钥时，服务器上为空的「用户」自动填它 */
+  username: string;
+  note: string;
+  /** 有没有密码或私钥 */
+  has_secret: boolean;
+  /** 私钥有没有口令 */
+  has_passphrase: boolean;
+  /** 使用这条密钥的服务器；没有时是空数组 */
+  servers: CredentialServerRef[] | null;
+  created_at: number;
+  updated_at: number;
+}
+
+/** 提交的一条密钥；编辑时密码、私钥、口令留空表示保留已保存的值 */
+export interface CredentialInput {
+  name: string;
+  kind: CredentialKind;
+  password: string;
+  private_key: string;
+  passphrase: string;
+  username: string;
+  note: string;
+}
+
 // ---- 存储位置 internal/api/repo ----
 
 export type RepoType = "local" | "sftp" | "s3" | "rest" | "webdav";
@@ -746,6 +788,13 @@ export const api = {
     /** 测试一份未保存的配置；id 非 0 时凭据占位取该服务器已保存的值 */
     test: (id: number, body: ServerInput) => request<ServerTestResult>("POST", "/servers/test", { id, ...body }),
     testSaved: (id: number) => request<ServerTestResult>("POST", `/servers/${id}/test`),
+  },
+  credentials: {
+    list: () => request<{ list: CredentialItem[] | null }>("GET", "/credentials"),
+    get: (id: number) => request<CredentialItem>("GET", `/credentials/${id}`),
+    create: (body: CredentialInput) => request<CredentialItem>("POST", "/credentials", body),
+    update: (id: number, body: CredentialInput) => request<CredentialItem>("PUT", `/credentials/${id}`, body),
+    remove: (id: number) => request<Record<string, never>>("DELETE", `/credentials/${id}`),
   },
   repos: {
     list: () => request<{ list: RepoItem[] | null }>("GET", "/repos"),

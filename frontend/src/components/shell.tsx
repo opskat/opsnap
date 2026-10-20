@@ -56,6 +56,7 @@ export const NAV: { group?: string; items: NavItem[] }[] = [
     items: [
       { to: "/servers", label: "服务器", icon: Server },
       { to: "/repos", label: "存储位置", icon: HardDrive },
+      { to: "/credentials", label: "密钥", icon: KeyRound },
     ],
   },
   {

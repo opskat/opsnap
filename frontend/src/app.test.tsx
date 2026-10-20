@@ -48,7 +48,7 @@ describe("面板外壳", () => {
     const links = within(nav)
       .getAllByRole("link")
       .map((a) => a.textContent);
-    expect(links).toEqual(["概览", "备份任务", "快照", "运行记录", "服务器", "存储位置", "通知", "设置"]);
+    expect(links).toEqual(["概览", "备份任务", "快照", "运行记录", "服务器", "存储位置", "密钥", "通知", "设置"]);
     expect(within(nav).getByText("资源")).toBeInTheDocument();
     expect(within(nav).getByText("系统")).toBeInTheDocument();
     expect(within(nav).getByRole("link", { name: "概览" })).toHaveAttribute("aria-current", "page");

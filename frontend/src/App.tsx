@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Outlet, Route, Routes } from "react-router";
 import { AppProviders } from "@/app/providers";
 import { ShellStatus } from "@/components/shell-status";
 import { RequireAuth } from "@/lib/auth";
+import { CredentialsPage } from "@/pages/credentials";
 import { JobsRoutes } from "@/pages/job-form";
 import { LoginPage } from "@/pages/login";
 import { NotifyPage } from "@/pages/notify";
@@ -38,6 +39,7 @@ export function AppRoutes() {
         <Route path="runs/:id" element={<RunDetailPage />} />
         <Route path="servers/*" element={<ServersPage />} />
         <Route path="repos/*" element={<ReposPage />} />
+        <Route path="credentials/*" element={<CredentialsPage />} />
         <Route path="notify" element={<NotifyPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
