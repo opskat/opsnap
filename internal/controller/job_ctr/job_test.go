@@ -16,11 +16,13 @@ import (
 	"gorm.io/gorm"
 
 	jobapi "github.com/opskat/opsnap/internal/api/job"
+	"github.com/opskat/opsnap/internal/model/entity/credential_entity"
 	"github.com/opskat/opsnap/internal/model/entity/repo_entity"
 	"github.com/opskat/opsnap/internal/model/entity/server_entity"
 	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/executor"
 	"github.com/opskat/opsnap/internal/pkg/secret"
+	"github.com/opskat/opsnap/internal/repository/credential_repo"
 	"github.com/opskat/opsnap/internal/repository/job_repo"
 	"github.com/opskat/opsnap/internal/repository/repo_repo"
 	"github.com/opskat/opsnap/internal/repository/run_repo"
@@ -49,6 +51,7 @@ func setupJobTest(t *testing.T) (context.Context, *muxtest.TestMux, jobapi.JobIn
 	job_repo.RegisterJob(job_repo.NewJob())
 	repo_repo.RegisterRepo(repo_repo.NewRepo())
 	server_repo.RegisterServer(server_repo.NewServer())
+	credential_repo.RegisterCredential(credential_repo.NewCredential())
 	setting_repo.RegisterSetting(setting_repo.NewSetting())
 	run_repo.RegisterRun(run_repo.NewRun())
 	repo_svc.RegisterRepo(repo_svc.NewRepo(executor.NewFake(), time.Now))
@@ -58,7 +61,9 @@ func setupJobTest(t *testing.T) (context.Context, *muxtest.TestMux, jobapi.JobIn
 	}))
 	ctx := db.WithContextDB(context.Background(), gdb)
 
-	srv := &server_entity.Server{Name: "web", Host: "10.0.0.1", Port: 22, Username: "root", AuthType: server_entity.AuthPassword, Hops: []server_entity.Hop{}}
+	cred := &credential_entity.Credential{Kind: credential_entity.KindPassword, Password: "x"}
+	require.NoError(t, credential_repo.Credential().Create(ctx, cred))
+	srv := &server_entity.Server{Name: "web", Host: "10.0.0.1", Port: 22, Username: "root", CredentialID: cred.ID, Hops: []server_entity.Hop{}}
 	require.NoError(t, server_repo.Server().Create(ctx, srv))
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, repo_entity.MarkerFile), nil, 0o600))

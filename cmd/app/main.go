@@ -24,6 +24,7 @@ import (
 	"github.com/opskat/opsnap/internal/repository/admin_repo"
 	"github.com/opskat/opsnap/internal/repository/alert_repo"
 	"github.com/opskat/opsnap/internal/repository/apikey_repo"
+	"github.com/opskat/opsnap/internal/repository/credential_repo"
 	"github.com/opskat/opsnap/internal/repository/job_repo"
 	"github.com/opskat/opsnap/internal/repository/masterkey_repo"
 	"github.com/opskat/opsnap/internal/repository/notify_repo"
@@ -112,6 +113,7 @@ func run(ctx context.Context, getenv func(string) string, configFile string) err
 	sso_repo.RegisterSSO(sso_repo.NewSSO())
 	notify_repo.RegisterNotify(notify_repo.NewNotify())
 	server_repo.RegisterServer(server_repo.NewServer())
+	credential_repo.RegisterCredential(credential_repo.NewCredential())
 	repo_repo.RegisterRepo(repo_repo.NewRepo())
 	job_repo.RegisterJob(job_repo.NewJob())
 	run_repo.RegisterRun(run_repo.NewRun())

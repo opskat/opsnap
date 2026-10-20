@@ -565,6 +565,242 @@
                 }
             }
         },
+        "/credentials": {
+            "get": {
+                "description": "列出共享密钥，按名称排序",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "credential"
+                ],
+                "summary": "列出共享密钥，按名称排序",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "properties": {
+                                "code": {
+                                    "type": "integer"
+                                },
+                                "data": {
+                                    "$ref": "#/definitions/credential.ListResponse"
+                                },
+                                "msg": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/BadRequest"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "添加共享密钥；密码或私钥必填",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "credential"
+                ],
+                "summary": "添加共享密钥；密码或私钥必填",
+                "parameters": [
+                    {
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/credential.CreateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "properties": {
+                                "code": {
+                                    "type": "integer"
+                                },
+                                "data": {
+                                    "$ref": "#/definitions/credential.CreateResponse"
+                                },
+                                "msg": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/BadRequest"
+                        }
+                    }
+                }
+            }
+        },
+        "/credentials/{id}": {
+            "get": {
+                "description": "读取一条共享密钥",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "credential"
+                ],
+                "summary": "读取一条共享密钥",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "properties": {
+                                "code": {
+                                    "type": "integer"
+                                },
+                                "data": {
+                                    "$ref": "#/definitions/credential.GetResponse"
+                                },
+                                "msg": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/BadRequest"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "整体保存一条共享密钥；密码、私钥、口令留空表示保留已保存的值。\n类型从一端切到另一端时，不属于新类型的内容会被清掉。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "credential"
+                ],
+                "summary": "整体保存一条共享密钥；密码、私钥、口令留空表示保留已保存的值。\n类型从一端切到另一端时，不属于新类型的内容会被清掉。",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/credential.UpdateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "properties": {
+                                "code": {
+                                    "type": "integer"
+                                },
+                                "data": {
+                                    "$ref": "#/definitions/credential.UpdateResponse"
+                                },
+                                "msg": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/BadRequest"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "删除一条共享密钥；被服务器使用时拒绝，并带出使用者名称",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "credential"
+                ],
+                "summary": "删除一条共享密钥；被服务器使用时拒绝，并带出使用者名称",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/credential.DeleteRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "properties": {
+                                "code": {
+                                    "type": "integer"
+                                },
+                                "data": {
+                                    "$ref": "#/definitions/credential.DeleteResponse"
+                                },
+                                "msg": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/BadRequest"
+                        }
+                    }
+                }
+            }
+        },
         "/jobs": {
             "get": {
                 "description": "列出任务。filter 为 all | attention | paused；q 按名称、服务器名称、路径做不区分大小写的包含搜索。",
@@ -2782,7 +3018,7 @@
         },
         "/servers/test": {
             "post": {
-                "description": "测试一份未保存的配置。ID 非 0 时表示编辑中的已保存服务器，\n凭据为占位「已设置」时取它已保存的值。目标没有已核对的指纹时只取回指纹、不发送凭据。",
+                "description": "测试一份未保存的配置。ID 非 0 时表示编辑中的已保存服务器，\n凭据为占位「已设置」或留空时取它已保存的值。目标没有已核对的指纹时只取回指纹、不发送凭据。",
                 "consumes": [
                     "application/json"
                 ],
@@ -2792,7 +3028,7 @@
                 "tags": [
                     "server"
                 ],
-                "summary": "测试一份未保存的配置。ID 非 0 时表示编辑中的已保存服务器，\n凭据为占位「已设置」时取它已保存的值。目标没有已核对的指纹时只取回指纹、不发送凭据。",
+                "summary": "测试一份未保存的配置。ID 非 0 时表示编辑中的已保存服务器，\n凭据为占位「已设置」或留空时取它已保存的值。目标没有已核对的指纹时只取回指纹、不发送凭据。",
                 "parameters": [
                     {
                         "name": "body",
@@ -3652,6 +3888,150 @@
                     "type": "string"
                 }
             }
+        },
+        "credential.CreateRequest": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "description": "password | ssh_key",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "note": {
+                    "type": "string"
+                },
+                "passphrase": {
+                    "type": "string"
+                },
+                "password": {
+                    "type": "string"
+                },
+                "private_key": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "credential.CreateResponse": {
+            "type": "object"
+        },
+        "credential.DeleteRequest": {
+            "type": "object"
+        },
+        "credential.DeleteResponse": {
+            "type": "object"
+        },
+        "credential.GetResponse": {
+            "type": "object"
+        },
+        "credential.Item": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "description": "Unix 秒",
+                    "type": "integer"
+                },
+                "has_passphrase": {
+                    "description": "私钥有没有口令",
+                    "type": "boolean"
+                },
+                "has_secret": {
+                    "description": "有没有密码（password 类型）或私钥（ssh_key 类型）",
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "kind": {
+                    "description": "password | ssh_key",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "note": {
+                    "type": "string"
+                },
+                "servers": {
+                    "description": "使用这条密钥的服务器；没有时是空数组",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/credential.ServerRef"
+                    }
+                },
+                "updated_at": {
+                    "description": "Unix 秒",
+                    "type": "integer"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "credential.ListResponse": {
+            "type": "object",
+            "properties": {
+                "list": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/credential.Item"
+                    }
+                }
+            }
+        },
+        "credential.ServerRef": {
+            "type": "object",
+            "properties": {
+                "host": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "port": {
+                    "type": "integer"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "credential.UpdateRequest": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "description": "password | ssh_key",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "note": {
+                    "type": "string"
+                },
+                "passphrase": {
+                    "type": "string"
+                },
+                "password": {
+                    "type": "string"
+                },
+                "private_key": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "credential.UpdateResponse": {
+            "type": "object"
         },
         "httputils.PageRequest": {
             "type": "object",
@@ -5112,6 +5492,9 @@
                 "auth_type": {
                     "type": "string"
                 },
+                "credential_id": {
+                    "type": "integer"
+                },
                 "hops": {
                     "type": "array",
                     "items": {
@@ -5139,6 +5522,9 @@
                 "private_key": {
                     "type": "string"
                 },
+                "share_as": {
+                    "type": "string"
+                },
                 "username": {
                     "type": "string"
                 }
@@ -5146,6 +5532,42 @@
         },
         "server.CreateResponse": {
             "type": "object"
+        },
+        "server.CredentialView": {
+            "type": "object",
+            "properties": {
+                "has_passphrase": {
+                    "description": "私钥有没有口令",
+                    "type": "boolean"
+                },
+                "has_secret": {
+                    "description": "有没有密码（password 类型）或私钥（ssh_key 类型）",
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "kind": {
+                    "description": "password | ssh_key",
+                    "type": "string"
+                },
+                "name": {
+                    "description": "共享密钥的名称；私有凭据为空串",
+                    "type": "string"
+                },
+                "note": {
+                    "description": "备注，仅共享密钥使用",
+                    "type": "string"
+                },
+                "shared": {
+                    "description": "是共享密钥（能在密钥页看到、被多台服务器选用）",
+                    "type": "boolean"
+                },
+                "username": {
+                    "description": "默认用户，仅共享密钥使用",
+                    "type": "string"
+                }
+            }
         },
         "server.DeleteRequest": {
             "type": "object"
@@ -5250,11 +5672,11 @@
         "server.Item": {
             "type": "object",
             "properties": {
-                "auth_type": {
-                    "type": "string"
-                },
                 "created_at": {
                     "type": "integer"
+                },
+                "credential": {
+                    "$ref": "#/definitions/server.CredentialView"
                 },
                 "fail_since": {
                     "description": "从何时起连不上，Unix 秒，0 表示正常",
@@ -5295,20 +5717,8 @@
                 "name": {
                     "type": "string"
                 },
-                "passphrase": {
-                    "description": "占位「已设置」或空",
-                    "type": "string"
-                },
-                "password": {
-                    "description": "占位「已设置」或空",
-                    "type": "string"
-                },
                 "port": {
                     "type": "integer"
-                },
-                "private_key": {
-                    "description": "占位「已设置」或空",
-                    "type": "string"
                 },
                 "status": {
                     "description": "unknown | ok | failed",
@@ -5339,6 +5749,9 @@
                 "auth_type": {
                     "type": "string"
                 },
+                "credential_id": {
+                    "type": "integer"
+                },
                 "hops": {
                     "type": "array",
                     "items": {
@@ -5367,6 +5780,9 @@
                     "type": "integer"
                 },
                 "private_key": {
+                    "type": "string"
+                },
+                "share_as": {
                     "type": "string"
                 },
                 "username": {
@@ -5400,6 +5816,9 @@
                 "auth_type": {
                     "type": "string"
                 },
+                "credential_id": {
+                    "type": "integer"
+                },
                 "hops": {
                     "type": "array",
                     "items": {
@@ -5425,6 +5844,9 @@
                     "type": "integer"
                 },
                 "private_key": {
+                    "type": "string"
+                },
+                "share_as": {
                     "type": "string"
                 },
                 "username": {

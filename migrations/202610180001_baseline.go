@@ -77,19 +77,35 @@ func T202610180001() *gormigrate.Migration {
 					panel_url       TEXT    NOT NULL DEFAULT ''
 				)`,
 
+				// ---- 密钥库：服务器登录用的密码、私钥（共享或服务器私有）----
+				// password、private_key、passphrase 都是主密钥加密后的密文，没有就是空串。
+				// shared = 1 能被多台服务器选用、出现在「密钥」页；shared = 0 只属于一台服务器，
+				// 名称留空。共享密钥的名称唯一由部分索引保证。
+				`CREATE TABLE IF NOT EXISTS credentials (
+					id           INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+					name         TEXT    NOT NULL DEFAULT '',
+					kind         TEXT    NOT NULL,
+					password     TEXT    NOT NULL DEFAULT '',
+					private_key  TEXT    NOT NULL DEFAULT '',
+					passphrase   TEXT    NOT NULL DEFAULT '',
+					username     TEXT    NOT NULL DEFAULT '',
+					note         TEXT    NOT NULL DEFAULT '',
+					shared       INTEGER NOT NULL DEFAULT 0,
+					createtime   INTEGER NOT NULL DEFAULT 0,
+					updatetime   INTEGER NOT NULL DEFAULT 0
+				)`,
+				`CREATE UNIQUE INDEX IF NOT EXISTS uk_credentials_shared_name ON credentials (name) WHERE shared = 1`,
+
 				// ---- 服务器与代理链（原 202610150004）----
-				// password、private_key、passphrase 与 hops 里各代理的 password 都是主密钥加密后的密文；
-				// hops 是按连接顺序排列的 JSON 数组。
+				// 登录凭据只在 credentials 里存一份，服务器引用它的 credential_id；
+				// hops 里各代理的 password 仍是主密钥加密后的密文，按连接顺序排列成 JSON 数组。
 				`CREATE TABLE IF NOT EXISTS servers (
 					id                   INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
 					name                 TEXT    NOT NULL,
 					host                 TEXT    NOT NULL,
 					port                 INTEGER NOT NULL,
 					username             TEXT    NOT NULL,
-					auth_type            TEXT    NOT NULL,
-					password             TEXT    NOT NULL DEFAULT '',
-					private_key          TEXT    NOT NULL DEFAULT '',
-					passphrase           TEXT    NOT NULL DEFAULT '',
+					credential_id        INTEGER NOT NULL REFERENCES credentials (id),
 					hops                 TEXT    NOT NULL DEFAULT '[]',
 					host_key_fingerprint TEXT    NOT NULL,
 					last_check_at        INTEGER NOT NULL DEFAULT 0,
@@ -237,7 +253,8 @@ func T202610180001() *gormigrate.Migration {
 			return nil
 		},
 		Rollback: func(tx *gorm.DB) error {
-			for _, t := range []string{"sso", "master_key", "stale_alerts", "runs", "jobs", "repos", "servers", "notify", "settings", "api_keys", "sessions", "admin", "meta"} {
+			// 先删引用 credentials 的 servers，再删 credentials
+			for _, t := range []string{"sso", "master_key", "stale_alerts", "runs", "jobs", "repos", "servers", "credentials", "notify", "settings", "api_keys", "sessions", "admin", "meta"} {
 				if err := tx.Exec(`DROP TABLE IF EXISTS ` + t).Error; err != nil {
 					return err
 				}

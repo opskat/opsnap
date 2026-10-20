@@ -15,13 +15,13 @@ import { Button } from "@/components/ui/button";
 import { FormError, Mono, PageTitle, Sheet, Skeleton } from "@/components/bits";
 import { api, errorMessage, type HopView, type ServerItem } from "@/lib/api";
 import { fmtDate } from "@/lib/format";
-import { AUTH_LABEL, reasonText } from "@/lib/servers";
+import { credentialKindLabel, credentialLabel, reasonText } from "@/lib/servers";
 import { useLoad } from "@/lib/use-load";
 import { cn } from "@/lib/utils";
 import { ServerDrawer } from "./server-drawer";
 import { LoadError } from "./settings";
 
-const COLS = "lg:grid-cols-[180px_220px_1fr_200px_auto]";
+const COLS = "lg:grid-cols-[180px_220px_1fr_180px_160px_auto]";
 
 /** 抽屉的状态：null 关闭，"new" 添加，否则编辑这一台 */
 type DrawerState = null | "new" | ServerItem;
@@ -80,6 +80,7 @@ export function ServersPage() {
           <span>名称</span>
           <span>地址</span>
           <span>连接路径</span>
+          <span>密钥</span>
           <span>状态</span>
           <span className="w-[108px]" />
         </div>
@@ -89,7 +90,7 @@ export function ServersPage() {
               <div className="min-w-0">
                 <div className="font-semibold">{s.name}</div>
                 <div className="text-xs text-ink-3">
-                  {AUTH_LABEL[s.auth_type]}，{s.job_count} 个任务
+                  {credentialLabel(s.credential)}，{s.job_count} 个任务
                 </div>
               </div>
               {/* 窄屏时地址排在第二行，不省略 */}
@@ -99,7 +100,18 @@ export function ServersPage() {
               <div className="col-span-2 row-start-3 min-w-0 lg:col-span-1 lg:row-start-auto">
                 <ChainInline hops={s.hops ?? []} />
               </div>
-              <div className="col-span-2 text-[13px] lg:col-span-1">
+              {/* 窄屏时密钥排在连接路径之后折行，不省略 */}
+              <div className="col-span-2 row-start-4 flex min-w-0 flex-wrap items-center gap-1.5 text-[13px] lg:col-span-1 lg:row-start-auto">
+                <span className={cn("min-w-0 break-all", !s.credential?.shared && "text-ink-2")}>
+                  {credentialLabel(s.credential)}
+                </span>
+                {s.credential && (
+                  <span className="rounded bg-sunken px-1 text-[11px] whitespace-nowrap text-ink-2">
+                    {credentialKindLabel(s.credential)}
+                  </span>
+                )}
+              </div>
+              <div className="col-span-2 row-start-5 text-[13px] lg:col-span-1 lg:row-start-auto">
                 <ServerStatus s={s} />
               </div>
               <div className="col-start-2 row-start-1 flex justify-end gap-1 lg:col-start-auto lg:row-start-auto">

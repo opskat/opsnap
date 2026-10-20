@@ -13,12 +13,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	repoapi "github.com/opskat/opsnap/internal/api/repo"
+	"github.com/opskat/opsnap/internal/model/entity/credential_entity"
 	"github.com/opskat/opsnap/internal/model/entity/server_entity"
 	"github.com/opskat/opsnap/internal/pkg/cmdbuild"
 	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/executor"
 	"github.com/opskat/opsnap/internal/pkg/secret"
 	"github.com/opskat/opsnap/internal/pkg/sshconn/sshconntest"
+	"github.com/opskat/opsnap/internal/repository/credential_repo"
 	"github.com/opskat/opsnap/internal/repository/server_repo"
 )
 
@@ -90,8 +92,10 @@ func TestSFTPHostKeyAndEnv(t *testing.T) {
 		jh, jp := sshconntest.HostPort(t, jump.Addr)
 		enc, err := secret.Default().Encrypt("jump-pw")
 		require.NoError(t, err)
+		cred := &credential_entity.Credential{Kind: credential_entity.KindPassword, Password: enc}
+		require.NoError(t, credential_repo.Credential().Create(f.ctx, cred))
 		srv := &server_entity.Server{Name: "跳板", Host: jh, Port: jp, Username: "app",
-			AuthType: server_entity.AuthPassword, Password: enc, HostKeyFingerprint: jump.Fingerprint}
+			CredentialID: cred.ID, HostKeyFingerprint: jump.Fingerprint}
 		require.NoError(t, server_repo.Server().Create(f.ctx, srv))
 		host, port := sshconntest.HostPort(t, nas.Addr)
 

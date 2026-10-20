@@ -6,13 +6,18 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/opskat/opsnap/internal/model/entity/credential_entity"
 	"github.com/opskat/opsnap/internal/model/entity/server_entity"
 	"github.com/opskat/opsnap/internal/pkg/secret"
+	"github.com/opskat/opsnap/internal/repository/credential_repo"
 	"github.com/opskat/opsnap/internal/repository/server_repo"
 )
 
 // ErrServerNotFound 服务器或代理链引用的跳板服务器不存在
 var ErrServerNotFound = errors.New("服务器不存在")
+
+// ErrCredentialNotFound 服务器引用的登录凭据不存在
+var ErrCredentialNotFound = errors.New("服务器引用的凭据不存在")
 
 // DialOption Dial 的可选参数
 type DialOption func(*dialOptions)
@@ -77,14 +82,20 @@ func TotalLatency(results []HopResult) time.Duration {
 	return total
 }
 
-// ServerConfig 把已保存（或合并后待测试）的服务器转换成连接配置：解密凭据，
+// ServerConfig 把已保存的服务器转换成连接配置：按 CredentialID 读取并解密登录凭据，
 // SSH 跳板按 ServerID 读取对应服务器的地址、凭据和已核对的指纹（跳板自己的代理链不参与）。
 func ServerConfig(ctx context.Context, srv *server_entity.Server) (Config, error) {
+	return ServerConfigWithCredential(ctx, srv, nil)
+}
+
+// ServerConfigWithCredential 同上，但目标的登录凭据用给出的这条（还未落库的待测试凭据）。
+// pending 为 nil 时按 srv.CredentialID 从仓储读取。
+func ServerConfigWithCredential(ctx context.Context, srv *server_entity.Server, pending *credential_entity.Credential) (Config, error) {
 	sec := secret.Default()
 	if sec == nil {
 		return Config{}, errors.New("主密钥未加载，无法解密服务器凭据")
 	}
-	target, err := sshHopOf(sec, srv)
+	target, err := sshHopOf(ctx, sec, srv, pending)
 	if err != nil {
 		return Config{}, err
 	}
@@ -99,7 +110,7 @@ func ServerConfig(ctx context.Context, srv *server_entity.Server) (Config, error
 			if jump == nil {
 				return Config{}, fmt.Errorf("代理链第 %d 跳引用的%w", i+1, ErrServerNotFound)
 			}
-			hop, err := sshHopOf(sec, jump)
+			hop, err := sshHopOf(ctx, sec, jump, nil)
 			if err != nil {
 				return Config{}, err
 			}
@@ -117,18 +128,35 @@ func ServerConfig(ctx context.Context, srv *server_entity.Server) (Config, error
 	return cfg, nil
 }
 
-func sshHopOf(sec secret.Secret, s *server_entity.Server) (Hop, error) {
+// sshHopOf 把一台服务器转换成 SSH 跳：地址与已核对的指纹来自服务器，凭据来自 pending（待测试的新凭据）
+// 或它引用的那条凭据；用凭据类型决定走密码还是私钥。
+func sshHopOf(ctx context.Context, sec secret.Secret, s *server_entity.Server, pending *credential_entity.Credential) (Hop, error) {
 	hop := Hop{Kind: KindSSH, Name: s.Name, Host: s.Host, Port: s.Port, User: s.Username, Fingerprint: s.HostKeyFingerprint}
+	cred := pending
+	if cred == nil {
+		var err error
+		if cred, err = credential_repo.Credential().Find(ctx, s.CredentialID); err != nil {
+			return hop, err
+		}
+		if cred == nil {
+			return hop, fmt.Errorf("服务器 %s 引用的%w：id=%d", s.Name, ErrCredentialNotFound, s.CredentialID)
+		}
+	}
+	return hopWithCredential(sec, hop, cred)
+}
+
+// hopWithCredential 按凭据的类型解密密码或私钥（及可选口令）
+func hopWithCredential(sec secret.Secret, hop Hop, cred *credential_entity.Credential) (Hop, error) {
 	var err error
-	switch s.AuthType {
-	case server_entity.AuthPassword:
-		hop.Password, err = decrypt(sec, s.Password)
-	case server_entity.AuthPrivateKey:
-		if hop.PrivateKey, err = decrypt(sec, s.PrivateKey); err == nil {
-			hop.Passphrase, err = decrypt(sec, s.Passphrase)
+	switch cred.Kind {
+	case credential_entity.KindPassword:
+		hop.Password, err = decrypt(sec, cred.Password)
+	case credential_entity.KindSSHKey:
+		if hop.PrivateKey, err = decrypt(sec, cred.PrivateKey); err == nil {
+			hop.Passphrase, err = decrypt(sec, cred.Passphrase)
 		}
 	default:
-		err = fmt.Errorf("服务器 %s 的认证方式 %q 不受支持", s.Name, s.AuthType)
+		err = fmt.Errorf("服务器 %s 的凭据类型 %q 不受支持", hop.Name, cred.Kind)
 	}
 	return hop, err
 }
