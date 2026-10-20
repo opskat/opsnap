@@ -161,6 +161,30 @@ func TestServerDirectCredential(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, res.OK, "%+v", res.Hops)
 	})
+
+	t.Run("改地址或用户时私钥仍然沿用已保存的值", func(t *testing.T) {
+		// 私钥不会发给对方（公钥认证只发签名），换目标不构成泄露；
+		// 只有密码会被原样发出去，才需要在地址或用户变化时强制重填
+		f := setupServerTest(t)
+		key := sshconntest.GenerateKey(t, "SECRET-key-pass")
+		target := sshconntest.StartSSH(t, sshconntest.SSHOptions{User: "app", AuthorizedKey: key.Public})
+		other := sshconntest.StartSSH(t, sshconntest.SSHOptions{User: "app", AuthorizedKey: key.Public})
+
+		in := passwordInput(t, "db-1", target, "app", "")
+		in.AuthType, in.PrivateKey, in.Passphrase = serverapi.AuthSSHKey, key.PrivatePEM, "SECRET-key-pass"
+		item := f.create(t, in)
+		before := f.rawCredential(t, item.ID).PrivateKey
+
+		// 只换地址与用户，私钥与口令回传占位
+		moved := passwordInput(t, "db-1", other, "root", "")
+		moved.AuthType, moved.PrivateKey, moved.Passphrase = serverapi.AuthSSHKey, secret.Masked, secret.Masked
+		_, err := f.svc.Update(f.ctx, updateReq(item.ID, moved))
+		require.NoError(t, err, "私钥不随地址变化而失效")
+
+		cred := f.rawCredential(t, item.ID)
+		assert.Equal(t, before, cred.PrivateKey, "沿用已保存的私钥")
+		assert.NotEmpty(t, cred.Passphrase, "口令同样保留")
+	})
 }
 
 func TestServerSharedCredential(t *testing.T) {

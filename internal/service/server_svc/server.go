@@ -486,7 +486,8 @@ func mergeCredential(ctx context.Context, old, srv *server_entity.Server, in *se
 	default:
 		return i18n.NewError(ctx, code.ServerAuthTypeInvalid)
 	}
-	// 地址、端口或用户改了就不能沿用已保存的密码：否则能借「测试连接」把它发到任意主机
+	// 密码会原样发给对方：地址、端口或用户改了就不能沿用已保存的，
+	// 否则能借「测试连接」把它发到任意主机。私钥不发给对方（公钥认证只发签名），不受此限。
 	retarget := saved != nil && (old.Host != srv.Host || old.Port != srv.Port || old.Username != srv.Username)
 
 	var err error
@@ -499,7 +500,7 @@ func mergeCredential(ctx context.Context, old, srv *server_entity.Server, in *se
 			return i18n.NewError(ctx, code.ServerCredentialRequired, "请填写密码")
 		}
 	case credential_entity.KindSSHKey:
-		if cred.PrivateKey, err = mergeField(ctx, "私钥", in.PrivateKey, cred.PrivateKey, saved != nil, retarget); err != nil {
+		if cred.PrivateKey, err = mergeField(ctx, "私钥", in.PrivateKey, cred.PrivateKey, saved != nil, false); err != nil {
 			return err
 		}
 		if cred.PrivateKey == "" {
@@ -533,7 +534,7 @@ func isKeep(input string) bool { return input == "" || input == secret.Masked }
 //   - 留空在编辑已有私有凭据时同样保留，新建时报空（由调用方给出「请填写密码 / 私钥」）；
 //   - 其余加密保存。
 //
-// 连接目标变了时不沿用已保存的值（retarget），否则能借「测试连接」把已保存的密码发到任意主机。
+// retarget 为真时不沿用已保存的值：只有会原样发给对方的密码需要，见 mergeCredential。
 func mergeField(ctx context.Context, label, input, current string, hasSaved, retarget bool) (string, error) {
 	switch input {
 	case secret.Masked:

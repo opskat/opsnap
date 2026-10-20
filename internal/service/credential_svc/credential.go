@@ -287,7 +287,7 @@ func duplicateError(ctx context.Context, err error, name string) error {
 		return nil
 	}
 	msg := strings.ToLower(err.Error())
-	if strings.Contains(msg, "unique constraint failed") || strings.Contains(msg, "unique constraint") {
+	if strings.Contains(msg, "unique constraint") {
 		return i18n.NewError(ctx, code.CredentialNameDuplicate, name)
 	}
 	return err
