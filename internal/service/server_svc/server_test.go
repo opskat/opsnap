@@ -163,14 +163,17 @@ func TestServerCredentials(t *testing.T) {
 		sh, sp := sshconntest.HostPort(t, socks.Addr)
 
 		in := passwordInput(t, "db-1", target, "app", "")
-		in.AuthType = serverapi.AuthPrivateKey
+		in.AuthType = serverapi.AuthSSHKey
 		in.PrivateKey, in.Passphrase = key.PrivatePEM, "key-pass"
 		in.Hops = []serverapi.HopInput{{Type: serverapi.HopSOCKS5, Host: sh, Port: sp, Username: "px", Password: "px-secret"}}
 		item := f.create(t, in)
 
-		assert.Equal(t, secret.Masked, item.PrivateKey)
-		assert.Equal(t, secret.Masked, item.Passphrase)
-		assert.Empty(t, item.Password)
+		require.NotNil(t, item.Credential)
+		assert.Equal(t, credential_entity.KindSSHKey, item.Credential.Kind)
+		assert.False(t, item.Credential.Shared, "直接填写的凭据不在密钥页出现")
+		assert.Empty(t, item.Credential.Name, "私有凭据没有名称")
+		assert.True(t, item.Credential.HasSecret)
+		assert.True(t, item.Credential.HasPassphrase)
 		require.Len(t, item.Hops, 1)
 		assert.Equal(t, secret.Masked, item.Hops[0].Password)
 		assert.Equal(t, "px", item.Hops[0].Username)
@@ -192,11 +195,11 @@ func TestServerCredentials(t *testing.T) {
 
 		got, err := f.svc.Get(f.ctx, item.ID)
 		require.NoError(t, err)
-		assert.Equal(t, secret.Masked, got.PrivateKey)
+		assert.True(t, got.Credential.HasSecret)
 		list, err := f.svc.List(f.ctx)
 		require.NoError(t, err)
 		require.Len(t, list.List, 1)
-		assert.Equal(t, secret.Masked, list.List[0].Passphrase)
+		assert.True(t, list.List[0].Credential.HasPassphrase)
 
 		// 回传占位保留已保存的凭据，连接仍然成功
 		in.PrivateKey, in.Passphrase = secret.Masked, secret.Masked
@@ -223,7 +226,7 @@ func TestServerCredentials(t *testing.T) {
 		assert.Equal(t, code.ServerCredentialRequired, codeOf(t, err))
 
 		in := passwordInput(t, "web", target, "app", "")
-		in.AuthType, in.PrivateKey = serverapi.AuthPrivateKey, "not a key"
+		in.AuthType, in.PrivateKey = serverapi.AuthSSHKey, "not a key"
 		_, err = f.svc.Create(f.ctx, createReq(in))
 		assert.Equal(t, code.ServerPrivateKeyInvalid, codeOf(t, err))
 	})
