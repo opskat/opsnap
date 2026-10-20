@@ -3986,10 +3986,19 @@
         "credential.ServerRef": {
             "type": "object",
             "properties": {
+                "host": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "integer"
                 },
                 "name": {
+                    "type": "string"
+                },
+                "port": {
+                    "type": "integer"
+                },
+                "username": {
                     "type": "string"
                 }
             }

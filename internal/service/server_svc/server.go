@@ -514,10 +514,13 @@ func mergeCredential(ctx context.Context, old, srv *server_entity.Server, in *se
 	}
 
 	if name := strings.TrimSpace(in.ShareAs); name != "" {
-		if err := checkSharedName(ctx, name, cred.ID); err != nil {
+		// 「同时存成密钥」的名称默认是服务器名，重名时自动加序号（web-01、web-01-2……），
+		// 已经是共享的那条沿用自己原来的名称，不会因为重名又变成 web-01-2
+		list, err := credential_repo.Credential().ListShared(ctx)
+		if err != nil {
 			return err
 		}
-		cred.Shared, cred.Name = true, name
+		cred.Shared, cred.Name = true, credential_entity.FreeSharedName(name, cred.ID, list)
 	}
 	return cred.Validate(ctx)
 }
@@ -559,20 +562,6 @@ func encrypt(input string) (string, error) {
 	return sec.Encrypt(input)
 }
 
-// checkSharedName 确认名称没有被别的共享密钥占用；selfID 是正在转成共享的那条
-func checkSharedName(ctx context.Context, name string, selfID int64) error {
-	list, err := credential_repo.Credential().ListShared(ctx)
-	if err != nil {
-		return err
-	}
-	for _, c := range list {
-		if c.ID != selfID && c.Name == name {
-			return i18n.NewError(ctx, code.CredentialNameDuplicate, name)
-		}
-	}
-	return nil
-}
-
 // persistCredential 把待写入的私有凭据落库，并把它的 ID 记到服务器上。
 // 引用共享密钥时什么都不写：srv.CredentialID 在解析阶段已经是那条密钥的 ID。
 func (s *serverSvc) persistCredential(ctx context.Context, srv *server_entity.Server, res *resolved) error {
@@ -595,7 +584,7 @@ func (s *serverSvc) persistCredential(ctx context.Context, srv *server_entity.Se
 }
 
 // duplicateError 把共享名称的唯一索引错误翻译成 CredentialNameDuplicate。
-// 并发保存时 checkSharedName 可能同时通过，这里兜住；不把数据库错误暴露给调用方。
+// 开号时已经避开重名，并发保存时仍可能同时拿到同一个空位，这里兜住；不把数据库错误暴露给调用方。
 func duplicateError(ctx context.Context, err error, name string) error {
 	if err == nil {
 		return nil

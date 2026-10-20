@@ -28,10 +28,13 @@ type CredentialRepo interface {
 	ServersByCredentialID(ctx context.Context, id int64) ([]*ServerRef, error)
 }
 
-// ServerRef 引用凭据的服务器
+// ServerRef 引用凭据的服务器；地址与用户是明文信息，用于界面写「用户@地址」
 type ServerRef struct {
-	ID   int64  `gorm:"column:id"`
-	Name string `gorm:"column:name"`
+	ID       int64  `gorm:"column:id"`
+	Name     string `gorm:"column:name"`
+	Host     string `gorm:"column:host"`
+	Port     int    `gorm:"column:port"`
+	Username string `gorm:"column:username"`
 }
 
 var defaultCredential CredentialRepo
@@ -103,7 +106,12 @@ func (r *credentialRepo) CountServersByCredentialID(ctx context.Context, id int6
 
 func (r *credentialRepo) ServersByCredentialID(ctx context.Context, id int64) ([]*ServerRef, error) {
 	var list []*ServerRef
-	if err := db.Ctx(ctx).Table("servers").Select("id, name").Where("credential_id = ?", id).Order("id ASC").Find(&list).Error; err != nil {
+	err := db.Ctx(ctx).Table("servers").
+		Select("id, name, host, port, username").
+		Where("credential_id = ?", id).
+		Order("id ASC").
+		Find(&list).Error
+	if err != nil {
 		return nil, err
 	}
 	return list, nil

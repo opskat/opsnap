@@ -4,6 +4,7 @@ package credential_entity
 
 import (
 	"context"
+	"strconv"
 	"strings"
 
 	"github.com/cago-frame/cago/pkg/i18n"
@@ -18,7 +19,8 @@ const (
 )
 
 const (
-	maxNameLen     = 64
+	// MaxNameLen 密钥名称最长字数
+	MaxNameLen     = 64
 	maxUsernameLen = 64
 	maxNoteLen     = 200
 )
@@ -51,7 +53,7 @@ func (c *Credential) Check(ctx context.Context) error {
 
 // Validate 保存前校验名称、类型、内容和长度。密码、私钥此时已是要落库的密文。
 func (c *Credential) Validate(ctx context.Context) error {
-	if c.Shared && (strings.TrimSpace(c.Name) == "" || len([]rune(c.Name)) > maxNameLen) {
+	if c.Shared && (strings.TrimSpace(c.Name) == "" || len([]rune(c.Name)) > MaxNameLen) {
 		return i18n.NewError(ctx, code.CredentialFieldInvalid, "名称不能为空，且不超过 64 个字")
 	}
 	switch c.Kind {
@@ -77,3 +79,29 @@ func (c *Credential) Validate(ctx context.Context) error {
 
 // IsShared 是否是共享凭据（能被多台服务器选用、出现在密钥页）
 func (c *Credential) IsShared() bool { return c.Shared }
+
+// FreeSharedName 给出一个没被其它共享凭据占用的名称：base 自己空着就用 base，
+// 否则依次试 base-2、base-3……序号接在名称末尾；加了序号后超过 MaxNameLen 时截短原名称。
+// selfID 是正在转成共享的那条凭据，它自己的旧名字不算占用。
+func FreeSharedName(base string, selfID int64, taken []*Credential) string {
+	base = strings.TrimSpace(base)
+	used := make(map[string]bool, len(taken))
+	for _, c := range taken {
+		if c.ID != selfID {
+			used[c.Name] = true
+		}
+	}
+	if !used[base] {
+		return base
+	}
+	for n := 2; ; n++ {
+		suffix := "-" + strconv.Itoa(n)
+		prefix := base
+		if runes := []rune(prefix); len(runes)+len(suffix) > MaxNameLen {
+			prefix = string(runes[:MaxNameLen-len(suffix)])
+		}
+		if name := prefix + suffix; !used[name] {
+			return name
+		}
+	}
+}

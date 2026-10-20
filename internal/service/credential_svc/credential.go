@@ -313,7 +313,9 @@ func toItem(c *credential_entity.Credential, refs []*credential_repo.ServerRef) 
 		item.HasSecret = c.PrivateKey != ""
 	}
 	for _, r := range refs {
-		item.Servers = append(item.Servers, &credentialapi.ServerRef{ID: r.ID, Name: r.Name})
+		item.Servers = append(item.Servers, &credentialapi.ServerRef{
+			ID: r.ID, Name: r.Name, Host: r.Host, Port: r.Port, Username: r.Username,
+		})
 	}
 	return item
 }

@@ -154,6 +154,31 @@ func TestCredentialCreateGetListDelete(t *testing.T) {
 		assert.Equal(t, "web-2", refs[1].Name)
 	})
 
+	t.Run("使用者的地址与用户一并返回，供抽屉里写「用户@地址」", func(t *testing.T) {
+		// 换一条只被这台服务器使用的密钥，使用者列表才只有一条
+		own := keyInput(t, "B 私钥", "")
+		mine, err := f.svc.Create(f.ctx, credentialapi.NewCreateRequest(own))
+		require.NoError(t, err)
+		srv := f.useByServer(t, "web-03", mine.ID)
+		srv.Host, srv.Port, srv.Username = "10.0.9.5", 2222, "ops"
+		require.NoError(t, f.db.Save(srv).Error)
+
+		got, err := f.svc.Get(f.ctx, mine.ID)
+		require.NoError(t, err)
+		require.Len(t, got.Servers, 1)
+		ref := got.Servers[0]
+		assert.Equal(t, srv.ID, ref.ID)
+		assert.Equal(t, "web-03", ref.Name)
+		assert.Equal(t, "10.0.9.5", ref.Host)
+		assert.Equal(t, 2222, ref.Port)
+		assert.Equal(t, "ops", ref.Username)
+
+		// 地址与用户是明文的非敏感信息，不包含任何凭据内容
+		raw, err := json.Marshal(got)
+		require.NoError(t, err)
+		assert.NotContains(t, string(raw), testPassword)
+	})
+
 	t.Run("列表不返回私有凭据", func(t *testing.T) {
 		private := &credential_entity.Credential{Kind: credential_entity.KindPassword, Password: "SECRET-private", Shared: false}
 		_, err := f.svc.Create(f.ctx, credentialapi.NewCreateRequest(passwordInput("临时")))

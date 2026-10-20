@@ -1,6 +1,6 @@
 // 密钥表单的数据模型：从接口数据生成表单、校验并生成提交体，以及列表里的使用者摘要。
 // 纯函数，不依赖界面。
-import type { CredentialInput, CredentialItem, CredentialKind } from "./api";
+import type { CredentialInput, CredentialItem, CredentialKind, CredentialServerRef } from "./api";
 
 /** 名称最长字数 */
 export const CREDENTIAL_NAME_MAX = 64;
@@ -106,6 +106,11 @@ export function usedServers(c: CredentialItem): { names: string[]; more: number;
     more: Math.max(0, all.length - USED_SERVERS_SHOWN),
     total: all.length,
   };
+}
+
+/** 一台使用者的「用户@地址」，抽屉里用来说明是哪台机器 */
+export function serverLabel(s: CredentialServerRef): string {
+  return `${s.username}@${s.host}${s.port ? `:${s.port}` : ""}`;
 }
 
 /** 被服务器使用时删除受阻的原因；可以删除时为 null */

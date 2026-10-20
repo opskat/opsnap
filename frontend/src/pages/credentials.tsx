@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { DrawerContent, Field, FormError, PageTitle, Segmented, Sheet, Skeleton } from "@/components/bits";
+import { DrawerContent, Field, FormError, Mono, PageTitle, Segmented, Sheet, Skeleton } from "@/components/bits";
 import { SECRET_MASKED, api, errorMessage, CREDENTIAL_KIND_LABEL, type CredentialItem } from "@/lib/api";
 import {
   buildInput,
@@ -26,6 +26,7 @@ import {
   emptyForm,
   formFromItem,
   switchKind,
+  serverLabel,
   usedServers,
   type CredentialForm,
 } from "@/lib/credentials";
@@ -382,8 +383,9 @@ function CredentialDialog({
               <h3 className="text-[14px] font-semibold">被这些服务器使用</h3>
               <ul className="mt-2 flex flex-wrap gap-1.5">
                 {used.map((s) => (
-                  <li key={s.id} className="rounded-md bg-sunken px-1.5 text-[12px] text-ink-2">
-                    {s.name}
+                  <li key={s.id} className="flex items-center gap-1.5 rounded-md bg-sunken px-1.5 py-0.5">
+                    <span className="text-[12px] text-ink-2">{s.name}</span>
+                    <Mono className="text-[11px] text-ink-3">{serverLabel(s)}</Mono>
                   </li>
                 ))}
               </ul>

@@ -358,6 +358,10 @@ export const CREDENTIAL_KIND_LABEL: Record<CredentialKind, string> = { password:
 export interface CredentialServerRef {
   id: number;
   name: string;
+  /** 地址与用户是明文，用来在抽屉里写「用户@地址」 */
+  host: string;
+  port: number;
+  username: string;
 }
 
 /** 一条共享密钥；只告诉调用方有没有内容，永不返回密文或明文 */

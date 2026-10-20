@@ -18,10 +18,10 @@ const PROD_ROOT = {
   has_secret: true,
   has_passphrase: false,
   servers: [
-    { id: 11, name: "web-01" },
-    { id: 12, name: "web-02" },
-    { id: 13, name: "db-01" },
-    { id: 14, name: "nas-ops" },
+    { id: 11, name: "web-01", host: "10.0.3.11", port: 22, username: "root" },
+    { id: 12, name: "web-02", host: "10.0.3.12", port: 22, username: "root" },
+    { id: 13, name: "db-01", host: "10.0.3.21", port: 22, username: "root" },
+    { id: 14, name: "nas-ops", host: "10.0.9.5", port: 22, username: "ops" },
   ],
   created_at: NOW,
   updated_at: NOW,
@@ -34,7 +34,7 @@ const OPS_KEY = {
   note: "ed25519，带口令",
   has_secret: true,
   has_passphrase: true,
-  servers: [{ id: 15, name: "jump-bj" }],
+  servers: [{ id: 15, name: "jump-bj", host: "203.0.113.7", port: 22, username: "ops" }],
   created_at: NOW,
   updated_at: NOW,
 };
@@ -291,6 +291,9 @@ describe("编辑密钥", () => {
     expect(within(dialog).getByText("被这些服务器使用")).toBeInTheDocument();
     expect(within(dialog).getByText(/web-01/)).toBeInTheDocument();
     expect(within(dialog).getByText(/nas-ops/)).toBeInTheDocument();
+    // 使用者后面跟着「用户@地址」，一眼看出是哪台机器
+    expect(within(dialog).getByText("root@10.0.3.11:22")).toBeInTheDocument();
+    expect(within(dialog).getByText("ops@10.0.9.5:22")).toBeInTheDocument();
     expect(within(dialog).getByText(/改这里的密码或私钥，上面这些服务器会一起生效/)).toBeInTheDocument();
   });
 

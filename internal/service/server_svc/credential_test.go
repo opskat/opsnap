@@ -3,6 +3,7 @@ package server_svc
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	credentialapi "github.com/opskat/opsnap/internal/api/credential"
@@ -301,27 +302,69 @@ func TestServerShareAs(t *testing.T) {
 		require.True(t, res.OK, "%+v", res.Hops)
 	})
 
-	t.Run("转共享时与其它共享密钥重名被拒，凭据保持私有原样", func(t *testing.T) {
+	t.Run("转共享时与其它共享密钥重名自动加序号，凭据仍然原地转成共享", func(t *testing.T) {
 		f := setupServerTest(t)
 		target := sshconntest.StartSSH(t, sshconntest.SSHOptions{User: "app", Password: "SECRET-pw"})
-		taken := f.shared(t, "生产 root", credential_entity.KindPassword, "app", "SECRET-other-pw", "")
+		// 「同时存成密钥」的名字默认是服务器名，同一台机器的第二、三份凭据要能各自存下来
+		f.shared(t, "web-01", credential_entity.KindPassword, "app", "SECRET-other-pw", "")
+		f.shared(t, "web-01-2", credential_entity.KindPassword, "app", "SECRET-other-pw", "")
+		item := f.create(t, passwordInput(t, "web-01", target, "app", "SECRET-pw"))
+		credID := f.raw(t, item.ID).CredentialID
+
+		in := passwordInput(t, "web-01", target, "app", secret.Masked)
+		in.ShareAs = "web-01"
+		saved, err := f.svc.Update(f.ctx, updateReq(item.ID, in))
+		require.NoError(t, err)
+
+		assert.Equal(t, "web-01-3", saved.Credential.Name, "重名时自动加序号")
+		assert.True(t, saved.Credential.Shared)
+		assert.Equal(t, credID, f.raw(t, item.ID).CredentialID, "原地转共享，行 ID 与引用都不变")
+		assert.Equal(t, int64(3), f.countRows(t, "credentials"), "没有复制出新的凭据行")
+
+		// 序号接在已有名称后面，不会覆盖掉别人
+		list, err := credential_svc.Credential().List(f.ctx)
+		require.NoError(t, err)
+		names := make([]string, 0, len(list.List))
+		for _, c := range list.List {
+			names = append(names, c.Name)
+		}
+		assert.Equal(t, []string{"web-01", "web-01-2", "web-01-3"}, names)
+	})
+
+	t.Run("自动加序号后名称仍不超过 64 个字", func(t *testing.T) {
+		f := setupServerTest(t)
+		target := sshconntest.StartSSH(t, sshconntest.SSHOptions{User: "app", Password: "SECRET-pw"})
+		long := strings.Repeat("名", 64)
+		f.shared(t, long, credential_entity.KindPassword, "app", "SECRET-other-pw", "")
+		item := f.create(t, passwordInput(t, "web-1", target, "app", "SECRET-pw"))
+
+		in := passwordInput(t, "web-1", target, "app", secret.Masked)
+		in.ShareAs = long
+		saved, err := f.svc.Update(f.ctx, updateReq(item.ID, in))
+		require.NoError(t, err)
+
+		assert.LessOrEqual(t, len([]rune(saved.Credential.Name)), 64)
+		assert.True(t, strings.HasSuffix(saved.Credential.Name, "-2"), saved.Credential.Name)
+	})
+
+	t.Run("同一台服务器再次带 share_as 保存时沿用已经转成共享的那条，不改名字", func(t *testing.T) {
+		f := setupServerTest(t)
+		target := sshconntest.StartSSH(t, sshconntest.SSHOptions{User: "app", Password: "SECRET-pw"})
 		item := f.create(t, passwordInput(t, "web-1", target, "app", "SECRET-pw"))
 		credID := f.raw(t, item.ID).CredentialID
 
-		in := passwordInput(t, "web-1", target, "app", secret.Masked)
-		in.ShareAs = "生产 root"
-		_, err := f.svc.Update(f.ctx, updateReq(item.ID, in))
-		assert.Equal(t, code.CredentialNameDuplicate, codeOf(t, err))
-
-		cred := f.rawCredential(t, item.ID)
-		assert.Equal(t, credID, cred.ID)
-		assert.False(t, cred.Shared, "重名时没有把凭据转成共享")
-		assert.Empty(t, cred.Name)
-		p, err := secret.Default().Decrypt(cred.Password)
+		first := passwordInput(t, "web-1", target, "app", secret.Masked)
+		first.ShareAs = "web-01"
+		_, err := f.svc.Update(f.ctx, updateReq(item.ID, first))
 		require.NoError(t, err)
-		assert.Equal(t, "SECRET-pw", p)
-		assert.Equal(t, int64(2), f.countRows(t, "credentials"))
-		_ = taken
+
+		// 这台服务器已经是共享的了：再勾一次「同时存成密钥」不会变成 web-01-2
+		second := sharedInput(t, "web-1", target, "app", credID)
+		second.ShareAs = "web-01"
+		saved, err := f.svc.Update(f.ctx, updateReq(item.ID, second))
+		require.NoError(t, err)
+		assert.Equal(t, "web-01", saved.Credential.Name)
+		assert.Equal(t, int64(1), f.countRows(t, "credentials"))
 	})
 
 	t.Run("新建服务器时直接带 share_as 就直接存成共享密钥", func(t *testing.T) {

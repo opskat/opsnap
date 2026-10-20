@@ -29,10 +29,13 @@ type Input struct {
 	Note string `json:"note"`
 }
 
-// ServerRef 使用某条密钥的服务器
+// ServerRef 使用某条密钥的服务器。地址与用户是明文，供界面写「用户@地址」
 type ServerRef struct {
-	ID   int64  `json:"id"`
-	Name string `json:"name"`
+	ID       int64  `json:"id"`
+	Name     string `json:"name"`
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Username string `json:"username"`
 }
 
 // Item 一条共享密钥。只返回有没有内容与有没有口令，永不返回密文或明文
