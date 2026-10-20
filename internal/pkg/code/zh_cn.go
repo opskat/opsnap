@@ -113,10 +113,11 @@ var zhCN = map[int]string{
 	PasswordLoginDisabled:        "密码登录已关闭，请用 %s 登录",
 	SSOConfigChanged:             "授权期间单点登录的提供方配置被修改了，请重新操作。",
 
-	CredentialNotFound:      "密钥不存在",
-	CredentialFieldInvalid:  "%s",
-	CredentialNameDuplicate: "已有一条叫 %q 的密钥，请换一个名称",
-	CredentialEmpty:         "%s",
-	CredentialInUse:         "有 %d 台服务器使用这条密钥（%s），先在那些服务器上换成别的凭据，再删除",
-	CredentialKindInvalid:   "密钥类型须是密码或私钥",
+	CredentialNotFound:          "密钥不存在",
+	CredentialFieldInvalid:      "%s",
+	CredentialNameDuplicate:     "已有一条叫 %q 的密钥，请换一个名称",
+	CredentialEmpty:             "%s",
+	CredentialInUse:             "有 %d 台服务器使用这条密钥（%s），先在那些服务器上换成别的凭据，再删除",
+	CredentialKindInvalid:       "密钥类型须是密码或私钥",
+	CredentialPrivateKeyInvalid: "私钥无法解析或口令错误",
 }

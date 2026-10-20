@@ -15,6 +15,7 @@ import (
 	_ "github.com/opskat/opsnap/docs" // 注册 cago gen 生成的 OpenAPI 文档
 	"github.com/opskat/opsnap/internal/controller/apikey_ctr"
 	"github.com/opskat/opsnap/internal/controller/auth_ctr"
+	"github.com/opskat/opsnap/internal/controller/credential_ctr"
 	"github.com/opskat/opsnap/internal/controller/job_ctr"
 	"github.com/opskat/opsnap/internal/controller/notify_ctr"
 	"github.com/opskat/opsnap/internal/controller/overview_ctr"
@@ -47,6 +48,7 @@ func Router(ctx context.Context, root *mux.Router) error {
 	settingCtr := setting_ctr.NewSetting()
 	notifyCtr := notify_ctr.NewNotify()
 	serverCtr := server_ctr.NewServer()
+	credentialCtr := credential_ctr.NewCredential()
 	repoCtr := repo_ctr.NewRepo()
 	jobCtr := job_ctr.NewJob()
 	runCtr := run_ctr.NewRun()
@@ -90,6 +92,11 @@ func Router(ctx context.Context, root *mux.Router) error {
 		serverCtr.Delete,
 		serverCtr.Test,
 		serverCtr.TestSaved,
+		credentialCtr.List,
+		credentialCtr.Get,
+		credentialCtr.Create,
+		credentialCtr.Update,
+		credentialCtr.Delete,
 		repoCtr.List,
 		repoCtr.Get,
 		repoCtr.Create,
