@@ -1,6 +1,6 @@
 .PHONY: build build-go frontend frontend-test check run test lint gen tidy it it-vet
 
-VERSION ?= 0.1.1
+VERSION ?= 0.1.0
 LDFLAGS := -s -w -X github.com/cago-frame/cago/configs.Version=$(VERSION)
 CAGO_VERSION := v0.0.0-20260926025905-604723c9e69d
 

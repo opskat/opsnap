@@ -22,7 +22,7 @@ RUN pnpm build
 
 # ---- 后端：前端产物复制到 web/dist 后内嵌进二进制 ----
 FROM golang:${GO_VERSION}-${DEBIAN_RELEASE} AS backend
-ARG VERSION=0.1.1
+ARG VERSION=0.1.0
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
