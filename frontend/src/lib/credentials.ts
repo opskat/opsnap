@@ -1,5 +1,6 @@
 // 密钥表单的数据模型：从接口数据生成表单、校验并生成提交体，以及列表里的使用者摘要。
 // 纯函数，不依赖界面（只有写剪贴板与算指纹需要浏览器 API）。
+import { copyText } from "./clipboard";
 import {
   errorMessage,
   type CredentialInput,
@@ -289,7 +290,8 @@ export type CopyResult = { ok: true } | { ok: false; error: string };
 
 /**
  * 取内容并写进剪贴板。内容由 get 现取（密码要经 reveal 接口拿明文），
- * 取不到或浏览器拒绝写剪贴板都返回原因，由界面提示，不像 useCopy 那样静默。
+ * 取不到或浏览器不允许写剪贴板都返回原因，由界面提示，不像 useCopy 那样静默。
+ * 写剪贴板本身见 copyText：http 访问时没有 Clipboard API，会退回旧通路。
  */
 export async function writeClipboard(get: () => string | Promise<string>): Promise<CopyResult> {
   let text: string;
@@ -299,9 +301,7 @@ export async function writeClipboard(get: () => string | Promise<string>): Promi
     return { ok: false, error: `复制失败：${errorMessage(err)}` };
   }
   if (!text) return { ok: false, error: "复制失败：没有可复制的内容" };
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
+  if (!(await copyText(text))) {
     return { ok: false, error: "复制失败：浏览器不允许访问剪贴板，请手动选中后复制" };
   }
   return { ok: true };

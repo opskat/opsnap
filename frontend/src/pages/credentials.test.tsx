@@ -186,8 +186,40 @@ describe("密钥列表", () => {
     setup();
     const user = userEvent.setup();
     vi.spyOn(navigator.clipboard, "writeText").mockRejectedValue(new Error("denied"));
-    await user.click(await screen.findByRole("button", { name: "复制 ops 私钥 的公钥" }));
-    expect(await screen.findByText("复制失败：浏览器不允许访问剪贴板，请手动选中后复制")).toBeInTheDocument();
+    // 旧通路也失败，才是真的复制不了
+    Object.defineProperty(document, "execCommand", { value: () => false, configurable: true, writable: true });
+    try {
+      await user.click(await screen.findByRole("button", { name: "复制 ops 私钥 的公钥" }));
+      expect(await screen.findByText("复制失败：浏览器不允许访问剪贴板，请手动选中后复制")).toBeInTheDocument();
+    } finally {
+      delete (document as unknown as Record<string, unknown>).execCommand;
+    }
+  });
+
+  it("http 访问时没有 Clipboard API，仍然复制成功", async () => {
+    setup();
+    const user = userEvent.setup();
+    // 非安全上下文里 navigator.clipboard 不存在，只能走 execCommand
+    const own = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true });
+    let copied = "";
+    Object.defineProperty(document, "execCommand", {
+      value: (cmd: string) => {
+        copied = document.querySelector("textarea")?.value ?? "";
+        return cmd === "copy";
+      },
+      configurable: true,
+      writable: true,
+    });
+    try {
+      await user.click(await screen.findByRole("button", { name: "复制 ops 私钥 的公钥" }));
+      expect(await screen.findByRole("button", { name: "复制 ops 私钥 的公钥" })).toHaveTextContent("已复制");
+      expect(copied).toBe(OPS_PUB);
+    } finally {
+      if (own) Object.defineProperty(navigator, "clipboard", own);
+      else delete (navigator as unknown as Record<string, unknown>).clipboard;
+      delete (document as unknown as Record<string, unknown>).execCommand;
+    }
   });
 
   it("没有内容的条目显示「—」并禁用复制", async () => {

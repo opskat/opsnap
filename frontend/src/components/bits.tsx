@@ -8,6 +8,7 @@ import postgresqlIcon from "@iconify-icons/logos/postgresql";
 import redisIcon from "@iconify-icons/logos/redis";
 import mongodbIcon from "@iconify-icons/logos/mongodb-icon";
 import { Check, Copy, FolderClosed } from "lucide-react";
+import { copyText } from "@/lib/clipboard";
 import { DialogContent } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
@@ -346,17 +347,13 @@ export function CodeBlock({ title, text }: { title: string; text: string }) {
   );
 }
 
-/** 复制到剪贴板；返回 [刚复制过, 复制函数] */
+/** 复制到剪贴板；返回 [刚复制过, 复制函数]。写不进去时不报成功，用户仍可手动选中 */
 export function useCopy(): [boolean, (text: string) => Promise<void>] {
   const [copied, setCopied] = React.useState(false);
   const timer = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   React.useEffect(() => () => clearTimeout(timer.current), []);
   const copy = React.useCallback(async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      return; // 非安全上下文（http 访问）没有剪贴板权限，用户可以手动选中复制
-    }
+    if (!(await copyText(text))) return;
     setCopied(true);
     clearTimeout(timer.current);
     timer.current = setTimeout(() => setCopied(false), 1600);

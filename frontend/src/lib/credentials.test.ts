@@ -147,10 +147,16 @@ describe("写剪贴板", () => {
 
   it("浏览器拒绝写剪贴板时说明原因，不静默", async () => {
     vi.spyOn(navigator.clipboard, "writeText").mockRejectedValue(new Error("denied"));
-    await expect(writeClipboard(() => "x")).resolves.toEqual({
-      ok: false,
-      error: "复制失败：浏览器不允许访问剪贴板，请手动选中后复制",
-    });
+    // 旧通路也失败，才是真的复制不了
+    Object.defineProperty(document, "execCommand", { value: () => false, configurable: true, writable: true });
+    try {
+      await expect(writeClipboard(() => "x")).resolves.toEqual({
+        ok: false,
+        error: "复制失败：浏览器不允许访问剪贴板，请手动选中后复制",
+      });
+    } finally {
+      delete (document as unknown as Record<string, unknown>).execCommand;
+    }
   });
 
   it("没有内容时也报错", async () => {
