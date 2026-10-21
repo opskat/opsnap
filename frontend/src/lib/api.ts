@@ -376,6 +376,8 @@ export interface CredentialItem {
   has_secret: boolean;
   /** 私钥有没有口令 */
   has_passphrase: boolean;
+  /** 私钥类型的公钥（authorized_keys 一行，明文）；密码类型为空串 */
+  public_key: string;
   /** 使用这条密钥的服务器；没有时是空数组 */
   servers: CredentialServerRef[] | null;
   created_at: number;
@@ -391,6 +393,36 @@ export interface CredentialInput {
   passphrase: string;
   username: string;
   note: string;
+}
+
+/** 生成一份密钥内容，只填进表单，不写库 */
+export interface GenerateBody {
+  kind: CredentialKind;
+  /** 生成私钥时是否同时生成口令 */
+  passphrase?: boolean;
+}
+
+/**
+ * 生成出来的内容：kind=password 时只有 password；
+ * kind=ssh_key 时有 private_key 与 public_key，要求了口令时还有 passphrase。
+ */
+export interface GenerateResult {
+  kind: CredentialKind;
+  password?: string;
+  private_key?: string;
+  public_key?: string;
+  passphrase?: string;
+}
+
+/**
+ * 一次性取回的明文，供复制用：密码类型只有 password，
+ * 私钥类型有 private_key（可能还有口令）。三者都按 omitempty 返回。
+ */
+export interface RevealResult {
+  kind: CredentialKind;
+  password?: string;
+  private_key?: string;
+  passphrase?: string;
 }
 
 // ---- 存储位置 internal/api/repo ----
@@ -832,6 +864,10 @@ export const api = {
     create: (body: CredentialInput) => request<CredentialItem>("POST", "/credentials", body),
     update: (id: number, body: CredentialInput) => request<CredentialItem>("PUT", `/credentials/${id}`, body),
     remove: (id: number) => request<Record<string, never>>("DELETE", `/credentials/${id}`),
+    /** 生成一份密码或私钥，只返回给表单，不写库 */
+    generate: (body: GenerateBody) => request<GenerateResult>("POST", "/credentials/generate", body),
+    /** 取一条密钥的一次性明文供复制；用 POST 避免被缓存或记录 */
+    reveal: (id: number) => request<RevealResult>("POST", `/credentials/${id}/reveal`),
   },
   repos: {
     list: () => request<{ list: RepoItem[] | null }>("GET", "/repos"),

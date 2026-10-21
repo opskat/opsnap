@@ -26,6 +26,7 @@ const (
 )
 
 // Credential 一条登录凭据。Password、PrivateKey、Passphrase 都是主密钥加密后的密文，没有就是空串。
+// PublicKey 是私钥类型由私钥算出的公钥（authorized_keys 一行，明文），密码类型为空串。
 // 共享凭据有名称、可以被多台服务器选用；私有凭据属于一台服务器，名称是空串。
 type Credential struct {
 	ID         int64  `gorm:"column:id;primaryKey;autoIncrement"`
@@ -34,6 +35,7 @@ type Credential struct {
 	Password   string `gorm:"column:password;not null"`
 	PrivateKey string `gorm:"column:private_key;not null"`
 	Passphrase string `gorm:"column:passphrase;not null"`
+	PublicKey  string `gorm:"column:public_key;not null"`
 	Username   string `gorm:"column:username;not null"`
 	Note       string `gorm:"column:note;not null"`
 	Shared     bool   `gorm:"column:shared;not null"`

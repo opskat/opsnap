@@ -97,6 +97,8 @@ func Router(ctx context.Context, root *mux.Router) error {
 		credentialCtr.Create,
 		credentialCtr.Update,
 		credentialCtr.Delete,
+		credentialCtr.Generate,
+		credentialCtr.Reveal,
 		repoCtr.List,
 		repoCtr.Get,
 		repoCtr.Create,

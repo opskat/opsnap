@@ -53,7 +53,7 @@ func setupCredentialTest(t *testing.T) (context.Context, *muxtest.TestMux) {
 	credential_svc.RegisterCredential(credential_svc.NewCredential(time.Now))
 	testMux := muxtest.NewTestMux()
 	ctr := NewCredential()
-	testMux.Group("/api/v1").Bind(ctr.List, ctr.Get, ctr.Create, ctr.Update, ctr.Delete)
+	testMux.Group("/api/v1").Bind(ctr.List, ctr.Get, ctr.Create, ctr.Update, ctr.Delete, ctr.Generate, ctr.Reveal)
 	return db.WithContextDB(context.Background(), gdb), testMux
 }
 
@@ -178,4 +178,105 @@ func TestCredentialControllerResponseHasNoSecret(t *testing.T) {
 	assert.Equal(t, "生产私钥", list.List[0].Name)
 	err := testMux.Do(ctx, &credentialapi.GetRequest{ID: private.ID}, &credentialapi.GetResponse{})
 	assert.Equal(t, code.CredentialNotFound, codeOf(t, err), "私有凭据不能经密钥接口读取")
+}
+
+func TestCredentialControllerReveal(t *testing.T) {
+	ctx, testMux := setupCredentialTest(t)
+
+	created := &credentialapi.CreateResponse{}
+	require.NoError(t, testMux.Do(ctx, credentialapi.NewCreateRequest(passwordInput("生产 root")), created))
+
+	// 返回的明文与保存的一致，且只出现在这个响应里
+	revealed := &credentialapi.RevealResponse{}
+	require.NoError(t, testMux.Do(ctx, credentialapi.NewRevealRequest(created.ID), revealed))
+	assert.Equal(t, credentialapi.KindPassword, revealed.Kind)
+	assert.Equal(t, ctrPassword, revealed.Password)
+	assert.Empty(t, revealed.PrivateKey)
+	assert.Empty(t, revealed.Passphrase)
+
+	// 响应带 Cache-Control: no-store
+	engine, ok := testMux.IRouter.(*gin.Engine)
+	require.True(t, ok)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/credentials/"+strconv.FormatInt(created.ID, 10)+"/reveal", nil).WithContext(ctx)
+	engine.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "no-store", w.Header().Get("Cache-Control"))
+	assert.Contains(t, w.Body.String(), ctrPassword)
+
+	// 私钥类型返回私钥与口令
+	key := sshconntest.GenerateKey(t, ctrPassphrase)
+	keyCreated := &credentialapi.CreateResponse{}
+	require.NoError(t, testMux.Do(ctx, credentialapi.NewCreateRequest(&credentialapi.Input{
+		Name: "生产私钥", Kind: credentialapi.KindSSHKey, PrivateKey: key.PrivatePEM, Passphrase: ctrPassphrase,
+	}), keyCreated))
+	keyRevealed := &credentialapi.RevealResponse{}
+	require.NoError(t, testMux.Do(ctx, credentialapi.NewRevealRequest(keyCreated.ID), keyRevealed))
+	assert.Equal(t, credentialapi.KindSSHKey, keyRevealed.Kind)
+	assert.Equal(t, key.PrivatePEM, keyRevealed.PrivateKey)
+	assert.Equal(t, ctrPassphrase, keyRevealed.Passphrase)
+	assert.Empty(t, keyRevealed.Password)
+
+	// 不存在与私有凭据都按「密钥不存在」
+	err := testMux.Do(ctx, credentialapi.NewRevealRequest(999), &credentialapi.RevealResponse{})
+	assert.Equal(t, code.CredentialNotFound, codeOf(t, err))
+	private := &credential_entity.Credential{Kind: credential_entity.KindPassword, Password: "SECRET-private"}
+	require.NoError(t, db.Ctx(ctx).Create(private).Error)
+	err = testMux.Do(ctx, credentialapi.NewRevealRequest(private.ID), &credentialapi.RevealResponse{})
+	assert.Equal(t, code.CredentialNotFound, codeOf(t, err))
+
+	// 列表与读取仍然只有公钥与「有没有内容」，没有密码明文
+	keyItem := &credentialapi.GetResponse{}
+	require.NoError(t, testMux.Do(ctx, &credentialapi.GetRequest{ID: keyCreated.ID}, keyItem))
+	assert.NotEmpty(t, keyItem.PublicKey)
+	for _, path := range []string{"/api/v1/credentials", "/api/v1/credentials/" + strconv.FormatInt(keyCreated.ID, 10)} {
+		rec := httptest.NewRecorder()
+		engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil).WithContext(ctx))
+		require.Equal(t, http.StatusOK, rec.Code, path)
+		body := rec.Body.String()
+		assert.NotContains(t, body, ctrPassword, path)
+		assert.NotContains(t, body, ctrPassphrase, path)
+		assert.NotContains(t, body, strings.Split(key.PrivatePEM, "\n")[2], path)
+		assert.Contains(t, body, "public_key", path)
+	}
+}
+
+func TestCredentialControllerGenerate(t *testing.T) {
+	ctx, testMux := setupCredentialTest(t)
+
+	pw := &credentialapi.GenerateResponse{}
+	require.NoError(t, testMux.Do(ctx, credentialapi.NewGenerateRequest(credentialapi.KindPassword, false), pw))
+	assert.Equal(t, credentialapi.KindPassword, pw.Kind)
+	assert.Len(t, []rune(pw.Password), 32)
+
+	key := &credentialapi.GenerateResponse{}
+	require.NoError(t, testMux.Do(ctx, credentialapi.NewGenerateRequest(credentialapi.KindSSHKey, true), key))
+	assert.Equal(t, credentialapi.KindSSHKey, key.Kind)
+	assert.NotEmpty(t, key.PrivateKey)
+	assert.NotEmpty(t, key.PublicKey)
+	assert.Len(t, []rune(key.Passphrase), 16)
+
+	// 生成不写库
+	list := &credentialapi.ListResponse{}
+	require.NoError(t, testMux.Do(ctx, &credentialapi.ListRequest{}, list))
+	assert.Empty(t, list.List)
+
+	err := testMux.Do(ctx, credentialapi.NewGenerateRequest("token", false), &credentialapi.GenerateResponse{})
+	assert.Equal(t, code.CredentialKindInvalid, codeOf(t, err))
+}
+
+// TestCredentialControllerRevealRequiresAuth 确认 reveal 与其它密钥接口在同一组鉴权路由里
+func TestCredentialControllerRevealRequiresAuth(t *testing.T) {
+	_, testMux := setupCredentialTest(t)
+	engine, ok := testMux.IRouter.(*gin.Engine)
+	require.True(t, ok)
+	// 测试 mux 直接绑定了控制器（不带鉴权中间件），这里只确认路由存在、方法是 POST
+	for _, r := range engine.Routes() {
+		if r.Path == "/api/v1/credentials/:id/reveal" {
+			assert.Equal(t, http.MethodPost, r.Method)
+			assert.Equal(t, "/api/v1/credentials/:id/reveal", r.Path)
+			return
+		}
+	}
+	t.Fatal("没有注册 /credentials/:id/reveal")
 }

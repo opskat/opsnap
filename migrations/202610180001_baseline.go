@@ -90,6 +90,7 @@ func T202610180001() *gormigrate.Migration {
 					passphrase   TEXT    NOT NULL DEFAULT '',
 					username     TEXT    NOT NULL DEFAULT '',
 					note         TEXT    NOT NULL DEFAULT '',
+					public_key   TEXT    NOT NULL DEFAULT '',
 					shared       INTEGER NOT NULL DEFAULT 0,
 					createtime   INTEGER NOT NULL DEFAULT 0,
 					updatetime   INTEGER NOT NULL DEFAULT 0

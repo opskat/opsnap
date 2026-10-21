@@ -76,6 +76,18 @@ func TestRouter(t *testing.T) {
 			assert.Contains(t, w.Header().Get("Content-Type"), "application/json")
 		})
 
+		convey.Convey("密钥的生成与 reveal 在需要登录的那一组里", func() {
+			for _, tc := range []struct{ method, path string }{
+				{http.MethodPost, "/api/v1/credentials/generate"},
+				{http.MethodPost, "/api/v1/credentials/1/reveal"},
+			} {
+				w := httptest.NewRecorder()
+				engine.ServeHTTP(w, httptest.NewRequest(tc.method, tc.path, nil))
+				assert.Equal(t, http.StatusUnauthorized, w.Code, tc.path)
+				assert.Contains(t, w.Header().Get("Content-Type"), "application/json", tc.path)
+			}
+		})
+
 		convey.Convey("GET /api/v1/openapi.json 返回 OpenAPI 文档", func() {
 			w := get(t, engine, "/api/v1/openapi.json")
 			assert.Equal(t, http.StatusOK, w.Code)

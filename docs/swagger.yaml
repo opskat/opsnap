@@ -165,6 +165,33 @@ definitions:
     type: object
   credential.DeleteResponse:
     type: object
+  credential.GenerateRequest:
+    properties:
+      kind:
+        description: password | ssh_key
+        type: string
+      passphrase:
+        description: 生成私钥时是否同时生成口令
+        type: boolean
+    type: object
+  credential.GenerateResponse:
+    properties:
+      kind:
+        description: password | ssh_key
+        type: string
+      passphrase,omitempty:
+        description: 生成的私钥口令（16 位）；没有要求时为 unset
+        type: string
+      password,omitempty:
+        description: 32 位随机密码
+        type: string
+      private_key,omitempty:
+        description: OpenSSH 格式的 ed25519 私钥
+        type: string
+      public_key,omitempty:
+        description: 与私钥配对的 authorized_keys 一行
+        type: string
+    type: object
   credential.GetResponse:
     type: object
   credential.Item:
@@ -187,6 +214,9 @@ definitions:
         type: string
       note:
         type: string
+      public_key:
+        description: 私钥类型的公钥（authorized_keys 一行，明文）；密码类型为空串
+        type: string
       servers:
         description: 使用这条密钥的服务器；没有时是空数组
         items:
@@ -204,6 +234,23 @@ definitions:
         items:
           $ref: '#/definitions/credential.Item'
         type: array
+    type: object
+  credential.RevealRequest:
+    type: object
+  credential.RevealResponse:
+    properties:
+      kind:
+        description: password | ssh_key
+        type: string
+      passphrase,omitempty:
+        description: kind=ssh_key 时的私钥口令，没有时为空
+        type: string
+      password,omitempty:
+        description: kind=password 时的密码
+        type: string
+      private_key,omitempty:
+        description: kind=ssh_key 时的私钥
+        type: string
     type: object
   credential.ServerRef:
     properties:
@@ -2201,6 +2248,74 @@ paths:
       summary: |-
         整体保存一条共享密钥；密码、私钥、口令留空表示保留已保存的值。
         类型从一端切到另一端时，不属于新类型的内容会被清掉。
+      tags:
+      - credential
+  /credentials/{id}/reveal:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        取一条共享密钥的一次性明文，供界面复制用。
+        用 POST 而不是 GET，避免被缓存、浏览器历史或代理记录。
+      parameters:
+      - in: path
+        name: id
+        required: true
+        type: integer
+      - in: body
+        name: body
+        schema:
+          $ref: '#/definitions/credential.RevealRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              code:
+                type: integer
+              data:
+                $ref: '#/definitions/credential.RevealResponse'
+              msg:
+                type: string
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/BadRequest'
+      summary: |-
+        取一条共享密钥的一次性明文，供界面复制用。
+        用 POST 而不是 GET，避免被缓存、浏览器历史或代理记录。
+      tags:
+      - credential
+  /credentials/generate:
+    post:
+      consumes:
+      - application/json
+      description: 生成一份凭据内容，只返回给表单，不写库。
+      parameters:
+      - in: body
+        name: body
+        schema:
+          $ref: '#/definitions/credential.GenerateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              code:
+                type: integer
+              data:
+                $ref: '#/definitions/credential.GenerateResponse'
+              msg:
+                type: string
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/BadRequest'
+      summary: 生成一份凭据内容，只返回给表单，不写库。
       tags:
       - credential
   /jobs:

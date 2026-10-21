@@ -21,6 +21,7 @@ import (
 	"github.com/opskat/opsnap/internal/pkg/secret"
 	"github.com/opskat/opsnap/internal/pkg/sshconn"
 	"github.com/opskat/opsnap/internal/pkg/sshconn/sshconntest"
+	"github.com/opskat/opsnap/internal/pkg/sshkey"
 	"github.com/opskat/opsnap/internal/repository/credential_repo"
 	"github.com/opskat/opsnap/migrations"
 )
@@ -435,4 +436,196 @@ func TestCredentialListEmpty(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, list.List, "没有密钥时返回空数组而不是 null")
 	assert.Empty(t, list.List)
+}
+
+// TestCredentialPublicKey 私钥类型保存公钥：列表与读取都能拿到明文公钥，密码类型为空。
+func TestCredentialPublicKey(t *testing.T) {
+	f := setupCredentialTest(t)
+
+	key := keyInput(t, "生产私钥", "key-pass")
+	created, err := f.svc.Create(f.ctx, credentialapi.NewCreateRequest(key))
+	require.NoError(t, err)
+	signer, err := sshconn.ParsePrivateKey(key.PrivateKey, "key-pass")
+	require.NoError(t, err)
+	want := sshkey.AuthorizedKeyLine(signer.PublicKey())
+
+	assert.Equal(t, want, created.PublicKey, "返回的公钥与私钥配对，格式是 authorized_keys 一行")
+	assert.Equal(t, want, f.raw(t, created.ID).PublicKey, "公钥明文落库")
+	assert.True(t, strings.HasPrefix(want, "ssh-ed25519 "))
+	assert.True(t, strings.HasSuffix(want, " opsnap"), "comment 是 opsnap")
+	assert.NotContains(t, want, "\n", "只有一行")
+
+	t.Run("列表里也带公钥", func(t *testing.T) {
+		list, err := f.svc.List(f.ctx)
+		require.NoError(t, err)
+		require.Len(t, list.List, 1)
+		assert.Equal(t, want, list.List[0].PublicKey)
+	})
+
+	t.Run("密码类型存空串", func(t *testing.T) {
+		pw, err := f.svc.Create(f.ctx, credentialapi.NewCreateRequest(passwordInput("生产 root")))
+		require.NoError(t, err)
+		assert.Empty(t, pw.PublicKey)
+		assert.Empty(t, f.raw(t, pw.ID).PublicKey)
+	})
+
+	t.Run("换私钥时公钥跟着更新", func(t *testing.T) {
+		// 用一条没有口令的密钥，更换时才不用连带口令
+		before := keyInput(t, "换私钥", "")
+		rotating, err := f.svc.Create(f.ctx, credentialapi.NewCreateRequest(before))
+		require.NoError(t, err)
+		require.NotEmpty(t, rotating.PublicKey)
+
+		nextPEM := sshconntest.GenerateKey(t, "").PrivatePEM
+		nextSigner, err := sshconn.ParsePrivateKey(nextPEM, "")
+		require.NoError(t, err)
+		next := sshkey.AuthorizedKeyLine(nextSigner.PublicKey())
+
+		updated, err := f.svc.Update(f.ctx, credentialapi.NewUpdateRequest(rotating.ID, &credentialapi.Input{
+			Name: "换私钥", Kind: credentialapi.KindSSHKey, PrivateKey: nextPEM,
+		}))
+		require.NoError(t, err)
+		assert.NotEqual(t, rotating.PublicKey, updated.PublicKey)
+		assert.Equal(t, next, updated.PublicKey)
+		assert.Equal(t, next, f.raw(t, rotating.ID).PublicKey)
+	})
+
+	t.Run("私钥留空保留时公钥不变", func(t *testing.T) {
+		before := f.raw(t, created.ID).PublicKey
+		require.NotEmpty(t, before)
+		updated, err := f.svc.Update(f.ctx, credentialapi.NewUpdateRequest(created.ID, &credentialapi.Input{
+			Name: "生产私钥 改名", Kind: credentialapi.KindSSHKey,
+		}))
+		require.NoError(t, err)
+		assert.Equal(t, before, updated.PublicKey)
+		assert.Equal(t, before, f.raw(t, created.ID).PublicKey)
+	})
+
+	t.Run("切到密码时清空公钥", func(t *testing.T) {
+		pw, err := f.svc.Create(f.ctx, credentialapi.NewCreateRequest(&credentialapi.Input{
+			Name: "切类型", Kind: credentialapi.KindSSHKey, PrivateKey: sshconntest.GenerateKey(t, "").PrivatePEM,
+		}))
+		require.NoError(t, err)
+		require.NotEmpty(t, pw.PublicKey)
+		switched, err := f.svc.Update(f.ctx, credentialapi.NewUpdateRequest(pw.ID, &credentialapi.Input{
+			Name: "切类型", Kind: credentialapi.KindPassword, Password: "SECRET-next-password",
+		}))
+		require.NoError(t, err)
+		assert.Empty(t, switched.PublicKey)
+		assert.Empty(t, f.raw(t, pw.ID).PublicKey)
+	})
+
+	t.Run("私钥无法解析时不落库也不写公钥", func(t *testing.T) {
+		bad := keyInput(t, "坏私钥公钥", "")
+		bad.PrivateKey = "not a key"
+		_, err := f.svc.Create(f.ctx, credentialapi.NewCreateRequest(bad))
+		require.Error(t, err)
+		assert.Equal(t, code.CredentialPrivateKeyInvalid, codeOf(t, err))
+		var n int64
+		require.NoError(t, f.db.Model(&credential_entity.Credential{}).Where("name = ?", "坏私钥公钥").Count(&n).Error)
+		assert.Zero(t, n)
+	})
+}
+
+func TestCredentialGenerate(t *testing.T) {
+	f := setupCredentialTest(t)
+	countRows := func() int64 {
+		var n int64
+		require.NoError(t, f.db.Model(&credential_entity.Credential{}).Count(&n).Error)
+		return n
+	}
+
+	t.Run("密码：32 位，含各类字符，去掉容易看错的", func(t *testing.T) {
+		res, err := f.svc.Generate(f.ctx, &credentialapi.GenerateRequest{Kind: credentialapi.KindPassword})
+		require.NoError(t, err)
+		assert.Equal(t, credentialapi.KindPassword, res.Kind)
+		assert.Len(t, []rune(res.Password), 32)
+		assert.NotContains(t, res.Password, "0")
+		assert.NotContains(t, res.Password, "O")
+		assert.NotContains(t, res.Password, "1")
+		assert.NotContains(t, res.Password, "l")
+		assert.NotContains(t, res.Password, "I")
+	})
+
+	t.Run("每次生成的密码不同", func(t *testing.T) {
+		first, err := f.svc.Generate(f.ctx, &credentialapi.GenerateRequest{Kind: credentialapi.KindPassword})
+		require.NoError(t, err)
+		second, err := f.svc.Generate(f.ctx, &credentialapi.GenerateRequest{Kind: credentialapi.KindPassword})
+		require.NoError(t, err)
+		assert.NotEqual(t, first.Password, second.Password)
+	})
+
+	t.Run("私钥：ed25519，公钥与私钥配对", func(t *testing.T) {
+		res, err := f.svc.Generate(f.ctx, &credentialapi.GenerateRequest{Kind: credentialapi.KindSSHKey})
+		require.NoError(t, err)
+		assert.Equal(t, credentialapi.KindSSHKey, res.Kind)
+		assert.Empty(t, res.Passphrase, "没有要求口令时不返回口令")
+		signer, err := sshconn.ParsePrivateKey(res.PrivateKey, "")
+		require.NoError(t, err)
+		assert.Equal(t, "ssh-ed25519", signer.PublicKey().Type())
+		assert.Equal(t, res.PublicKey, sshkey.AuthorizedKeyLine(signer.PublicKey()))
+	})
+
+	t.Run("私钥带口令：16 位口令能解开私钥", func(t *testing.T) {
+		res, err := f.svc.Generate(f.ctx, &credentialapi.GenerateRequest{Kind: credentialapi.KindSSHKey, Passphrase: true})
+		require.NoError(t, err)
+		assert.Len(t, []rune(res.Passphrase), 16)
+		signer, err := sshconn.ParsePrivateKey(res.PrivateKey, res.Passphrase)
+		require.NoError(t, err, "返回的口令能解开返回的私钥")
+		assert.Equal(t, res.PublicKey, sshkey.AuthorizedKeyLine(signer.PublicKey()))
+		_, err = sshconn.ParsePrivateKey(res.PrivateKey, "")
+		assert.Error(t, err, "带口令的私钥不能用空口令解开")
+	})
+
+	t.Run("不支持的 kind 报类型不合法", func(t *testing.T) {
+		_, err := f.svc.Generate(f.ctx, &credentialapi.GenerateRequest{Kind: "token"})
+		require.Error(t, err)
+		assert.Equal(t, code.CredentialKindInvalid, codeOf(t, err))
+	})
+
+	t.Run("不写库", func(t *testing.T) {
+		assert.Zero(t, countRows(), "生成只返回内容，一条也不写进 credentials")
+	})
+}
+
+func TestCredentialReveal(t *testing.T) {
+	f := setupCredentialTest(t)
+
+	pw, err := f.svc.Create(f.ctx, credentialapi.NewCreateRequest(passwordInput("生产 root")))
+	require.NoError(t, err)
+	keyIn := keyInput(t, "生产私钥", testPassphrase)
+	key, err := f.svc.Create(f.ctx, credentialapi.NewCreateRequest(keyIn))
+	require.NoError(t, err)
+
+	t.Run("密码类型返回保存的密码", func(t *testing.T) {
+		res, err := f.svc.Reveal(f.ctx, pw.ID)
+		require.NoError(t, err)
+		assert.Equal(t, credentialapi.KindPassword, res.Kind)
+		assert.Equal(t, testPassword, res.Password)
+		assert.Empty(t, res.PrivateKey)
+		assert.Empty(t, res.Passphrase)
+	})
+
+	t.Run("私钥类型返回私钥与口令", func(t *testing.T) {
+		res, err := f.svc.Reveal(f.ctx, key.ID)
+		require.NoError(t, err)
+		assert.Equal(t, credentialapi.KindSSHKey, res.Kind)
+		assert.Equal(t, keyIn.PrivateKey, res.PrivateKey)
+		assert.Equal(t, testPassphrase, res.Passphrase)
+		assert.Empty(t, res.Password)
+		_, err = sshconn.ParsePrivateKey(res.PrivateKey, res.Passphrase)
+		require.NoError(t, err, "取回的私钥能用取回的口令解析")
+	})
+
+	t.Run("不存在时报密钥不存在", func(t *testing.T) {
+		_, err := f.svc.Reveal(f.ctx, 999)
+		assert.Equal(t, code.CredentialNotFound, codeOf(t, err))
+	})
+
+	t.Run("私有凭据按密钥不存在处理", func(t *testing.T) {
+		private := &credential_entity.Credential{Kind: credential_entity.KindPassword, Password: "SECRET-private"}
+		require.NoError(t, f.db.Create(private).Error)
+		_, err := f.svc.Reveal(f.ctx, private.ID)
+		assert.Equal(t, code.CredentialNotFound, codeOf(t, err))
+	})
 }

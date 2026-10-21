@@ -73,6 +73,30 @@ func TestCredentialsAndServersMigration(t *testing.T) {
 	assert.False(t, db.Migrator().HasTable("credentials"))
 }
 
+// TestCredentialPublicKey public_key 随 credentials 一起建出来：非空列、默认空串（密码类型就是空串）
+func TestCredentialPublicKey(t *testing.T) {
+	db := openTempDB(t)
+	require.NoError(t, RunMigrations(db))
+
+	// 建表时就带这一列，不是后来 ALTER 加的
+	var dflt struct {
+		Name    string  `gorm:"column:name"`
+		NotNull int     `gorm:"column:notnull"`
+		Dflt    *string `gorm:"column:dflt_value"`
+	}
+	require.NoError(t, db.Raw(`SELECT name, "notnull", dflt_value FROM pragma_table_info('credentials') WHERE name = 'public_key'`).Scan(&dflt).Error)
+	assert.Equal(t, "public_key", dflt.Name, "public_key 是 credentials 的列")
+	assert.Equal(t, 1, dflt.NotNull, "public_key 是非空列")
+	require.NotNil(t, dflt.Dflt)
+	assert.Equal(t, "''", *dflt.Dflt)
+
+	// 只给密码类型时公钥落成空串
+	require.NoError(t, db.Exec(`INSERT INTO credentials (name, kind, password, shared) VALUES ('旧密钥', 'password', 'x', 1)`).Error)
+	var got string
+	require.NoError(t, db.Raw(`SELECT public_key FROM credentials WHERE name = '旧密钥'`).Scan(&got).Error)
+	assert.Empty(t, got)
+}
+
 func TestRunMigrations(t *testing.T) {
 	convey.Convey("运行迁移", t, func() {
 		db := openTempDB(t)
@@ -84,7 +108,7 @@ func TestRunMigrations(t *testing.T) {
 
 			var ids []string
 			require.NoError(t, db.Table("migrations").Pluck("id", &ids).Error)
-			assert.Contains(t, ids, "202610180001")
+			assert.Equal(t, []string{"202610180001"}, ids, "全部结构都在唯一的基线迁移里")
 
 			convey.Convey("重复执行不报错，也不重复记录", func() {
 				require.NoError(t, RunMigrations(db))

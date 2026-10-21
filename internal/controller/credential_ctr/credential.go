@@ -4,6 +4,8 @@ package credential_ctr
 import (
 	"context"
 
+	"github.com/gin-gonic/gin"
+
 	credentialapi "github.com/opskat/opsnap/internal/api/credential"
 	"github.com/opskat/opsnap/internal/service/credential_svc"
 )
@@ -38,4 +40,20 @@ func (c *Credential) Delete(ctx context.Context, req *credentialapi.DeleteReques
 		return nil, err
 	}
 	return &credentialapi.DeleteResponse{}, nil
+}
+
+// Generate 生成一份凭据内容填进表单，不写库
+func (c *Credential) Generate(ctx context.Context, req *credentialapi.GenerateRequest) (*credentialapi.GenerateResponse, error) {
+	return credential_svc.Credential().Generate(ctx, req)
+}
+
+// Reveal 取一条共享密钥的一次性明文（供界面复制），响应带 Cache-Control: no-store。
+// 这里用 *gin.Context：cago 的 Bind 支持它，而 Header 只有拿得到 *gin.Context 才能写。
+func (c *Credential) Reveal(ctx *gin.Context, req *credentialapi.RevealRequest) (*credentialapi.RevealResponse, error) {
+	res, err := credential_svc.Credential().Reveal(ctx.Request.Context(), req.ID)
+	if err != nil {
+		return nil, err
+	}
+	ctx.Header("Cache-Control", "no-store")
+	return res, nil
 }

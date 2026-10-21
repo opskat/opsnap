@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { CredentialsPage } from "./credentials";
@@ -9,6 +9,20 @@ import { fail, mockApi, ok, type Call } from "@/test/api-mock";
 const NOW = PINNED_NOW_SEC;
 pinClock();
 
+// 用 ssh-keygen -t ed25519 -C ops@opsnap 生成的测试密钥（无口令）
+const OPS_PUB = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILbX/uaWecUHM9OIa87YCWeihKVIjQrvsyxG7BFaRmj3 ops@opsnap";
+const OPS_PUB_FP = "SHA256:ftIdw6zfbn+bO8ujt77rHl2m2F8DFzrvpOzGpzdn4Ww";
+const OPS_PRIVATE_KEY = `-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QyNTUxOQAAACC21/7mlnnFBzPTiGvO2AlnooSlSI0K77MsRuwRWkZo9wAAAJAFdA5YBXQO
+WAAAAAtzc2gtZWQyNTUxOQAAACC21/7mlnnFBzPTiGvO2AlnooSlSI0K77MsRuwRWkZo9w
+AAAEB6drs9KgBWIHA9QfMvxRxqc22Vu4C6v4VbPy5Vjd1DmrbX/uaWecUHM9OIa87YCWei
+hKVIjQrvsyxG7BFaRmj3AAAACm9wc0BvcHNuYXABAgM=
+-----END OPENSSH PRIVATE KEY-----
+`;
+// 前端从私钥算出的公钥（不带注释：注释只在服务端落库时加）
+const DERIVED_PUB = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILbX/uaWecUHM9OIa87YCWeihKVIjQrvsyxG7BFaRmj3";
+
 const PROD_ROOT = {
   id: 1,
   name: "生产 root",
@@ -17,6 +31,7 @@ const PROD_ROOT = {
   note: "线上集群通用",
   has_secret: true,
   has_passphrase: false,
+  public_key: "",
   servers: [
     { id: 11, name: "web-01", host: "10.0.3.11", port: 22, username: "root" },
     { id: 12, name: "web-02", host: "10.0.3.12", port: 22, username: "root" },
@@ -34,6 +49,7 @@ const OPS_KEY = {
   note: "ed25519，带口令",
   has_secret: true,
   has_passphrase: true,
+  public_key: OPS_PUB,
   servers: [{ id: 15, name: "jump-bj", host: "203.0.113.7", port: 22, username: "ops" }],
   created_at: NOW,
   updated_at: NOW,
@@ -46,6 +62,20 @@ const OLD_PW = {
   note: "",
   has_secret: true,
   has_passphrase: false,
+  public_key: "",
+  servers: [],
+  created_at: NOW,
+  updated_at: NOW,
+};
+const EMPTY_ONE = {
+  id: 4,
+  name: "空的密码",
+  kind: "password",
+  username: "",
+  note: "",
+  has_secret: false,
+  has_passphrase: false,
+  public_key: "",
   servers: [],
   created_at: NOW,
   updated_at: NOW,
@@ -98,6 +128,94 @@ describe("密钥列表", () => {
 
     expect(within(row("旧机房密码")).getByText("没有共享它的服务器")).toBeInTheDocument();
     expect(screen.getByText("共 3 条")).toBeInTheDocument();
+  });
+
+  it("私钥行显示公钥、密码行显示掩码，底部写明公钥是明文", async () => {
+    setup();
+    const key = await screen.findByText("ops 私钥");
+    const keyRow = key.closest("li") as HTMLElement;
+    // 公钥一行，过长时截断，悬停可看全文
+    const pub = within(keyRow).getByText(OPS_PUB);
+    expect(pub).toHaveAttribute("title", OPS_PUB);
+    expect(within(keyRow).getByRole("button", { name: "复制 ops 私钥 的公钥" })).toBeEnabled();
+
+    const pwRow = row("生产 root");
+    expect(within(pwRow).getByText("密码 ·••••••••")).toBeInTheDocument();
+    expect(within(pwRow).getByRole("button", { name: "复制 生产 root 的密码" })).toBeEnabled();
+
+    expect(
+      screen.getByText("公钥是明文，可以直接复制到目标机的 authorized_keys；密码和私钥只能复制，界面上看不到内容。")
+    ).toBeInTheDocument();
+  });
+
+  it("复制私钥类型的公钥直接复制明文，不发请求", async () => {
+    const api = setup();
+    const user = userEvent.setup();
+    const write = vi.spyOn(navigator.clipboard, "writeText");
+    await user.click(await screen.findByRole("button", { name: "复制 ops 私钥 的公钥" }));
+
+    expect(write).toHaveBeenCalledWith(OPS_PUB);
+    expect(api.find("POST", "/credentials/2/reveal")).toHaveLength(0);
+    // 复制成功后按钮变成绿色对勾与「已复制」
+    expect(await screen.findByRole("button", { name: "复制 ops 私钥 的公钥" })).toHaveTextContent("已复制");
+  });
+
+  it("复制密码走 reveal 接口，把明文写进剪贴板", async () => {
+    const api = setup({
+      "POST /credentials/1/reveal": ok({ kind: "password", password: "SECRET-PW-1" }),
+    });
+    const user = userEvent.setup();
+    const write = vi.spyOn(navigator.clipboard, "writeText");
+
+    await user.click(await screen.findByRole("button", { name: "复制 生产 root 的密码" }));
+
+    await waitFor(() => expect(api.find("POST", "/credentials/1/reveal")).toHaveLength(1));
+    expect(write).toHaveBeenCalledWith("SECRET-PW-1");
+    await expect(navigator.clipboard.readText()).resolves.toBe("SECRET-PW-1");
+    expect(await screen.findByRole("button", { name: "复制 生产 root 的密码" })).toHaveTextContent("已复制");
+  });
+
+  it("reveal 失败时不静默，写明原因", async () => {
+    setup({ "POST /credentials/1/reveal": fail(500, 12000, "数据库繁忙") });
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "复制 生产 root 的密码" }));
+    expect(await screen.findByText("复制失败：数据库繁忙")).toBeInTheDocument();
+  });
+
+  it("浏览器拒绝写剪贴板时提示原因", async () => {
+    setup();
+    const user = userEvent.setup();
+    vi.spyOn(navigator.clipboard, "writeText").mockRejectedValue(new Error("denied"));
+    await user.click(await screen.findByRole("button", { name: "复制 ops 私钥 的公钥" }));
+    expect(await screen.findByText("复制失败：浏览器不允许访问剪贴板，请手动选中后复制")).toBeInTheDocument();
+  });
+
+  it("没有内容的条目显示「—」并禁用复制", async () => {
+    setup({ "GET /credentials": ok({ list: [EMPTY_ONE] }) });
+    const copy = await screen.findByRole("button", { name: "复制 空的密码 的密码" });
+    expect(copy).toBeDisabled();
+    // 备注、默认用户与内容三列都是「—」
+    const empty = copy.closest("li") as HTMLElement;
+    expect(within(empty).getAllByText("—")).toHaveLength(3);
+  });
+
+  it("窄屏下（lg 以下）公钥与复制按钮都没有被藏起来，按钮可点", async () => {
+    const api = setup({ "POST /credentials/1/reveal": ok({ kind: "password", password: "SECRET-PW-1" }) });
+    const user = userEvent.setup();
+    // 表头在 lg 以下隐藏；每个单元格只有 lg: 时才是独立一列，窄屏下依次折行
+    const headers = await screen.findByText("公钥 / 密码");
+    expect(headers).toBeInTheDocument();
+    expect(headers.closest("div")).toHaveClass("hidden", "lg:grid");
+
+    const copy = within(row("生产 root")).getByRole("button", { name: "复制 生产 root 的密码" });
+    expect(copy).toBeVisible();
+    const pubRow = row("ops 私钥");
+    expect(within(pubRow).getByText(OPS_PUB)).toBeVisible();
+    expect(within(pubRow).getByRole("button", { name: "复制 ops 私钥 的公钥" })).toBeVisible();
+
+    await user.click(copy);
+    await waitFor(() => expect(api.find("POST", "/credentials/1/reveal")).toHaveLength(1));
+    expect(await screen.findByRole("button", { name: "复制 生产 root 的密码" })).toHaveTextContent("已复制");
   });
 
   it("读取失败时写明原因，重试后恢复", async () => {
@@ -302,6 +420,140 @@ describe("编辑密钥", () => {
     const user = userEvent.setup();
     const dialog = await openEdit(user, "旧机房密码");
     expect(within(dialog).queryByText("被这些服务器使用")).not.toBeInTheDocument();
+  });
+});
+
+describe("随机生成", () => {
+  it("密码点「随机生成」调 generate 并填进输入框、直接显示", async () => {
+    const api = setup({
+      "POST /credentials/generate": ok({ kind: "password", password: "wR7#tKm2vQx9!LpZ" }),
+    });
+    const user = userEvent.setup();
+    const dialog = await openCreate(user);
+    expect(within(dialog).getByText(/32 位，含大小写字母、数字和符号，去掉了容易看错的 0 O 1 l I/)).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: "随机生成" }));
+
+    await waitFor(() => expect(api.find("POST", "/credentials/generate")).toHaveLength(1));
+    expect(api.find("POST", "/credentials/generate")[0].body).toMatchObject({ kind: "password" });
+    const input = within(dialog).getByLabelText("密码");
+    expect(input).toHaveValue("wR7#tKm2vQx9!LpZ");
+    // 生成后换成显示状态，可以直接看到并选中复制
+    expect(input).toHaveAttribute("type", "text");
+    // 只填表单，不写库
+    expect(posts(api)).toHaveLength(0);
+  });
+
+  it("私钥类型点「随机生成私钥」调 generate 并填进私钥框", async () => {
+    const api = setup({
+      "POST /credentials/generate": ok({
+        kind: "ssh_key",
+        private_key: OPS_PRIVATE_KEY,
+        public_key: OPS_PUB,
+      }),
+    });
+    const user = userEvent.setup();
+    const dialog = await openCreate(user);
+    await user.click(within(dialog).getByRole("radio", { name: "私钥" }));
+    await user.click(within(dialog).getByRole("button", { name: "随机生成私钥" }));
+
+    await waitFor(() => expect(api.find("POST", "/credentials/generate")).toHaveLength(1));
+    expect(api.find("POST", "/credentials/generate")[0].body).toMatchObject({ kind: "ssh_key", passphrase: false });
+    expect(within(dialog).getByLabelText("私钥")).toHaveValue(OPS_PRIVATE_KEY.trim());
+    // 生成后立刻算出公钥
+    expect(within(dialog).getByText(DERIVED_PUB)).toBeInTheDocument();
+    expect(await within(dialog).findByText(/^SHA256:/)).toBeInTheDocument();
+  });
+
+  it("私钥口令旁的「随机」生成一把带口令的新私钥，口令与私钥成对", async () => {
+    // 口令在私钥的加密段里，单独换口令会让已填的私钥解不开，所以这里是整套换
+    const api = setup({
+      "POST /credentials/generate": ok({
+        kind: "ssh_key",
+        private_key: OPS_PRIVATE_KEY,
+        public_key: OPS_PUB,
+        passphrase: "Kp7#tQ2vXr9!Lm4z",
+      }),
+    });
+    const user = userEvent.setup();
+    const dialog = await openCreate(user);
+    await user.click(within(dialog).getByRole("radio", { name: "私钥" }));
+    await user.click(within(dialog).getByLabelText("私钥"));
+    await user.paste("-----BEGIN OPENSSH PRIVATE KEY-----\nOLD\n-----END OPENSSH PRIVATE KEY-----");
+
+    await user.click(within(dialog).getByRole("button", { name: "随机口令" }));
+
+    await waitFor(() => expect(api.find("POST", "/credentials/generate")).toHaveLength(1));
+    expect(api.find("POST", "/credentials/generate")[0].body).toEqual({ kind: "ssh_key", passphrase: true });
+    expect(within(dialog).getByLabelText("私钥口令")).toHaveValue("Kp7#tQ2vXr9!Lm4z");
+    // 私钥也换成了与这个口令配套的那一把，不再是原来的占位内容
+    expect(within(dialog).getByLabelText("私钥")).toHaveValue(OPS_PRIVATE_KEY.trim());
+    // 明确告诉管理员「口令和私钥是一起换的」，避免以为只换了口令
+    expect(await screen.findByText(/口令与它是一对/)).toBeInTheDocument();
+  });
+});
+
+describe("公钥块", () => {
+  it("新建且私钥为空时提示粘贴", async () => {
+    setup();
+    const user = userEvent.setup();
+    const dialog = await openCreate(user);
+    await user.click(within(dialog).getByRole("radio", { name: "私钥" }));
+    expect(within(dialog).getByText("粘贴私钥后这里会显示公钥")).toBeInTheDocument();
+  });
+
+  it("编辑时私钥框留空，显示已保存私钥对应的公钥", async () => {
+    setup();
+    const user = userEvent.setup();
+    const dialog = await openEdit(user, "ops 私钥");
+    expect(within(dialog).getByText("已保存的私钥对应的公钥")).toBeInTheDocument();
+    // 已保存的公钥带服务端加的注释
+    expect(within(dialog).getByText(OPS_PUB)).toBeInTheDocument();
+    expect(await within(dialog).findByText(OPS_PUB_FP)).toBeInTheDocument();
+  });
+
+  it("粘贴私钥后立刻显示公钥、指纹，并可以复制和下载 .pub", async () => {
+    setup();
+    const user = userEvent.setup();
+    const clicked: HTMLAnchorElement[] = [];
+    const objectUrl = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:pub");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      clicked.push(this);
+    });
+    const write = vi.spyOn(navigator.clipboard, "writeText");
+
+    const dialog = await openCreate(user);
+    await user.type(within(dialog).getByLabelText("名称"), "ops 私钥");
+    await user.click(within(dialog).getByRole("radio", { name: "私钥" }));
+    await user.click(within(dialog).getByLabelText("私钥"));
+    await user.paste(OPS_PRIVATE_KEY.trim());
+
+    expect(within(dialog).getByText("由刚粘贴的私钥算出，还没保存")).toBeInTheDocument();
+    expect(within(dialog).getByText(DERIVED_PUB)).toBeInTheDocument();
+    expect(await within(dialog).findByText(OPS_PUB_FP)).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: "复制公钥" }));
+    expect(write).toHaveBeenCalledWith(DERIVED_PUB);
+
+    await user.click(within(dialog).getByRole("button", { name: "下载 .pub" }));
+    expect(objectUrl).toHaveBeenCalledTimes(1);
+    expect(clicked).toHaveLength(1);
+    expect(clicked[0].download).toBe("ops 私钥.pub");
+    expect(clicked[0].href).toBe("blob:pub");
+  });
+
+  it("粘的内容不像私钥时提示格式不对，不显示旧公钥", async () => {
+    setup();
+    const user = userEvent.setup();
+    const dialog = await openEdit(user, "ops 私钥");
+    const key = within(dialog).getByLabelText("私钥");
+    await user.click(key);
+    await user.paste("随便粘的一段文字");
+
+    expect(within(dialog).getByText("私钥格式看起来不对")).toBeInTheDocument();
+    expect(within(dialog).queryByText(DERIVED_PUB)).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "复制公钥" })).not.toBeInTheDocument();
   });
 });
 

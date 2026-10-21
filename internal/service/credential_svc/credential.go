@@ -1,5 +1,5 @@
-// Package credential_svc 密钥库：共享的服务器登录凭据的增删改查。
-// 密码、私钥与口令都用主密钥加密后保存，接口只返回「有没有内容」，永不返回密文或明文。
+// Package credential_svc 密钥库：共享的服务器登录凭据的增删改查，以及随机生成与一次性取明文。
+// 密码、私钥与口令都用主密钥加密后保存；列表与读取只返回「有没有内容」与明文的公钥。
 package credential_svc
 
 import (
@@ -13,8 +13,10 @@ import (
 	credentialapi "github.com/opskat/opsnap/internal/api/credential"
 	"github.com/opskat/opsnap/internal/model/entity/credential_entity"
 	"github.com/opskat/opsnap/internal/pkg/code"
+	"github.com/opskat/opsnap/internal/pkg/passgen"
 	"github.com/opskat/opsnap/internal/pkg/secret"
 	"github.com/opskat/opsnap/internal/pkg/sshconn"
+	"github.com/opskat/opsnap/internal/pkg/sshkey"
 	"github.com/opskat/opsnap/internal/repository/credential_repo"
 )
 
@@ -31,6 +33,10 @@ type CredentialSvc interface {
 	Update(ctx context.Context, req *credentialapi.UpdateRequest) (*credentialapi.UpdateResponse, error)
 	// Delete 删除一条共享密钥；被服务器使用时拒绝并带出使用者名称
 	Delete(ctx context.Context, id int64) error
+	// Generate 生成一份凭据内容（密码或 ed25519 私钥），只返回给表单，不写库
+	Generate(ctx context.Context, req *credentialapi.GenerateRequest) (*credentialapi.GenerateResponse, error)
+	// Reveal 取一条共享密钥的一次性明文，供界面复制用
+	Reveal(ctx context.Context, id int64) (*credentialapi.RevealResponse, error)
 }
 
 type credentialSvc struct {
@@ -203,7 +209,7 @@ func (s *credentialSvc) build(ctx context.Context, old *credential_entity.Creden
 	var err error
 	switch kind {
 	case credential_entity.KindPassword:
-		cred.PrivateKey, cred.Passphrase = "", ""
+		cred.PrivateKey, cred.Passphrase, cred.PublicKey = "", "", ""
 		if cred.Password, err = keepOrEncrypt(in.Password, cred.Password); err != nil {
 			return nil, err
 		}
@@ -215,6 +221,8 @@ func (s *credentialSvc) build(ctx context.Context, old *credential_entity.Creden
 		if cred.Passphrase, err = keepOrEncrypt(in.Passphrase, cred.Passphrase); err != nil {
 			return nil, err
 		}
+		// 公钥不在这里算：等 checkPrivateKey 用解出来的私钥校验通过后写入，
+		// 这样「换私钥」与「留空保留」都自然得到正确的公钥。
 	}
 	return cred, nil
 }
@@ -255,7 +263,9 @@ func keepOrEncrypt(input, saved string) (string, error) {
 	return sec.Encrypt(input)
 }
 
-// checkPrivateKey 私钥类型时确认私钥能用口令解析
+// checkPrivateKey 私钥类型时确认私钥能用口令解析，并写入由它算出的公钥。
+// 换私钥后公钥跟着变，私钥留空（保留）时算出来仍是原值；密码类型不写公钥。
+// 错误信息不带私钥或口令内容。
 func checkPrivateKey(ctx context.Context, cred *credential_entity.Credential) error {
 	if cred.Kind != credential_entity.KindSSHKey || cred.PrivateKey == "" {
 		return nil
@@ -274,9 +284,11 @@ func checkPrivateKey(ctx context.Context, cred *credential_entity.Credential) er
 			return err
 		}
 	}
-	if _, err := sshconn.ParsePrivateKey(key, pass); err != nil {
+	signer, err := sshconn.ParsePrivateKey(key, pass)
+	if err != nil {
 		return i18n.NewError(ctx, code.CredentialPrivateKeyInvalid)
 	}
+	cred.PublicKey = sshkey.AuthorizedKeyLine(signer.PublicKey())
 	return nil
 }
 
@@ -293,7 +305,75 @@ func duplicateError(ctx context.Context, err error, name string) error {
 	return err
 }
 
-// toItem 转换成接口返回的结构：只带回有没有内容，不带密文或明文
+func (s *credentialSvc) Generate(ctx context.Context, req *credentialapi.GenerateRequest) (*credentialapi.GenerateResponse, error) {
+	switch req.Kind {
+	case credential_entity.KindPassword:
+		password, err := passgen.Password()
+		if err != nil {
+			return nil, err
+		}
+		return &credentialapi.GenerateResponse{Kind: credential_entity.KindPassword, Password: password}, nil
+	case credential_entity.KindSSHKey:
+		passphrase := ""
+		if req.Passphrase {
+			var err error
+			if passphrase, err = passgen.Random(sshkey.PassphraseSize); err != nil {
+				return nil, err
+			}
+		}
+		key, err := sshkey.Generate(passphrase)
+		if err != nil {
+			return nil, err
+		}
+		return &credentialapi.GenerateResponse{
+			Kind: credential_entity.KindSSHKey, PrivateKey: key.PrivateKey,
+			PublicKey: key.PublicKey, Passphrase: key.Passphrase,
+		}, nil
+	}
+	return nil, i18n.NewError(ctx, code.CredentialKindInvalid)
+}
+
+// Reveal 取一条共享密钥的明文。解密失败按普通错误返回，错误文案不带内容。
+// 与轮换主密钥互斥，见 secret.BeginWrite：否则可能在读出密文与解密之间被轮换新旧不一致。
+func (s *credentialSvc) Reveal(ctx context.Context, id int64) (*credentialapi.RevealResponse, error) {
+	endRead := secret.BeginWrite()
+	defer endRead()
+	c, err := s.find(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	sec := secret.Default()
+	if sec == nil {
+		return nil, errors.New("主密钥未加载，无法解密密钥")
+	}
+	res := &credentialapi.RevealResponse{Kind: c.Kind}
+	switch c.Kind {
+	case credential_entity.KindPassword:
+		if res.Password, err = decrypt(sec, c.Password); err != nil {
+			return nil, err
+		}
+	case credential_entity.KindSSHKey:
+		if res.PrivateKey, err = decrypt(sec, c.PrivateKey); err != nil {
+			return nil, err
+		}
+		if res.Passphrase, err = decrypt(sec, c.Passphrase); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, i18n.NewError(ctx, code.CredentialKindInvalid)
+	}
+	return res, nil
+}
+
+// decrypt 解密一项内容；空串仍是空串
+func decrypt(sec secret.Secret, cipher string) (string, error) {
+	if cipher == "" {
+		return "", nil
+	}
+	return sec.Decrypt(cipher)
+}
+
+// toItem 转换成接口返回的结构：只带回有没有内容与明文的公钥，不带密文或密码、私钥明文
 func toItem(c *credential_entity.Credential, refs []*credential_repo.ServerRef) *credentialapi.Item {
 	item := &credentialapi.Item{
 		ID:            c.ID,
@@ -311,6 +391,8 @@ func toItem(c *credential_entity.Credential, refs []*credential_repo.ServerRef) 
 		item.HasSecret = c.Password != ""
 	default:
 		item.HasSecret = c.PrivateKey != ""
+		// 公钥是明文，只有私钥类型才带
+		item.PublicKey = c.PublicKey
 	}
 	for _, r := range refs {
 		item.Servers = append(item.Servers, &credentialapi.ServerRef{

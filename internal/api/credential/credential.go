@@ -1,5 +1,6 @@
 // Package credential 密钥库（共享的服务器登录凭据）接口。
-// 接口只操作共享密钥；密文和明文都不出现在响应里，只告诉调用方「有没有内容」。
+// 列表与读取只告诉调用方「有没有内容」并返回明文的公钥；
+// 只有一次性取详情的 reveal 与生成接口会带密码或私钥明文。
 package credential
 
 import "github.com/cago-frame/cago/server/mux"
@@ -50,6 +51,8 @@ type Item struct {
 	HasSecret bool `json:"has_secret"`
 	// HasPassphrase 私钥有没有口令
 	HasPassphrase bool `json:"has_passphrase"`
+	// PublicKey 私钥类型的公钥（authorized_keys 一行，明文）；密码类型为空串
+	PublicKey string `json:"public_key"`
 	// Servers 使用这条密钥的服务器；没有时是空数组
 	Servers []*ServerRef `json:"servers"`
 	// CreatedAt Unix 秒
@@ -153,3 +156,54 @@ func NewUpdateRequest(id int64, in *Input) *UpdateRequest {
 		Passphrase: c.Passphrase, Username: c.Username, Note: c.Note,
 	}
 }
+
+// GenerateRequest 生成一份凭据内容，只返回给表单，不写库。
+type GenerateRequest struct {
+	mux.Meta `path:"/credentials/generate" method:"POST"`
+	// Kind password | ssh_key
+	Kind string `json:"kind"`
+	// Passphrase 生成私钥时是否同时生成口令
+	Passphrase bool `json:"passphrase"`
+}
+
+// GenerateResponse 生成的内容。kind=password 时只有 Password；
+// kind=ssh_key 时只有 PrivateKey 与 PublicKey，要求了口令时 Passphrase 非空。
+type GenerateResponse struct {
+	// Kind password | ssh_key
+	Kind string `json:"kind"`
+	// Password 32 位随机密码
+	Password string `json:"password,omitempty"`
+	// PrivateKey OpenSSH 格式的 ed25519 私钥
+	PrivateKey string `json:"private_key,omitempty"`
+	// PublicKey 与私钥配对的 authorized_keys 一行
+	PublicKey string `json:"public_key,omitempty"`
+	// Passphrase 生成的私钥口令（16 位）；没有要求时为 unset
+	Passphrase string `json:"passphrase,omitempty"`
+}
+
+// NewGenerateRequest 构造生成请求
+func NewGenerateRequest(kind string, passphrase bool) *GenerateRequest {
+	return &GenerateRequest{Kind: kind, Passphrase: passphrase}
+}
+
+// RevealRequest 取一条共享密钥的一次性明文，供界面复制用。
+// 用 POST 而不是 GET，避免被缓存、浏览器历史或代理记录。
+type RevealRequest struct {
+	mux.Meta `path:"/credentials/:id/reveal" method:"POST"`
+	ID       int64 `uri:"id" binding:"required"`
+}
+
+// RevealResponse 一条共享密钥的明文。只有这个响应会带明文，列表与读取都不带。
+type RevealResponse struct {
+	// Kind password | ssh_key
+	Kind string `json:"kind"`
+	// Password kind=password 时的密码
+	Password string `json:"password,omitempty"`
+	// PrivateKey kind=ssh_key 时的私钥
+	PrivateKey string `json:"private_key,omitempty"`
+	// Passphrase kind=ssh_key 时的私钥口令，没有时为空
+	Passphrase string `json:"passphrase,omitempty"`
+}
+
+// NewRevealRequest 构造取明文的请求
+func NewRevealRequest(id int64) *RevealRequest { return &RevealRequest{ID: id} }
