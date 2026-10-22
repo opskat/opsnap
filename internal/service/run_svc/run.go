@@ -151,6 +151,33 @@ func Run() RunSvc { return defaultRun }
 // RegisterRun 替换服务实现（main 按配置的数据目录注册）
 func RegisterRun(i RunSvc) { defaultRun = i }
 
+// CleanupForgetPending 补做撞锁时延后的旧快照清理，供调度器在每一轮调用。
+//
+// 只处理当前在本进程内空闲的存储位置：拿到它的独占锁就说明没有备份在写、也没有维护在进行。
+// 补做不是一次备份运行，所以既不写运行记录，也不发通知；成功与否都只体现为任务上的待清理标记与一条服务日志。
+func (s *runSvc) CleanupForgetPending(ctx context.Context) error {
+	jobs, err := job_repo.Job().ListForgetPending(ctx)
+	if err != nil {
+		return err
+	}
+	// 按存储位置分组，保持任务 ID 升序；同一位置只试探一次独占锁
+	order := make([]int64, 0, len(jobs))
+	byRepo := make(map[int64][]*job_entity.Job, len(jobs))
+	for _, j := range jobs {
+		if _, ok := byRepo[j.RepoID]; !ok {
+			order = append(order, j.RepoID)
+		}
+		byRepo[j.RepoID] = append(byRepo[j.RepoID], j)
+	}
+	for _, repoID := range order {
+		s.cleanupRepo(ctx, repoID, byRepo[repoID])
+	}
+	return nil
+}
+
+// CleanupForgetPending 补做撞锁时延后的旧快照清理，供调度器使用
+func CleanupForgetPending(ctx context.Context) error { return defaultRun.CleanupForgetPending(ctx) }
+
 // Trigger 见 RunSvc.Trigger，供调度器使用
 func Trigger(ctx context.Context, jobID int64, trig run_entity.Trigger) (int64, error) {
 	return defaultRun.Trigger(ctx, jobID, trig)

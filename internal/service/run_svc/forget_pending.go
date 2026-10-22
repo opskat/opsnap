@@ -13,30 +13,6 @@ import (
 	"github.com/opskat/opsnap/internal/service/repo_svc"
 )
 
-// CleanupForgetPending 补做撞锁时延后的旧快照清理，供调度器在每一轮调用。
-//
-// 只处理当前在本进程内空闲的存储位置：拿到它的独占锁就说明没有备份在写、也没有维护在进行。
-// 补做不是一次备份运行，所以既不写运行记录，也不发通知；成功与否都只体现为任务上的待清理标记与一条服务日志。
-func (s *runSvc) CleanupForgetPending(ctx context.Context) error {
-	jobs, err := job_repo.Job().ListForgetPending(ctx)
-	if err != nil {
-		return err
-	}
-	// 按存储位置分组，保持任务 ID 升序；同一位置只试探一次独占锁
-	order := make([]int64, 0, len(jobs))
-	byRepo := make(map[int64][]*job_entity.Job, len(jobs))
-	for _, j := range jobs {
-		if _, ok := byRepo[j.RepoID]; !ok {
-			order = append(order, j.RepoID)
-		}
-		byRepo[j.RepoID] = append(byRepo[j.RepoID], j)
-	}
-	for _, repoID := range order {
-		s.cleanupRepo(ctx, repoID, byRepo[repoID])
-	}
-	return nil
-}
-
 // cleanupRepo 补做一个存储位置上的全部待清理任务；拿不到独占锁就整组跳过，等下一轮
 func (s *runSvc) cleanupRepo(ctx context.Context, repoID int64, jobs []*job_entity.Job) {
 	release, ok := repolock.TryAcquire(repoID, repolock.Exclusive)
@@ -95,6 +71,3 @@ func (s *runSvc) forgetPendingFailed(ctx context.Context, j *job_entity.Job, rea
 	}
 	logger.Ctx(ctx).Sugar().Errorf("补做清理旧快照失败：任务「%s」（#%d）：%s", j.Name, j.ID, reason)
 }
-
-// CleanupForgetPending 补做撞锁时延后的旧快照清理，供调度器使用
-func CleanupForgetPending(ctx context.Context) error { return defaultRun.CleanupForgetPending(ctx) }
