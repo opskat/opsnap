@@ -78,13 +78,6 @@ RUN set -eux; \
     apt-get install -y --no-install-recommends \
       openssh-client rsync redis-tools tzdata \
       postgresql-client mysql-community-client mongodb-database-tools; \
-    # mariadb-dump：Debian 的 mariadb-client 与 mysql-community-client 互斥，只取出 mariadb-dump 这一个二进制
-    # （它只依赖 libc、libssl、libstdc++、zlib，均已安装）
-    cd /tmp; apt-get download mariadb-client; \
-    dpkg-deb -x mariadb-client_*.deb /tmp/mariadb-client; \
-    install -m 0755 /tmp/mariadb-client/usr/bin/mariadb-dump /usr/local/bin/mariadb-dump; \
-    rm -rf /tmp/mariadb-client /tmp/mariadb-client_*.deb; \
-    mariadb-dump --version; \
     apt-get purge -y --auto-remove gnupg; \
     rm -rf /var/lib/apt/lists/*
 

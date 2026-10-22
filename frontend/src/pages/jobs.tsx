@@ -1,7 +1,19 @@
 // 备份任务列表：筛选、搜索、14 天运行带、上次结果、立即运行和更多操作。
 import * as React from "react";
 import { Link, useNavigate } from "react-router";
-import { Archive, ArrowRight, Copy, MoreHorizontal, Pause, Pencil, Play, Plus, Search, Trash2 } from "lucide-react";
+import {
+  Archive,
+  ArrowRight,
+  Copy,
+  Eraser,
+  MoreHorizontal,
+  Pause,
+  Pencil,
+  Play,
+  Plus,
+  Search,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -255,6 +267,30 @@ function ListSkeleton() {
   );
 }
 
+/**
+ * 待清理：清理旧快照撞上同一存储位置上的并发备份，延后到存储位置空闲时补做。
+ * 它只欠一次空间回收，快照本身是完整的，所以不算「需要处理」。
+ */
+function ForgetPendingBadge() {
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-line-strong px-1.5 text-[11px] text-ink-2">
+      <Eraser className="size-3" aria-hidden />
+      待清理
+    </span>
+  );
+}
+
+/** 待清理的细节：从什么时候开始欠着，以及最近一次补做为什么没成 */
+function ForgetPendingNote({ job: j }: { job: JobItem }) {
+  return (
+    <p className="text-[12.5px] text-ink-3">
+      保留规则还没应用：{fmtAgo(j.forget_pending_at)}起等待清理
+      {j.forget_pending_error && `，最近一次补做失败：${j.forget_pending_error}`}
+      。存储位置空闲时会自动补做。
+    </p>
+  );
+}
+
 function JobRow({
   job: j,
   last,
@@ -298,6 +334,7 @@ function JobRow({
             </span>
             <ArrowRight className="size-3 shrink-0" aria-hidden />
             <span className="shrink-0 text-ink-2">{j.repo_name}</span>
+            {j.forget_pending_at > 0 && <ForgetPendingBadge />}
           </div>
         </div>
       </div>
@@ -306,6 +343,11 @@ function JobRow({
         {!j.paused && j.next_run_at > 0 && <div className="text-xs text-ink-3 num">下次 {fmtNext(j.next_run_at)}</div>}
       </div>
       {/* 窄屏时运行带与上次结果排在第三行，不省略 */}
+      {j.forget_pending_at > 0 && (
+        <div className="col-start-1 row-start-4 lg:col-start-1 lg:row-start-2">
+          <ForgetPendingNote job={j} />
+        </div>
+      )}
       <RunStrip days={strip} className="col-start-1 row-start-3 lg:col-start-3 lg:row-start-1" />
       <div className="col-start-2 row-start-3 text-right lg:col-start-4 lg:row-start-1 lg:text-left">
         {last && view ? (

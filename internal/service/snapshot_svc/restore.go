@@ -22,16 +22,13 @@ func restoreCommand(source, file string, gz bool) string {
 		return tool + " < " + file
 	}
 	switch source {
-	case job_entity.SourceMySQL, job_entity.SourceMariaDB:
+	case job_entity.SourceMySQL:
 		// 导出时用了 --databases，文件里自带 CREATE DATABASE 与 USE，不需要指定库
-		tool := "mysql"
-		if source == job_entity.SourceMariaDB {
-			tool = "mariadb"
-		}
+		const opts = " -h 127.0.0.1 -u root -p"
 		if gz {
-			return "gunzip < " + downloaded + " | " + tool + " -h 127.0.0.1 -u root -p"
+			return "gunzip < " + downloaded + " | mysql" + opts
 		}
-		return tool + " -h 127.0.0.1 -u root -p < " + file
+		return "mysql" + opts + " < " + file
 	case job_entity.SourcePostgres:
 		const opts = "-h 127.0.0.1 -U postgres --clean --if-exists --dbname=目标库名"
 		if gz {

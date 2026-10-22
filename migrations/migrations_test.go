@@ -108,7 +108,7 @@ func TestRunMigrations(t *testing.T) {
 
 			var ids []string
 			require.NoError(t, db.Table("migrations").Pluck("id", &ids).Error)
-			assert.Equal(t, []string{"202610180001"}, ids, "全部结构都在唯一的基线迁移里")
+			assert.Equal(t, []string{"202610180001", "202610220001"}, ids, "基线之后只追加迁移，不改动基线")
 
 			convey.Convey("重复执行不报错，也不重复记录", func() {
 				require.NoError(t, RunMigrations(db))

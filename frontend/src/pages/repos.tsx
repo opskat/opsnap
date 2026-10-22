@@ -5,6 +5,7 @@ import {
   KeyRound,
   Loader2,
   MoreHorizontal,
+  Pencil,
   Plus,
   RefreshCw,
   ScanSearch,
@@ -41,6 +42,7 @@ export function ReposPage() {
   const load = React.useCallback(async () => (await api.repos.list()).list ?? [], []);
   const { data: repos, error, loading, reload } = useLoad(load);
   const [adding, setAdding] = React.useState(false);
+  const [editing, setEditing] = React.useState<RepoItem | null>(null);
   const [keysFor, setKeysFor] = React.useState<number | null>(null);
   const [unlocking, setUnlocking] = React.useState<RepoItem | null>(null);
   const [busyId, setBusyId] = React.useState<number | null>(null);
@@ -98,6 +100,7 @@ export function ReposPage() {
             onPrune={() => void run(r, () => api.repos.prune(r.id), `${r.name} 开始清理空间`)}
             onBundle={() => void run(r, () => downloadRecoveryBundle(r.id), "恢复包已下载")}
             onUnlock={() => setUnlocking(r)}
+            onEdit={() => setEditing(r)}
           />
         ))}
       </div>
@@ -119,8 +122,18 @@ export function ReposPage() {
       {adding && (
         <RepoDialog
           onClose={() => setAdding(false)}
-          onCreated={() => {
+          onSaved={() => {
             setAdding(false);
+            reload();
+          }}
+        />
+      )}
+      {editing && (
+        <RepoDialog
+          repo={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
             reload();
           }}
         />
@@ -153,6 +166,7 @@ function RepoCard({
   onPrune,
   onBundle,
   onUnlock,
+  onEdit,
 }: {
   repo: RepoItem;
   busy: boolean;
@@ -162,6 +176,7 @@ function RepoCard({
   onPrune: () => void;
   onBundle: () => void;
   onUnlock: () => void;
+  onEdit: () => void;
 }) {
   const bad = r.status === "not_mounted" || r.status === "error";
   const maintaining = r.maintenance !== "";
@@ -218,6 +233,10 @@ function RepoCard({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem disabled={maintaining} onSelect={onEdit}>
+                <Pencil />
+                修改
+              </DropdownMenuItem>
               <DropdownMenuItem disabled={maintaining} onSelect={onCheck}>
                 <ScanSearch />
                 校验数据

@@ -5,6 +5,7 @@ import { ReposPage } from "./repos";
 import { renderPage } from "@/test/render";
 import { PINNED_NOW_SEC, pinClock } from "@/test/clock";
 import { fail, mockApi, ok, type Call } from "@/test/api-mock";
+import { SECRET_MASKED } from "@/lib/api";
 
 const PARAMS = {
   path: "",
@@ -361,6 +362,166 @@ describe("SFTP 主机指纹", () => {
       type: "sftp",
       params: { host: "192.168.1.20", port: 22, host_key: "ssh-ed25519 AAAAC3 nas", password: "SECRET-sftp" },
     });
+  });
+});
+
+describe("修改存储位置", () => {
+  /** 打开某个存储位置的编辑对话框 */
+  async function openEdit(user: ReturnType<typeof userEvent.setup>, name: string) {
+    await user.click(await screen.findByRole("button", { name: `${name} 的维护操作` }));
+    await user.click(await screen.findByRole("menuitem", { name: "修改" }));
+    return screen.findByRole("dialog", { name: "修改存储位置" });
+  }
+
+  it("带出已保存的地址参数，类型不能改，凭据显示占位", async () => {
+    const user = userEvent.setup();
+    mockApi({
+      "GET /repos": ok({
+        list: [
+          { ...SYNOLOGY, params: { ...SYNOLOGY.params, host_key: "ssh-ed25519 AAAAC3 nas", password: SECRET_MASKED } },
+        ],
+      }),
+      "GET /servers": ok({ list: [] }),
+    });
+    renderPage(<ReposPage />, { path: "/repos" });
+    const dialog = await openEdit(user, "群晖 DS920+");
+    expect(within(dialog).getByLabelText("名称")).toHaveValue("群晖 DS920+");
+    expect(within(dialog).getByLabelText("主机")).toHaveValue("192.168.1.20");
+    expect(within(dialog).getByLabelText("路径")).toHaveValue("/volume1/backup/opsnap");
+    expect(within(dialog).getByLabelText("密码")).toHaveValue("");
+    expect(within(dialog).getByLabelText("密码")).toHaveAttribute("placeholder", "已设置，留空保持不变");
+    // 类型和恢复密钥都只在添加时决定
+    expect(within(dialog).queryByRole("combobox", { name: "类型" })).toBeNull();
+    expect(within(dialog).queryByRole("checkbox", { name: /同时生成一把恢复密钥/ })).toBeNull();
+  });
+
+  it("保存时提交占位凭据以保留已保存的值，成功后刷新列表", async () => {
+    const user = userEvent.setup();
+    const api = mockApi({
+      "GET /repos": ok({
+        list: [
+          { ...SYNOLOGY, params: { ...SYNOLOGY.params, host_key: "ssh-ed25519 AAAAC3 nas", password: SECRET_MASKED } },
+        ],
+      }),
+      "GET /servers": ok({ list: [] }),
+      "PUT /repos/1": ok({ ...SYNOLOGY, name: "机房群晖" }),
+    });
+    renderPage(<ReposPage />, { path: "/repos" });
+    const dialog = await openEdit(user, "群晖 DS920+");
+    const name = within(dialog).getByLabelText("名称");
+    await user.clear(name);
+    await user.type(name, "机房群晖");
+    await user.click(within(dialog).getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(api.find("PUT", "/repos/1")).toHaveLength(1));
+    expect(api.find("PUT", "/repos/1")[0].body).toMatchObject({
+      name: "机房群晖",
+      params: {
+        host: "192.168.1.20",
+        port: 22,
+        path: "/volume1/backup/opsnap",
+        password: SECRET_MASKED,
+        server_id: 0,
+      },
+    });
+    // 已有仓库不再走创建，也不重新生成恢复密钥
+    expect(api.find("POST", "/repos")).toHaveLength(0);
+    expect(api.find("POST", "/repos/recovery-key")).toHaveLength(0);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("S3 只改地址时沿用已保存的 Secret Access Key", async () => {
+    const user = userEvent.setup();
+    const api = mockApi({
+      "GET /repos": ok({
+        list: [
+          {
+            ...SYNOLOGY,
+            name: "RustFS",
+            type: "s3",
+            params: {
+              ...PARAMS,
+              endpoint: "https://rustfs.icodef.com",
+              bucket: "opsnap",
+              region: "us-east-1",
+              access_key_id: "opsnap-9d62217d",
+              secret_access_key: SECRET_MASKED,
+              path_style: true,
+            },
+          },
+        ],
+      }),
+      "PUT /repos/1": ok(SYNOLOGY),
+    });
+    renderPage(<ReposPage />, { path: "/repos" });
+    const dialog = await openEdit(user, "RustFS");
+    expect(within(dialog).getByLabelText("Secret Access Key")).toHaveValue("");
+    const endpoint = within(dialog).getByLabelText("地址");
+    await user.clear(endpoint);
+    await user.type(endpoint, "http://192.168.8.136:9000");
+    await user.click(within(dialog).getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(api.find("PUT", "/repos/1")).toHaveLength(1));
+    expect(api.find("PUT", "/repos/1")[0].body).toMatchObject({
+      params: {
+        endpoint: "http://192.168.8.136:9000",
+        bucket: "opsnap",
+        access_key_id: "opsnap-9d62217d",
+        secret_access_key: SECRET_MASKED,
+        path_style: true,
+      },
+    });
+  });
+
+  it("保存失败时留在对话框并显示原因", async () => {
+    const user = userEvent.setup();
+    mockApi({
+      "GET /repos": ok({
+        list: [{ ...SYNOLOGY, params: { ...SYNOLOGY.params, host_key: "ssh-ed25519 AAAAC3 nas" } }],
+      }),
+      "GET /servers": ok({ list: [] }),
+      "PUT /repos/1": fail(409, 11314, "存储位置正在备份或维护，请稍后再试"),
+    });
+    renderPage(<ReposPage />, { path: "/repos" });
+    const dialog = await openEdit(user, "群晖 DS920+");
+    await user.click(within(dialog).getByRole("button", { name: "保存" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("正在备份或维护");
+    expect(screen.getByRole("dialog", { name: "修改存储位置" })).toBeInTheDocument();
+  });
+
+  it("SFTP 地址未变时沿用已核对的主机指纹，地址一改就要重新核对", async () => {
+    const user = userEvent.setup();
+    const api = mockApi({
+      "GET /repos": ok({
+        list: [
+          {
+            ...SYNOLOGY,
+            params: { ...SYNOLOGY.params, host_key: "ssh-ed25519 AAAAC3 nas", password: SECRET_MASKED },
+          },
+        ],
+      }),
+      "GET /servers": ok({ list: [] }),
+      "PUT /repos/1": ok(SYNOLOGY),
+    });
+    renderPage(<ReposPage />, { path: "/repos" });
+    const dialog = await openEdit(user, "群晖 DS920+");
+    expect(within(dialog).getByText("主机指纹已核对")).toBeInTheDocument();
+    const save = within(dialog).getByRole("button", { name: "保存" });
+    expect(save).toBeEnabled();
+
+    // 地址改了就不再沿用旧指纹
+    const host = within(dialog).getByLabelText("主机");
+    await user.clear(host);
+    await user.type(host, "192.168.1.21");
+    expect(within(dialog).queryByText("主机指纹已核对")).toBeNull();
+    expect(save).toBeDisabled();
+
+    await user.clear(host);
+    await user.type(host, "192.168.1.20");
+    // 只改名称、不动地址时提交空 host_key，后端按原值沿用
+    await user.click(save);
+    await waitFor(() => expect(api.find("PUT", "/repos/1")).toHaveLength(1));
+    expect(api.find("PUT", "/repos/1")[0].body).toMatchObject({ params: { host_key: "" } });
   });
 });
 

@@ -1,9 +1,9 @@
-import { describe, expect, it } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { RunDetailPage, RunsPage } from "./runs";
 import { renderPage } from "@/test/render";
-import { PINNED_NOW_SEC, pinClock } from "@/test/clock";
+import { PINNED_NOW, PINNED_NOW_SEC, pinClock } from "@/test/clock";
 import { stubEventSource } from "@/test/event-source";
 import { fail, mockApi, ok } from "@/test/api-mock";
 import type { RunItem } from "@/lib/api";
@@ -157,6 +157,21 @@ describe("运行详情", () => {
     expect(screen.getByRole("button", { name: "停止运行" })).toBeInTheDocument();
   });
 
+  it("数据每 10 秒才变化时详情速度按实际间隔计算", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"], now: PINNED_NOW });
+    stubEventSource();
+    let n = 0;
+    mockApi({
+      "GET /runs/1291": () => ok({ ...RUNNING, bytes_processed: (n++ < 4 ? 10 : 20) * 1_000_000 }),
+    });
+    renderPage(<RunDetailPage />, at(1291));
+    await screen.findByRole("heading", { name: "商城数据库" });
+    for (let i = 0; i < 4; i++) await act(async () => vi.advanceTimersByTime(3000));
+    expect(screen.getByText("814 KB/s")).toBeInTheDocument();
+    await act(async () => vi.advanceTimersByTime(3000));
+    expect(screen.getByText("814 KB/s")).toBeInTheDocument();
+  });
+
   it("停止运行要先确认，确认后带 confirm:true 提交", async () => {
     const user = userEvent.setup();
     stubEventSource();
@@ -293,5 +308,51 @@ describe("运行记录列表", () => {
     await user.click(await screen.findByRole("button", { name: "加载更多" }));
     expect(await screen.findByText("更早的任务")).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: /#1，/ })).toHaveLength(1);
+  });
+});
+
+describe("清理旧快照被延后", () => {
+  const deferred = () =>
+    run({
+      steps: [
+        { key: "preflight", label: "预检", status: "success", message: "", started_at: 1, finished_at: 2001 },
+        {
+          key: "export",
+          label: "导出并写入快照",
+          status: "success",
+          message: "",
+          started_at: 2001,
+          finished_at: 300_000,
+        },
+        {
+          key: "forget",
+          label: "清理旧快照",
+          status: "skipped",
+          message: "存储位置正被其他备份占用，本次跳过清理旧快照，稍后自动补做",
+          started_at: 300_000,
+          finished_at: 300_100,
+        },
+        {
+          key: "notify",
+          label: "记录并通知",
+          status: "success",
+          message: "",
+          started_at: 300_100,
+          finished_at: 301_000,
+        },
+      ],
+    });
+
+  it("已跳过的步骤显示原因，并当作已处理的完成态", async () => {
+    mockApi({ "GET /runs/1291": ok(deferred()), "GET /runs/1291/log": ok({ running: false, lines: LOG }) });
+    renderPage(<RunDetailPage />, at(1291));
+    await screen.findByRole("heading", { name: "商城数据库" });
+
+    expect(screen.getByText("存储位置正被其他备份占用，本次跳过清理旧快照，稍后自动补做")).toBeInTheDocument();
+    // 已跳过是完成态的中性样式，不是「未开始」的圆形序号
+    expect(screen.getByRole("img", { name: "已跳过" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "已跳过" })).not.toHaveTextContent("3");
+    // 整次运行仍然成功
+    expect(screen.getByText("成功")).toBeInTheDocument();
   });
 });

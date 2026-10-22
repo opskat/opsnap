@@ -10,7 +10,6 @@ import "github.com/cago-frame/cago/server/mux"
 // 数据源类型
 const (
 	SourceMySQL    = "mysql"
-	SourceMariaDB  = "mariadb"
 	SourcePostgres = "postgres"
 	SourceRedis    = "redis"
 	SourceMongoDB  = "mongodb"
@@ -63,7 +62,7 @@ type AdvancedInput struct {
 // JobInput 提交的任务配置，整体保存；Create、Update、Test、Databases 请求都带这组字段。
 type JobInput struct {
 	Name       string `json:"name"`
-	SourceType string `json:"source_type"` // mysql | mariadb | postgres | redis | mongodb | files
+	SourceType string `json:"source_type"` // mysql | postgres | redis | mongodb | files
 	// ServerID 经 SSH 的数据库任务和文件任务使用的服务器
 	ServerID int64  `json:"server_id"`
 	ConnMode string `json:"conn_mode"` // ssh | direct，仅数据库
@@ -113,8 +112,13 @@ type Item struct {
 	Paused    bool           `json:"paused"`
 	NextRunAt int64          `json:"next_run_at"` // 下次运行时间 Unix 秒；已暂停为 0
 	Attention bool           `json:"attention"`   // 需要处理：最近一次运行失败或有警告，或太久没有成功
-	CreatedAt int64          `json:"created_at"`
-	UpdatedAt int64          `json:"updated_at"`
+
+	// ForgetPendingAt 首次因存储位置被其他备份占用而延后清理旧快照的时间（Unix 秒），0 表示没有
+	ForgetPendingAt int64 `json:"forget_pending_at"`
+	// ForgetPendingError 最近一次补做清理失败的原因（撞锁不算失败），成功后清空
+	ForgetPendingError string `json:"forget_pending_error"`
+	CreatedAt          int64  `json:"created_at"`
+	UpdatedAt          int64  `json:"updated_at"`
 
 	// LastRun 最近一次运行（不含跳过），可能早于 14 天；没有运行过为 null。只在列表里填写
 	LastRun *RunBrief `json:"last_run"`

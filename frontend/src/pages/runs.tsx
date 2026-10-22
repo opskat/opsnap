@@ -26,9 +26,9 @@ import {
   fmtLogTime,
   fmtStart,
   groupByDay,
+  nextSpeedSample,
   runStatusView,
-  speedBetween,
-  type Sample,
+  type SpeedSample,
 } from "@/lib/runs";
 import { useLoad } from "@/lib/use-load";
 import { useNow } from "@/lib/use-now";
@@ -279,7 +279,7 @@ export function RunDetailPage() {
   const [error, setError] = React.useState<string | null>(null);
   const [tick, setTick] = React.useState(0);
   const [stopping, setStopping] = React.useState(false);
-  const sampleRef = React.useRef<(Sample & { runId: number }) | undefined>(undefined);
+  const sampleRef = React.useRef<(SpeedSample & { runId: number }) | undefined>(undefined);
   const reload = React.useCallback(() => setTick((n) => n + 1), []);
 
   // 换了一条运行记录：清掉旧数据，在渲染期间对比
@@ -299,8 +299,9 @@ export function RunDetailPage() {
         if (cancelled) return;
         const now = Date.now();
         const last = sampleRef.current;
-        setSpeed(speedBetween(last && last.runId === id ? last : undefined, r.bytes_processed, now));
-        sampleRef.current = r.status === "running" ? { runId: id, bytes: r.bytes_processed, at: now } : undefined;
+        const sample = nextSpeedSample(last && last.runId === id ? last : undefined, r.bytes_processed, now);
+        setSpeed(sample.speed);
+        sampleRef.current = r.status === "running" ? { ...sample, runId: id } : undefined;
         setRun(r);
         setError(null);
       })
@@ -446,8 +447,15 @@ function JobTile({ jobId }: { jobId: number }) {
   return <TypeTile type={data ? sourceOf(data.source_type).tile : "files"} size="lg" />;
 }
 
+// 已跳过也是完成态：这一步处理过了，只是没有要做的事（例如存储位置被别的备份占用）
 const STEP_STATE = (s: RunStep["status"]) =>
-  s === "success" || s === "warning" ? "done" : s === "running" ? "active" : s === "failed" ? "failed" : "todo";
+  s === "success" || s === "warning" || s === "skipped"
+    ? "done"
+    : s === "running"
+      ? "active"
+      : s === "failed"
+        ? "failed"
+        : "todo";
 
 function StepItem({ step: s, last, index }: { step: RunStep; last: boolean; index: number }) {
   const state = STEP_STATE(s.status);
@@ -478,7 +486,9 @@ function StepItem({ step: s, last, index }: { step: RunStep; last: boolean; inde
           state === "done" &&
             (s.status === "warning"
               ? "border-warn-fill bg-warn-fill text-white"
-              : "border-ok-fill bg-ok-fill text-white"),
+              : s.status === "skipped"
+                ? "border-line-strong bg-surface text-ink-3"
+                : "border-ok-fill bg-ok-fill text-white"),
           state === "active" && "border-brand bg-surface text-brand",
           state === "failed" && "border-fail-fill bg-fail-fill text-white",
           state === "todo" && "border-line-strong bg-surface text-ink-3"
@@ -490,7 +500,10 @@ function StepItem({ step: s, last, index }: { step: RunStep; last: boolean; inde
         )}
       </span>
       <div className="min-w-0 pt-0.5">
-        <div className={cn("text-[14px] font-medium", state === "todo" && "text-ink-3")}>{s.label}</div>
+        <div className={cn("text-[14px] font-medium", (state === "todo" || s.status === "skipped") && "text-ink-3")}>
+          {s.label}
+          {s.status === "skipped" && <span className="ml-1.5 text-[12.5px] font-normal text-ink-3">{label}</span>}
+        </div>
         {s.message && <div className="mt-0.5 text-[12.5px] break-words text-ink-2">{s.message}</div>}
         {took && <div className="mt-0.5 text-[12.5px] text-ink-3 num">{took}</div>}
       </div>

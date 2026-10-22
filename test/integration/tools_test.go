@@ -30,7 +30,6 @@ func TestImageTools(t *testing.T) {
 		{[]string{"rsync", "--version"}, `rsync\s+version (\d+\.\d+\.\d+)`, "3.1.0"},
 		{[]string{"ssh", "-V"}, `OpenSSH_(\d+\.\d+)`, "8.0"},
 		{[]string{"mysqldump", "--version"}, `Ver (\d+\.\d+\.\d+)`, "8.0.0"},
-		{[]string{"mariadb-dump", "--version"}, `Distrib (\d+\.\d+\.\d+)-MariaDB`, "10.5.0"},
 		{[]string{"pg_dump", "--version"}, `\(PostgreSQL\) (\d+)`, serverMajor},
 		{[]string{"mongodump", "--version"}, `mongodump version: (\d+\.\d+\.\d+)`, "100.3.0"},
 		{[]string{"redis-cli", "--version"}, `redis-cli (\d+\.\d+\.\d+)`, "7.0.0"},

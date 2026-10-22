@@ -20,7 +20,6 @@ import (
 // 数据源类型
 const (
 	SourceMySQL    = "mysql"
-	SourceMariaDB  = "mariadb"
 	SourcePostgres = "postgres"
 	SourceRedis    = "redis"
 	SourceMongoDB  = "mongodb"
@@ -96,6 +95,11 @@ type Job struct {
 	Paused     bool  `gorm:"column:paused;not null"`
 	Createtime int64 `gorm:"column:createtime"`
 	Updatetime int64 `gorm:"column:updatetime"`
+
+	// ForgetPendingAt 首次因存储位置被占用而延后清理旧快照的时间（Unix 秒），0 表示没有待清理
+	ForgetPendingAt int64 `gorm:"column:forget_pending_at;not null"`
+	// ForgetPendingError 最近一次补做清理失败的原因，成功后清空
+	ForgetPendingError string `gorm:"column:forget_pending_error;not null"`
 }
 
 func (Job) TableName() string { return "jobs" }
@@ -111,7 +115,7 @@ func (j *Job) Check(ctx context.Context) error {
 // IsDatabase 数据源是否是数据库
 func IsDatabase(t string) bool {
 	switch t {
-	case SourceMySQL, SourceMariaDB, SourcePostgres, SourceRedis, SourceMongoDB:
+	case SourceMySQL, SourcePostgres, SourceRedis, SourceMongoDB:
 		return true
 	}
 	return false
@@ -130,7 +134,7 @@ func HasDatabaseList(t string) bool {
 // DefaultPort 数据库的默认端口
 func DefaultPort(t string) int {
 	switch t {
-	case SourceMySQL, SourceMariaDB:
+	case SourceMySQL:
 		return 3306
 	case SourcePostgres:
 		return 5432
@@ -145,7 +149,7 @@ func DefaultPort(t string) int {
 // IsSystemDatabase 是否是系统库，系统库不可选
 func IsSystemDatabase(sourceType, name string) bool {
 	switch sourceType {
-	case SourceMySQL, SourceMariaDB:
+	case SourceMySQL:
 		return slices.Contains([]string{"information_schema", "performance_schema", "mysql", "sys"}, name)
 	case SourcePostgres:
 		return slices.Contains([]string{"template0", "template1"}, name)
@@ -224,7 +228,7 @@ func (j *Job) ValidateConfig() FieldErrors {
 	case j.SourceType == SourceFiles:
 		j.validateFiles(add)
 	default:
-		add("source_type", "数据源须是 mysql、mariadb、postgres、redis、mongodb 或 files")
+		add("source_type", "数据源须是 mysql、postgres、redis、mongodb 或 files")
 	}
 
 	if j.RepoID <= 0 {

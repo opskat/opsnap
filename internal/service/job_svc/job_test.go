@@ -347,9 +347,9 @@ func TestValidSourcesSave(t *testing.T) {
 		name string
 		in   func() jobapi.JobInput
 	}{
-		{"mariadb 全部库", func() jobapi.JobInput {
+		{"mysql 全部库", func() jobapi.JobInput {
 			in := f.mysqlInput()
-			in.SourceType, in.Databases, in.AllDatabases = jobapi.SourceMariaDB, nil, true
+			in.SourceType, in.Databases, in.AllDatabases = jobapi.SourceMySQL, nil, true
 			return in
 		}},
 		{"postgres", func() jobapi.JobInput {
@@ -960,3 +960,60 @@ func TestMissingMySQL(t *testing.T) {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+// TestForgetPendingInList 待清理是任务的运行状态，列表与详情都要带出来，但不影响 attention
+func TestForgetPendingInList(t *testing.T) {
+	f := setupJobTest(t)
+	clean := f.create(t, f.mysqlInput())
+	pending := f.create(t, f.filesInput())
+	require.NoError(t, job_repo.Job().SetForgetPending(f.ctx, pending.ID, 1000, "密钥不对"))
+
+	resp, err := f.svc.List(f.ctx, jobapi.FilterAll, "")
+	require.NoError(t, err)
+	byID := map[int64]*jobapi.Item{}
+	for _, it := range resp.List {
+		byID[it.ID] = it
+	}
+	assert.Zero(t, byID[clean.ID].ForgetPendingAt)
+	assert.Empty(t, byID[clean.ID].ForgetPendingError)
+	assert.Equal(t, int64(1000), byID[pending.ID].ForgetPendingAt)
+	assert.Equal(t, "密钥不对", byID[pending.ID].ForgetPendingError)
+	assert.False(t, byID[pending.ID].Attention, "待清理不算需要处理")
+
+	got, err := f.svc.Get(f.ctx, pending.ID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1000), got.ForgetPendingAt)
+	assert.Equal(t, "密钥不对", got.ForgetPendingError)
+}
+
+// TestDuplicateDropsForgetPending 复制出来的任务不继承原任务欠着的清理
+func TestDuplicateDropsForgetPending(t *testing.T) {
+	f := setupJobTest(t)
+	src := f.create(t, f.mysqlInput())
+	require.NoError(t, job_repo.Job().SetForgetPending(f.ctx, src.ID, 1000, "密钥不对"))
+
+	dup, err := f.svc.Duplicate(f.ctx, src.ID)
+	require.NoError(t, err)
+	assert.Zero(t, dup.ForgetPendingAt)
+	assert.Empty(t, dup.ForgetPendingError)
+
+	// 原任务的标记不受影响
+	got, err := f.svc.Get(f.ctx, src.ID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1000), got.ForgetPendingAt)
+}
+
+// TestUpdateKeepsForgetPending 编辑任务不会清掉待清理：它是运行状态，不归编辑管
+func TestUpdateKeepsForgetPending(t *testing.T) {
+	f := setupJobTest(t)
+	src := f.create(t, f.mysqlInput())
+	require.NoError(t, job_repo.Job().SetForgetPending(f.ctx, src.ID, 1000, "密钥不对"))
+
+	in := f.mysqlInput()
+	in.Name = "orders-db-2"
+	upd, err := f.svc.Update(f.ctx, jobapi.NewUpdateRequest(src.ID, &in))
+	require.NoError(t, err)
+	assert.Equal(t, "orders-db-2", upd.Name)
+	assert.Equal(t, int64(1000), upd.ForgetPendingAt)
+	assert.Equal(t, "密钥不对", upd.ForgetPendingError)
+}

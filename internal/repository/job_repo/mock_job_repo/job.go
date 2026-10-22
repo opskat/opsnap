@@ -129,6 +129,49 @@ func (mr *MockJobRepoMockRecorder) List(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockJobRepo)(nil).List), ctx)
 }
 
+// ListForgetPending mocks base method.
+func (m *MockJobRepo) ListForgetPending(ctx context.Context) ([]*job_entity.Job, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListForgetPending", ctx)
+	ret0, _ := ret[0].([]*job_entity.Job)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListForgetPending indicates an expected call of ListForgetPending.
+func (mr *MockJobRepoMockRecorder) ListForgetPending(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListForgetPending", reflect.TypeOf((*MockJobRepo)(nil).ListForgetPending), ctx)
+}
+
+// MarkForgetPending mocks base method.
+func (m *MockJobRepo) MarkForgetPending(ctx context.Context, id, at int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkForgetPending", ctx, id, at)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// MarkForgetPending indicates an expected call of MarkForgetPending.
+func (mr *MockJobRepoMockRecorder) MarkForgetPending(ctx, id, at any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkForgetPending", reflect.TypeOf((*MockJobRepo)(nil).MarkForgetPending), ctx, id, at)
+}
+
+// SetForgetPending mocks base method.
+func (m *MockJobRepo) SetForgetPending(ctx context.Context, id, at int64, reason string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetForgetPending", ctx, id, at, reason)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetForgetPending indicates an expected call of SetForgetPending.
+func (mr *MockJobRepoMockRecorder) SetForgetPending(ctx, id, at, reason any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetForgetPending", reflect.TypeOf((*MockJobRepo)(nil).SetForgetPending), ctx, id, at, reason)
+}
+
 // SetPaused mocks base method.
 func (m *MockJobRepo) SetPaused(ctx context.Context, id int64, paused bool, updatetime int64) error {
 	m.ctrl.T.Helper()

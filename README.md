@@ -4,7 +4,7 @@
 
 ## 功能
 
-- **数据源**：MySQL/MariaDB、PostgreSQL、Redis、MongoDB、文件。数据库导出经管道直接写入 restic，不落盘；文件先经 rsync 增量同步到镜像目录，再生成快照。失败或不完整的导出不会记为成功的快照。
+- **数据源**：MySQL、PostgreSQL、Redis、MongoDB、文件。数据库导出经管道直接写入 restic，不落盘；文件先经 rsync 增量同步到镜像目录，再生成快照。失败或不完整的导出不会记为成功的快照。
 - **连接**：数据库可直连，或经服务器建 SSH 隧道。服务器支持密码、私钥、私钥 + 口令认证，可配置代理链（SSH 跳板 / SOCKS5 / HTTP CONNECT），逐跳测试连接并核对主机指纹。
 - **存储位置**：本地目录（NFS/SMB 挂载）、SFTP、S3 兼容、restic REST Server、WebDAV（经 rclone）。本地目录靠标记文件 `.opsnap-repo` 判断 NAS 是否已挂载，未挂载时拒绝写入。
 - **密钥**：每个存储位置有一把 opsnap 日常使用的密钥（加密保存）和一把可选的恢复密钥（只显示一次，opsnap 不保存），可轮换。
@@ -37,7 +37,7 @@ docker run -d --name opsnap -p 8080:8080 \
 - **配置文件**：镜像内为 `/opt/opsnap/configs/config.yaml`，可用 `-config <路径>` 指定其他文件。修改 `dataDir` 时要同步修改 `db.dsn` 里的数据库路径。
 - **端口与接口**：默认监听 `8080`。面板在 `/`，API 前缀 `/api/v1`，OpenAPI 文档在 `/api/v1/openapi.json`，健康检查 `/health`。
 - **恢复密码登录**：关闭了密码登录、而单点登录的提供方又不可用时，给容器加上环境变量 `OPSNAP_PASSWORD_LOGIN=1` 重启，就能用用户名密码登录（不改动设置里保存的开关）。恢复访问后去掉这个变量再重启。
-- **镜像**：只发布 linux/amd64，以 uid 10001 的 `opsnap` 用户运行，内含 restic、rclone、rsync、openssh-client、`mysqldump`（MySQL 8.4）、`mariadb-dump`、`pg_dump`（PGDG 最新大版本）、`mongodump` 和 `redis-cli`（7.x）。也可以自己构建：`docker build -t opsnap .`。
+- **镜像**：只发布 linux/amd64，以 uid 10001 的 `opsnap` 用户运行，内含 restic、rclone、rsync、openssh-client、`mysqldump`（MySQL 8.4）、`pg_dump`（PGDG 最新大版本）、`mongodump` 和 `redis-cli`（7.x）。也可以自己构建：`docker build -t opsnap .`。
 
 ## 单点登录（OIDC）
 

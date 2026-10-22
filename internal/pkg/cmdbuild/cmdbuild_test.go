@@ -3,6 +3,7 @@ package cmdbuild
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/smartystreets/goconvey/convey"
 	"github.com/stretchr/testify/assert"
@@ -382,14 +383,15 @@ func TestDump(t *testing.T) {
 			assert.Equal(t, secDB, v)
 			assertNoSecretInArgs(t, c)
 		})
-		convey.Convey("MariaDB 用 mariadb-dump，全部库用 --all-databases", func() {
-			c, err := Dump(DumpSpec{Kind: DBMariaDB, Conn: direct, AllDatabases: true})
+		convey.Convey("MySQL 全部库用 --all-databases，密码走 MYSQL_PWD", func() {
+			c, err := Dump(DumpSpec{Kind: DBMySQL, Conn: direct, AllDatabases: true})
 			require.NoError(t, err)
-			assert.Equal(t, "mariadb-dump", c.Name)
+			assert.Equal(t, "mysqldump", c.Name)
 			assert.Contains(t, c.Args, "--all-databases")
 			assert.NotContains(t, c.Args, "--databases")
 			v, _ := envValue(c, "MYSQL_PWD")
 			assert.Equal(t, secDB, v)
+			assertNoSecretInArgs(t, c)
 		})
 		convey.Convey("PostgreSQL：自定义格式、不压缩、不提示密码，密码走 PGPASSWORD", func() {
 			c, err := Dump(DumpSpec{Kind: DBPostgres, Conn: DBConn{Host: "db", Port: 5432, User: "pg", Password: secDB}, Databases: []string{"app"}})
@@ -474,7 +476,6 @@ func TestDump(t *testing.T) {
 		convey.Convey("经 SSH 与直连只差地址和端口", func() {
 			specs := []DumpSpec{
 				{Kind: DBMySQL, Databases: []string{"app"}},
-				{Kind: DBMariaDB, AllDatabases: true},
 				{Kind: DBPostgres, Databases: []string{"app"}},
 				{Kind: DBMongo, Databases: []string{"app"}},
 				{Kind: DBRedis},
@@ -509,7 +510,7 @@ func TestDumpFilename(t *testing.T) {
 			want string
 		}{
 			{DumpSpec{Kind: DBMySQL, Databases: []string{"a", "b"}}, "mysql/databases.sql"},
-			{DumpSpec{Kind: DBMariaDB, AllDatabases: true}, "mariadb/databases.sql"},
+			{DumpSpec{Kind: DBMySQL, AllDatabases: true}, "mysql/databases.sql"},
 			{DumpSpec{Kind: DBPostgres, Databases: []string{"app/x"}}, "postgres/app_x.dump"},
 			{DumpSpec{Kind: DBMongo, Databases: []string{"app"}}, "mongodb/app.archive"},
 			{DumpSpec{Kind: DBMongo, AllDatabases: true}, "mongodb/all.archive"},
@@ -532,6 +533,31 @@ func TestResticForgetDryRun(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, c.Args, "--dry-run")
 	assert.NotContains(t, c.Args, "--no-lock", "真正删除时必须加锁")
+}
+
+// TestResticForgetRetryLock 撞锁时等一会儿再放弃：只有真正删除时才带重试，只演算时不带
+func TestResticForgetRetryLock(t *testing.T) {
+	r := Repo{Backend: LocalBackend{Path: "/repo"}, Password: "pw"}
+
+	// 不给重试时长：与现在一致，不加参数
+	c, err := ResticForget(r, ForgetSpec{Tags: []string{"job:3"}, Policy: []string{"--keep-daily", "7"}})
+	require.NoError(t, err)
+	assert.NotContains(t, c.Args, "--retry-lock")
+
+	// 给了重试时长：带上 restic 认识的时长写法
+	c, err = ResticForget(r, ForgetSpec{
+		Tags: []string{"job:3"}, Policy: []string{"--keep-daily", "7"}, RetryLock: 5 * time.Minute,
+	})
+	require.NoError(t, err)
+	assert.True(t, hasSeq(c.Args, "--retry-lock", "5m0s"))
+
+	// 只演算：不取锁，也就没有重试
+	c, err = ResticForget(r, ForgetSpec{
+		Tags: []string{"job:3"}, Policy: []string{"--keep-daily", "7"}, DryRun: true, RetryLock: 5 * time.Minute,
+	})
+	require.NoError(t, err)
+	assert.NotContains(t, c.Args, "--retry-lock", "只演算时不取锁")
+	assert.Contains(t, c.Args, "--no-lock")
 }
 
 func TestCmdSecrets(t *testing.T) {

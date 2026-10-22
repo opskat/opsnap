@@ -89,6 +89,36 @@ describe("轮询", () => {
     await waitFor(() => expect(m.find("GET", "/runs")).toHaveLength(2));
   });
 
+  it("数据每 10 秒才变化时按实际间隔计算，重复轮询不显示 0 或虚高速度", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+    let n = 0;
+    mockApi({
+      ...AUTHED,
+      "GET /jobs": ok({ list: [] }),
+      "GET /runs": () =>
+        ok({
+          list: [
+            {
+              id: 41,
+              job_id: 2,
+              job_name: "商城数据库",
+              status: "running",
+              bytes_processed: (n++ < 2 ? 10 : 20) * 1_000_000,
+            },
+          ],
+          total: 1,
+        }),
+    });
+    page();
+    const link = (await screen.findAllByRole("link", { name: /正在备份/ }))[0];
+    await act(async () => vi.advanceTimersByTime(5000));
+    expect(within(link).queryByText(/0 B\/s/)).toBeNull();
+    await act(async () => vi.advanceTimersByTime(5000));
+    expect(within(link).getByText(/977 KB\/s/)).toBeInTheDocument();
+    await act(async () => vi.advanceTimersByTime(5000));
+    expect(within(link).getByText(/977 KB\/s/)).toBeInTheDocument();
+  });
+
   it("两次轮询之间显示处理速度（严格模式下同样）", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
     let n = 0;

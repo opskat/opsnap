@@ -4574,6 +4574,14 @@
                         "type": "string"
                     }
                 },
+                "forget_pending_at": {
+                    "description": "首次因存储位置被其他备份占用而延后清理旧快照的时间（Unix 秒），0 表示没有",
+                    "type": "integer"
+                },
+                "forget_pending_error": {
+                    "description": "最近一次补做清理失败的原因（撞锁不算失败），成功后清空",
+                    "type": "string"
+                },
                 "id": {
                     "type": "integer"
                 },
@@ -6330,7 +6338,7 @@
                     "type": "string"
                 },
                 "gzip": {
-                    "description": "下载时需要带 gzip=true（MySQL/MariaDB 的 .sql 压缩成 .sql.gz）",
+                    "description": "下载时需要带 gzip=true（MySQL 的 .sql 压缩成 .sql.gz）",
                     "type": "boolean"
                 },
                 "path": {
