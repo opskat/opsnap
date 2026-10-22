@@ -74,7 +74,7 @@ up() {
 
 # status 打印 opsnap 容器里的运行用户与各工具版本（与 runner 里 TestImageTools 的检查对照）
 status() {
-	compose exec -T opsnap sh -c 'echo "uid=$(id -u) user=$(id -un)"; restic version; rclone version | head -1; rsync --version | head -1; ssh -V 2>&1; mysqldump --version; mariadb-dump --version; pg_dump --version; mongodump --version | head -1; redis-cli --version'
+	compose exec -T opsnap sh -c 'echo "uid=$(id -u) user=$(id -un)"; restic version; rclone version | head -1; rsync --version | head -1; ssh -V 2>&1; mysqldump --version; pg_dump --version; mongodump --version | head -1; redis-cli --version'
 }
 
 run_tests() {

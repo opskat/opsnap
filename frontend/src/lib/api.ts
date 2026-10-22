@@ -517,7 +517,7 @@ export interface SFTPHostKey {
 
 // ---- 备份任务 internal/api/job ----
 
-export type JobSourceType = "mysql" | "mariadb" | "postgres" | "redis" | "mongodb" | "files";
+export type JobSourceType = "mysql" | "postgres" | "redis" | "mongodb" | "files";
 export type JobConnMode = "ssh" | "direct";
 export type ScheduleKind = "hourly" | "6h" | "daily" | "weekly" | "cron";
 export type JobCompression = "auto" | "max" | "off";

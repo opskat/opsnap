@@ -51,6 +51,20 @@ export function speedBetween(prev: Sample | undefined, bytes: number, at: number
   return ((bytes - prev.bytes) * 1000) / (at - prev.at);
 }
 
+/** 带最近一次可信速度的采样；at 是字节数最后一次变化的时刻 */
+export interface SpeedSample extends Sample {
+  speed: number | null;
+}
+
+/** restic 每 10 秒才输出进度；超过一个输出周期仍无变化时不再展示过期速度 */
+const SPEED_STALE_MS = 15_000;
+
+export function nextSpeedSample(prev: SpeedSample | undefined, bytes: number, at: number): SpeedSample {
+  if (!prev || at <= prev.at || bytes < prev.bytes) return { bytes, at, speed: null };
+  if (bytes === prev.bytes) return at - prev.at > SPEED_STALE_MS ? { ...prev, speed: null } : prev;
+  return { bytes, at, speed: speedBetween(prev, bytes, at) };
+}
+
 /** 耗时：「19 秒」「1 分 48 秒」「1 小时 02 分」 */
 export function fmtDurationMs(ms: number): string {
   const sec = Math.max(1, Math.round(ms / 1000));

@@ -1601,7 +1601,7 @@ definitions:
         description: 下载得到的文件名
         type: string
       gzip:
-        description: 下载时需要带 gzip=true（MySQL/MariaDB 的 .sql 压缩成 .sql.gz）
+        description: 下载时需要带 gzip=true（MySQL 的 .sql 压缩成 .sql.gz）
         type: boolean
       path:
         description: 快照内路径，下载时作为 path 参数

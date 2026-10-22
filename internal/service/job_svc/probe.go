@@ -63,7 +63,7 @@ type ProbeFor func(sourceType string) (Probe, error)
 // defaultProbes 真实驱动
 func defaultProbes(sourceType string) (Probe, error) {
 	switch sourceType {
-	case job_entity.SourceMySQL, job_entity.SourceMariaDB:
+	case job_entity.SourceMySQL:
 		return mysqlProbe{}, nil
 	case job_entity.SourcePostgres:
 		return postgresProbe{}, nil
@@ -84,7 +84,7 @@ func fixCommand(sourceType, user string, missing []string) string {
 		return ""
 	}
 	switch sourceType {
-	case job_entity.SourceMySQL, job_entity.SourceMariaDB:
+	case job_entity.SourceMySQL:
 		u := strings.ReplaceAll(user, "'", "''")
 		return fmt.Sprintf("GRANT %s ON *.* TO '%s'@'%%';", strings.Join(missing, ", "), u)
 	case job_entity.SourcePostgres:

@@ -78,7 +78,7 @@ type Export struct {
 	// Path 快照内路径，下载时作为 path 参数
 	Path string `json:"path"`
 	Size int64  `json:"size"`
-	// Gzip 下载时需要带 gzip=true（MySQL/MariaDB 的 .sql 压缩成 .sql.gz）
+	// Gzip 下载时需要带 gzip=true（MySQL 的 .sql 压缩成 .sql.gz）
 	Gzip bool `json:"gzip"`
 	// Filename 下载得到的文件名
 	Filename string `json:"filename"`

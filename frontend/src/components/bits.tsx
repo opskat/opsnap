@@ -3,7 +3,6 @@
 import * as React from "react";
 import { Icon, type IconifyIcon } from "@iconify/react";
 import mysqlIcon from "@iconify-icons/logos/mysql-icon";
-import mariadbIcon from "@iconify-icons/logos/mariadb-icon";
 import postgresqlIcon from "@iconify-icons/logos/postgresql";
 import redisIcon from "@iconify-icons/logos/redis";
 import mongodbIcon from "@iconify-icons/logos/mongodb-icon";
@@ -15,7 +14,7 @@ import { cn } from "@/lib/utils";
 /** 运行状态 */
 export type RunStatus = "success" | "warning" | "failed" | "running" | "none";
 /** 数据源类型 */
-export type SourceType = "mysql" | "mariadb" | "postgres" | "redis" | "mongo" | "files";
+export type SourceType = "mysql" | "postgres" | "redis" | "mongo" | "files";
 
 export const STATUS_TEXT: Record<RunStatus, string> = {
   success: "成功",
@@ -71,7 +70,6 @@ export function Status({
 
 const LOGO: Record<Exclude<SourceType, "files">, IconifyIcon> = {
   mysql: mysqlIcon,
-  mariadb: mariadbIcon,
   postgres: postgresqlIcon,
   redis: redisIcon,
   mongo: mongodbIcon,

@@ -165,5 +165,5 @@ func (s *snapshotSvc) exports(ctx context.Context, req *snapshot.ExportsRequest)
 
 // gzipByDefault 文本格式的导出默认压缩后下载；其余格式本身已是二进制归档，原样下载
 func gzipByDefault(source string) bool {
-	return source == job_entity.SourceMySQL || source == job_entity.SourceMariaDB
+	return source == job_entity.SourceMySQL
 }

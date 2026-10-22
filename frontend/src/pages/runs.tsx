@@ -26,9 +26,9 @@ import {
   fmtLogTime,
   fmtStart,
   groupByDay,
+  nextSpeedSample,
   runStatusView,
-  speedBetween,
-  type Sample,
+  type SpeedSample,
 } from "@/lib/runs";
 import { useLoad } from "@/lib/use-load";
 import { useNow } from "@/lib/use-now";
@@ -279,7 +279,7 @@ export function RunDetailPage() {
   const [error, setError] = React.useState<string | null>(null);
   const [tick, setTick] = React.useState(0);
   const [stopping, setStopping] = React.useState(false);
-  const sampleRef = React.useRef<(Sample & { runId: number }) | undefined>(undefined);
+  const sampleRef = React.useRef<(SpeedSample & { runId: number }) | undefined>(undefined);
   const reload = React.useCallback(() => setTick((n) => n + 1), []);
 
   // 换了一条运行记录：清掉旧数据，在渲染期间对比
@@ -299,8 +299,9 @@ export function RunDetailPage() {
         if (cancelled) return;
         const now = Date.now();
         const last = sampleRef.current;
-        setSpeed(speedBetween(last && last.runId === id ? last : undefined, r.bytes_processed, now));
-        sampleRef.current = r.status === "running" ? { runId: id, bytes: r.bytes_processed, at: now } : undefined;
+        const sample = nextSpeedSample(last && last.runId === id ? last : undefined, r.bytes_processed, now);
+        setSpeed(sample.speed);
+        sampleRef.current = r.status === "running" ? { ...sample, runId: id } : undefined;
         setRun(r);
         setError(null);
       })

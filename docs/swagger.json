@@ -6147,7 +6147,7 @@
                     "type": "string"
                 },
                 "gzip": {
-                    "description": "下载时需要带 gzip=true（MySQL/MariaDB 的 .sql 压缩成 .sql.gz）",
+                    "description": "下载时需要带 gzip=true（MySQL 的 .sql 压缩成 .sql.gz）",
                     "type": "boolean"
                 },
                 "path": {

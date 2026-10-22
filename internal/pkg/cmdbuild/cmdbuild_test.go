@@ -383,14 +383,15 @@ func TestDump(t *testing.T) {
 			assert.Equal(t, secDB, v)
 			assertNoSecretInArgs(t, c)
 		})
-		convey.Convey("MariaDB 用 mariadb-dump，全部库用 --all-databases", func() {
-			c, err := Dump(DumpSpec{Kind: DBMariaDB, Conn: direct, AllDatabases: true})
+		convey.Convey("MySQL 全部库用 --all-databases，密码走 MYSQL_PWD", func() {
+			c, err := Dump(DumpSpec{Kind: DBMySQL, Conn: direct, AllDatabases: true})
 			require.NoError(t, err)
-			assert.Equal(t, "mariadb-dump", c.Name)
+			assert.Equal(t, "mysqldump", c.Name)
 			assert.Contains(t, c.Args, "--all-databases")
 			assert.NotContains(t, c.Args, "--databases")
 			v, _ := envValue(c, "MYSQL_PWD")
 			assert.Equal(t, secDB, v)
+			assertNoSecretInArgs(t, c)
 		})
 		convey.Convey("PostgreSQL：自定义格式、不压缩、不提示密码，密码走 PGPASSWORD", func() {
 			c, err := Dump(DumpSpec{Kind: DBPostgres, Conn: DBConn{Host: "db", Port: 5432, User: "pg", Password: secDB}, Databases: []string{"app"}})
@@ -475,7 +476,6 @@ func TestDump(t *testing.T) {
 		convey.Convey("经 SSH 与直连只差地址和端口", func() {
 			specs := []DumpSpec{
 				{Kind: DBMySQL, Databases: []string{"app"}},
-				{Kind: DBMariaDB, AllDatabases: true},
 				{Kind: DBPostgres, Databases: []string{"app"}},
 				{Kind: DBMongo, Databases: []string{"app"}},
 				{Kind: DBRedis},
@@ -510,7 +510,7 @@ func TestDumpFilename(t *testing.T) {
 			want string
 		}{
 			{DumpSpec{Kind: DBMySQL, Databases: []string{"a", "b"}}, "mysql/databases.sql"},
-			{DumpSpec{Kind: DBMariaDB, AllDatabases: true}, "mariadb/databases.sql"},
+			{DumpSpec{Kind: DBMySQL, AllDatabases: true}, "mysql/databases.sql"},
 			{DumpSpec{Kind: DBPostgres, Databases: []string{"app/x"}}, "postgres/app_x.dump"},
 			{DumpSpec{Kind: DBMongo, Databases: []string{"app"}}, "mongodb/app.archive"},
 			{DumpSpec{Kind: DBMongo, AllDatabases: true}, "mongodb/all.archive"},
