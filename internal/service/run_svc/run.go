@@ -73,6 +73,9 @@ type RunSvc interface {
 	Attention(ctx context.Context) (map[int64]bool, error)
 	// Recover 启动时把上次进程留下的「运行中」记录改为失败（进行中的步骤记为失败），并在后台发送「备份失败」通知
 	Recover(ctx context.Context) error
+	// CleanupForgetPending 补做因存储位置被其他备份占用而延后的旧快照清理。
+	// 只处理当前空闲的存储位置，不写运行记录、不发通知。
+	CleanupForgetPending(ctx context.Context) error
 }
 
 // Deps 外部依赖，测试里替换；为空的项使用真实实现
