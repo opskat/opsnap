@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -337,7 +338,8 @@ func TestDatabaseRunSuccess(t *testing.T) {
 	want, err := j.Retention().ForgetArgs()
 	require.NoError(t, err)
 	assert.Equal(t, []string{"forget", "--compression", "auto", "--json", "--tag", fmt.Sprintf("job:%d", j.ID)}, forgets[0].Args[:6])
-	assert.Equal(t, want, forgets[0].Args[6:])
+	// 撞锁时先自己等一会儿，再放弃并延后
+	assert.Equal(t, append(slices.Clone(want), "--retry-lock", "5m0s"), forgets[0].Args[6:])
 
 	// 顺序：预检（snapshots）→ 导出 → forget → 刷新存储位置统计（替身的 stats 没有输出，刷新到此为止）
 	order := make([]string, 0, len(f.exec.Calls()))
@@ -1121,4 +1123,99 @@ func staleThenSuccess(t *testing.T, afterFailure bool) {
 		}
 	}
 	assert.Equal(t, 1, recovered, "后续成功不再重复恢复正常")
+}
+
+// 撞锁的 restic forget 输出：真实的 restic 会把锁信息写成 JSON 文本
+const lockedOutput = `{"message_type":"exit_error","code":11,"message":"unable to create lock in backend: repository is already locked by PID 19886 on d205a9da5ff2 by opsnap (UID 10001, GID 10001)\nlock was created at 2026-10-22 02:46:16 (3m16.920046952s ago)\nstorage id 971016f8\nthe ` + "`unlock`" + ` command can be used to remove stale locks"}`
+
+func TestForgetRepoLocked(t *testing.T) {
+	// 每次运行都要先有一个完整的快照，否则会在导出阶段就失败
+	backupOK := func(f *fixture) {
+		f.exec.On(executor.Match("restic", "backup"), executor.Step{Output: summary("ab12cd34", 1, 1)})
+	}
+
+	t.Run("撞锁：运行成功、步骤已跳过、原因是人话、任务打上待清理", func(t *testing.T) {
+		f := setupRunTest(t)
+		backupOK(f)
+		j := f.addJob(t, &job_entity.Job{SourceType: job_entity.SourceRedis, ConnMode: job_entity.ConnDirect, DBHost: "h", DBPort: 1})
+		f.exec.On(executor.Match("restic", "forget"), executor.Step{ExitCode: 11, Output: lockedOutput})
+
+		r := f.run(t, j.ID, run_entity.TriggerManual)
+
+		assert.Equal(t, run_entity.StatusSuccess, r.Status, logText(r))
+		assert.Empty(t, r.Reason)
+		assert.Equal(t, []string{"ab12cd34"}, r.SnapshotIDs, "撞锁不影响本次快照")
+		assert.Equal(t, run_entity.StepSkipped, stepStatuses(r)["forget"])
+		assert.Contains(t, logText(r), "存储位置正被其他备份占用")
+		assert.NotContains(t, logText(r)+r.Reason, "already locked", "原因里不放 restic 的原始 JSON")
+		assert.NotContains(t, logText(r)+r.Reason, "unlock", "原始 JSON 里的 unlock 提示会诱导人删掉别人正在用的锁")
+
+		// forget 带上重试，不至于撞一次就放弃
+		forgets := calls(f.exec, "restic", "forget")
+		require.Len(t, forgets, 1)
+		assert.Contains(t, forgets[0].Args, "--retry-lock")
+
+		got, err := job_repo.Job().Find(f.ctx, j.ID)
+		require.NoError(t, err)
+		assert.NotZero(t, got.ForgetPendingAt, "任务打上待清理锚点")
+		assert.Empty(t, got.ForgetPendingError)
+
+		// 不算需要处理
+		att, err := f.svc.Attention(f.ctx)
+		require.NoError(t, err)
+		assert.False(t, att[j.ID])
+	})
+
+	t.Run("再次撞锁不覆盖首次延后的时间", func(t *testing.T) {
+		f := setupRunTest(t)
+		backupOK(f)
+		j := f.addJob(t, &job_entity.Job{SourceType: job_entity.SourceRedis, ConnMode: job_entity.ConnDirect, DBHost: "h", DBPort: 1})
+		f.exec.On(executor.Match("restic", "forget"), executor.Step{ExitCode: 11, Output: lockedOutput})
+		require.NoError(t, job_repo.Job().SetForgetPending(f.ctx, j.ID, 1000, ""))
+
+		r := f.run(t, j.ID, run_entity.TriggerManual)
+		assert.Equal(t, run_entity.StatusSuccess, r.Status, logText(r))
+		got, err := job_repo.Job().Find(f.ctx, j.ID)
+		require.NoError(t, err)
+		assert.Equal(t, int64(1000), got.ForgetPendingAt)
+	})
+
+	t.Run("被锁以外的失败仍是有警告并需要处理", func(t *testing.T) {
+		f := setupRunTest(t)
+		backupOK(f)
+		j := f.addJob(t, &job_entity.Job{SourceType: job_entity.SourceRedis, ConnMode: job_entity.ConnDirect, DBHost: "h", DBPort: 1})
+		f.exec.On(executor.Match("restic", "forget"), executor.Step{ExitCode: 1, Output: `{"message_type":"exit_error","code":1,"message":"wrong password"}`})
+
+		r := f.run(t, j.ID, run_entity.TriggerManual)
+
+		assert.Equal(t, run_entity.StatusWarning, r.Status, logText(r))
+		assert.Equal(t, run_entity.StepWarning, stepStatuses(r)["forget"])
+		got, err := job_repo.Job().Find(f.ctx, j.ID)
+		require.NoError(t, err)
+		assert.Zero(t, got.ForgetPendingAt, "不是良性竞争，不延后")
+		att, err := f.svc.Attention(f.ctx)
+		require.NoError(t, err)
+		assert.True(t, att[j.ID])
+	})
+
+	t.Run("停止时撞锁不回落成延后：整次运行失败并回滚快照", func(t *testing.T) {
+		f := setupRunTest(t)
+		backupOK(f)
+		j := f.addJob(t, &job_entity.Job{SourceType: job_entity.SourceRedis, ConnMode: job_entity.ConnDirect, DBHost: "h", DBPort: 1})
+		// 第一次 forget 卡住直到被停止，第二次是回滚时的删除
+		f.exec.On(executor.Match("restic", "forget"), executor.Step{Block: true}, executor.Step{ExitCode: 0})
+
+		id, err := f.svc.Trigger(f.ctx, j.ID, run_entity.TriggerManual)
+		require.NoError(t, err)
+		require.Eventually(t, func() bool { return len(calls(f.exec, "restic", "forget")) == 1 }, 10*time.Second, 10*time.Millisecond)
+		_, err = f.svc.Stop(f.ctx, &runapi.StopRequest{ID: id, Confirm: true})
+		require.NoError(t, err)
+		r := f.finish(t, id)
+
+		assert.Equal(t, run_entity.StatusFailed, r.Status)
+		assert.Contains(t, r.Reason, "手动停止")
+		got, ferr := job_repo.Job().Find(f.ctx, j.ID)
+		require.NoError(t, ferr)
+		assert.Zero(t, got.ForgetPendingAt)
+	})
 }

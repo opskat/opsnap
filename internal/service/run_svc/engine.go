@@ -25,6 +25,7 @@ import (
 	"github.com/opskat/opsnap/internal/pkg/secret"
 	"github.com/opskat/opsnap/internal/pkg/sshconn"
 	"github.com/opskat/opsnap/internal/repository/alert_repo"
+	"github.com/opskat/opsnap/internal/repository/job_repo"
 	"github.com/opskat/opsnap/internal/repository/run_repo"
 	"github.com/opskat/opsnap/internal/repository/server_repo"
 	"github.com/opskat/opsnap/internal/service/notify_svc"
@@ -41,7 +42,19 @@ const (
 	rsyncVanished = 24
 	// resticIncomplete restic 报告「快照不完整，部分文件无法读取」的退出码
 	resticIncomplete = 3
+	// resticRepoLocked restic 报告「仓库被告别的进程锁住」的退出码；同一存储位置上的并发备份
+	// 持有非独占锁时，需要独占锁的 forget 会立即以它结束
+	resticRepoLocked = 11
+	// forgetRetryLock forget 被锁住时等多久再放弃，之后由调度器在存储位置空闲时补做
+	forgetRetryLock = 5 * time.Minute
+	// forgetDeferred 撞锁延后补做时写进日志与步骤的说明。不放 restic 的原始输出：
+	// 里面「可以用 unlock 命令清除陈旧锁」的提示会诱导人删掉别的备份正在持有的锁
+	forgetDeferred = "存储位置正被其他备份占用，本次跳过清理旧快照，稍后自动补做"
 )
+
+// errRepoBusy restic 因为仓库被别的进程锁住而无法执行 forget：这是并发备份的良性竞争，
+// 不算失败，延后到存储位置空闲时补做
+var errRepoBusy = errors.New("存储位置正被其他备份占用")
 
 // execution 一次运行的执行过程。只在运行引擎的 goroutine 里使用；例外是命令执行期间的进度回调（见 progress）。
 type execution struct {
@@ -181,15 +194,21 @@ func (e *execution) steps(ctx context.Context) (string, string) {
 
 	e.step(run_entity.StepForget, run_entity.StepRunning, "")
 	if err := e.forget(ctx); err != nil {
-		if ctx.Err() != nil {
+		switch {
+		case ctx.Err() != nil:
 			// 超时或停止：本次运行失败，不留下快照
 			e.rollback()
 			return e.failed(ctx, run_entity.StepForget, err)
+		case errors.Is(err, errRepoBusy):
+			// 同一存储位置上还有别的备份在写：这次没做成的是删除过期快照，
+			// 快照本身已经完整生成，所以运行照样成功，改由调度器在空闲时补做
+			e.deferForget(ctx)
+		default:
+			msg := "清理旧快照失败：" + err.Error()
+			e.log.warnf("%s", msg)
+			e.warnings = append(e.warnings, msg)
+			e.step(run_entity.StepForget, run_entity.StepWarning, msg)
 		}
-		msg := "清理旧快照失败：" + err.Error()
-		e.log.warnf("%s", msg)
-		e.warnings = append(e.warnings, msg)
-		e.step(run_entity.StepForget, run_entity.StepWarning, msg)
 	} else {
 		e.step(run_entity.StepForget, run_entity.StepSuccess, "")
 	}
@@ -521,7 +540,9 @@ func (e *execution) forget(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	cmd, err := cmdbuild.ResticForget(e.repo, cmdbuild.ForgetSpec{Tags: []string{e.jobTag()}, Policy: policy})
+	cmd, err := cmdbuild.ResticForget(e.repo, cmdbuild.ForgetSpec{
+		Tags: []string{e.jobTag()}, Policy: policy, RetryLock: forgetRetryLock,
+	})
 	if err != nil {
 		return err
 	}
@@ -531,12 +552,38 @@ func (e *execution) forget(ctx context.Context) error {
 		return err
 	}
 	if code != 0 {
+		if repoLocked(code, out.tail()) {
+			return fmt.Errorf("%w（restic 退出码 %d）", errRepoBusy, code)
+		}
 		return fmt.Errorf("restic 退出码 %d：%s", code, out.tail())
 	}
 	if n := countRemoved(out.buf.Bytes()); n >= 0 {
 		e.log.infof("按保留规则删除了 %d 个过期快照", n)
 	}
 	return nil
+}
+
+// repoLocked restic 是否因为仓库被告别的进程锁住而结束。判定与读取快照时一致：
+// 退出码 11，或者输出里说明仓库已被锁。
+func repoLocked(code int, output string) bool {
+	return code == resticRepoLocked || strings.Contains(strings.ToLower(output), "already locked")
+}
+
+// deferForget 把这次没做成的清理记在任务上，等存储位置空闲时补做。
+// 锚点只在第一次延后时写入，之后的重试不覆盖它。
+func (e *execution) deferForget(ctx context.Context) {
+	e.log.infof("%s", forgetDeferred)
+	e.step(run_entity.StepForget, run_entity.StepSkipped, forgetDeferred)
+	if e.job.ForgetPendingAt > 0 {
+		return
+	}
+	at := e.now().Unix()
+	if err := job_repo.Job().SetForgetPending(ctx, e.job.ID, at, ""); err != nil {
+		// 记不上就只剩这次的日志：不影响运行结果，但补做也就不会发生
+		e.log.warnf("标记待清理失败：%v", err)
+		return
+	}
+	e.job.ForgetPendingAt = at
 }
 
 // rollback 失败的运行不能留下快照：删除本次已生成或已报告的快照，
