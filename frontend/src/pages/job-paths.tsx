@@ -8,7 +8,9 @@ import { fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 interface LoadState {
-  status: "loading" | "done";
+  /** 这份结果对应的目录；换目录就作废 */
+  path: string;
+  status: "idle" | "loading" | "done";
   result: JobPathsResult | null;
   error: string | null;
 }
@@ -60,12 +62,9 @@ export function PathPicker({
   onSelect: (path: string, entryCount: number) => void;
 }) {
   const [path, setPath] = React.useState(startPath || "/");
-  const [state, setState] = React.useState<LoadState>({ status: "loading", result: null, error: null });
+  const [state, setState] = React.useState<LoadState>({ path: "", status: "idle", result: null, error: null });
   // 关闭状态下不读：打开时由 path 的 effect 负责第一次加载
   const [wasOpen, setWasOpen] = React.useState(open);
-  // 丢弃过期响应：快速连点时只认最后一次请求
-  const pathRef = React.useRef(path);
-  pathRef.current = path;
 
   // 打开的那一刻从输入框里的路径重新开始
   if (open && !wasOpen) {
@@ -76,29 +75,29 @@ export function PathPicker({
   }
 
   const load = React.useEffectEvent(async (forPath: string) => {
-    setState({ status: "loading", result: null, error: null });
+    setState({ path: forPath, status: "loading", result: null, error: null });
     try {
       const result = await api.jobs.paths(jobId, buildInput(form).input, forPath);
       // 快速连点时只认最后一次请求的结果
-      setState((s) => (forPath === pathRef.current ? { status: "done", result, error: null } : s));
+      setState((s) => (s.path === forPath ? { ...s, status: "done", result, error: null } : s));
     } catch (err) {
-      setState((s) => (forPath === pathRef.current ? { status: "done", result: null, error: errorMessage(err) } : s));
+      setState((s) => (s.path === forPath ? { ...s, status: "done", result: null, error: errorMessage(err) } : s));
     }
   });
 
   React.useEffect(() => {
-    if (!open) return;
-    // 定时器让状态更新离开 effect 的同步阶段
-    const timer = setTimeout(() => void load(path), 0);
-    return () => clearTimeout(timer);
-  }, [open, path]);
+    if (!open || (state.status !== "idle" && state.path === path)) return;
+    void load(path);
+  }, [open, path, state.status, state.path]);
 
-  const list = state.result?.ok ? (state.result.list ?? []) : [];
+  // 结果只对当前目录有效：换了目录但新结果还没回来时，不拿旧列表充数
+  const fresh = state.status === "done" && state.path === path;
+  const list = fresh && state.result?.ok ? (state.result.list ?? []) : [];
   // 当前路径本身是不是一条符号链接（从上一层带过来的标记）。
   // 只在「用户从列表里点进来」时置位：面包屑、上一级、重试都不改它。
   const [linkWarn, setLinkWarn] = React.useState(false);
-  const failure = state.error ?? (state.result && !state.result.ok ? failureText(state.result) : null);
-  const loading = state.status === "loading";
+  const failure = fresh ? (state.error ?? (state.result && !state.result.ok ? failureText(state.result) : null)) : null;
+  const loading = !fresh || state.status === "loading";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -203,7 +202,7 @@ export function PathPicker({
           )}
         </div>
 
-        {state.result?.truncated && (
+        {fresh && state.result?.truncated && (
           <p className="text-[13px] text-ink-3">
             条目太多，只显示前 2000 个。可以直接在输入框里填完整路径；条目极多时也可能读取超时。
           </p>
@@ -222,7 +221,7 @@ export function PathPicker({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="min-w-0 text-[13px] text-ink-2">
             将备份 <span className="font-mono">{path}</span>
-            {state.result?.ok && <span className="text-ink-3">（{list.length} 个子目录）</span>}
+            {fresh && state.result?.ok && <span className="text-ink-3">（{list.length} 个子目录）</span>}
           </p>
           <div className="flex gap-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

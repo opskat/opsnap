@@ -217,7 +217,7 @@ func classify(path string, err error) *Error {
 		e.Message = fmt.Sprintf("%s 不存在", path)
 	case errors.Is(err, fs.ErrPermission):
 		e.Reason = ReasonPermission
-		e.Message = fmt.Sprintf("读不了 %s：登录用户没有读权限（Permission denied）", path)
+		e.Message = fmt.Sprintf("读不了 %s：登录用户没有读权限（Permission denied）。换一个目录，或给这台服务器上的登录用户加上读权限", path)
 	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
 		e.Reason = ReasonTimeout
 		e.Message = fmt.Sprintf("读取 %s 超时", path)

@@ -275,6 +275,40 @@ describe("目录浏览", () => {
     expect(screen.getByText(/^\/srv\/www\/uploads 已确认可读，\d+ 个子目录$/)).toBeInTheDocument();
   });
 
+  it("换目录时不拿上一层的旧列表充数", async () => {
+    // 子目录那层故意慢回，先拿到的必须是它自己的结果，而不是上层的列表
+    const SLOW: typeof TREE = { ...TREE };
+    editJob(
+      {
+        "POST /jobs/paths": async (call: { body: unknown }) => {
+          const p = (call.body as { path: string }).path || "/";
+          if (p === "/srv/www/uploads") await new Promise((r) => setTimeout(r, 120));
+          const list = SLOW[p];
+          return list
+            ? ok({ ok: true, path: p, list, truncated: false, reason: "", reason_label: "", message: "" })
+            : ok({
+                ok: false,
+                path: p,
+                list: null,
+                truncated: false,
+                reason: "not_found",
+                reason_label: "不存在",
+                message: `${p} 不存在`,
+              });
+        },
+      },
+      FILES
+    );
+    const user = userEvent.setup();
+    await ready();
+    await user.click(screen.getByRole("button", { name: "浏览目录 1" }));
+    const dialog = await screen.findByRole("dialog", { name: "选择目录" });
+    await user.click(await within(dialog).findByRole("button", { name: /uploads/ }));
+    // 加载中不该还显示 /srv/www 的 static
+    expect(within(dialog).queryByRole("button", { name: /static/ })).not.toBeInTheDocument();
+    expect(await within(dialog).findByRole("button", { name: /2026/ })).toBeInTheDocument();
+  });
+
   it("没有子目录也能选", async () => {
     editJob({ "POST /jobs/paths": pathsRoute }, FILES);
     const user = userEvent.setup();
