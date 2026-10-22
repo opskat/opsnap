@@ -353,10 +353,15 @@ func TestBackgroundWorkDoesNotStack(t *testing.T) {
 	var pending []func()
 	d.Spawn = func(fn func()) { pending = append(pending, fn) }
 	s := New(d)
+	// 每一轮启动两个后台工作：补做延后的旧快照清理、很久没有成功检查
 	s.Tick(f.ctx)
+	require.Len(t, pending, 2)
 	s.Tick(f.ctx)
-	require.Len(t, pending, 1, "告警检查还没结束时不再启动第二个")
-	pending[0]()
+	require.Len(t, pending, 2, "两个工作都还没结束时都不再启动第二个")
+	for _, fn := range pending {
+		fn()
+	}
+	pending = nil
 	s.Tick(f.ctx)
 	assert.Len(t, pending, 2, "结束后下一轮再启动")
 }
@@ -442,4 +447,46 @@ func runExists(t *testing.T, f *fixture, id int64) bool {
 	r, err := run_repo.Run().Find(f.ctx, id)
 	require.NoError(t, err)
 	return r != nil
+}
+
+// TestCleanupForgetPendingEachTick 撞锁延后的清理由每一轮补做：进行中不叠加，每轮结束就开始下一轮
+func TestCleanupForgetPendingEachTick(t *testing.T) {
+	f := setup(t, "Asia/Shanghai", time.Date(2026, 10, 15, 9, 0, 0, 0, time.UTC))
+	d := f.deps()
+	var pending []func()
+	cleanups := 0
+	d.CleanupForgetPending = func(context.Context) error { cleanups++; return nil }
+	d.Spawn = func(fn func()) { pending = append(pending, fn) }
+	s := New(d)
+
+	// 每一轮会启动两个后台工作：补做清理与「太久没有成功」检查
+	runAll := func() {
+		for _, fn := range pending {
+			fn()
+		}
+		pending = nil
+	}
+
+	s.Tick(f.ctx)
+	require.Len(t, pending, 2, "每一轮都补做一次")
+	// 还没跑完就再来两轮：不叠加第二个
+	s.Tick(f.ctx)
+	s.Tick(f.ctx)
+	require.Len(t, pending, 2, "上一轮还没结束时不启动第二个")
+	runAll()
+	assert.Equal(t, 1, cleanups)
+
+	s.Tick(f.ctx)
+	require.Len(t, pending, 2, "结束后下一轮再启动")
+	runAll()
+	assert.Equal(t, 2, cleanups)
+}
+
+// TestCleanupForgetPendingDefaultWired Deps 没注入时用真实实现，不 panic（真实实现读任务表，这里没有待清理）
+func TestCleanupForgetPendingDefaultWired(t *testing.T) {
+	f := setup(t, "Asia/Shanghai", time.Date(2026, 10, 15, 9, 0, 0, 0, time.UTC))
+	d := f.deps()
+	d.CleanupForgetPending = nil
+	s := New(d)
+	assert.NotNil(t, s.d.CleanupForgetPending, "为空的项用真实实现")
 }

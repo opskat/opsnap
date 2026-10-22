@@ -67,6 +67,8 @@ type Deps struct {
 	Maintain func(ctx context.Context, repoID int64) error
 	// CheckStale 「太久没有成功」检查
 	CheckStale func(ctx context.Context) error
+	// CleanupForgetPending 补做因存储位置被其他备份占用而延后的旧快照清理
+	CleanupForgetPending func(ctx context.Context) error
 	// Spawn 在后台执行耗时的工作（维护、告警通知），不阻塞触发。默认 gogo.Go
 	Spawn func(fn func())
 }
@@ -104,6 +106,9 @@ func New(d Deps) *Scheduler {
 	}
 	if d.CheckStale == nil {
 		d.CheckStale = alert_svc.Check
+	}
+	if d.CleanupForgetPending == nil {
+		d.CleanupForgetPending = run_svc.CleanupForgetPending
 	}
 	if d.Spawn == nil {
 		d.Spawn = func(fn func()) { gogo.Go(func() error { fn(); return nil }) }
@@ -171,6 +176,12 @@ func (s *Scheduler) Tick(ctx context.Context) {
 		days := st.RetentionDays
 		s.background(ctx, "retention", func(ctx context.Context) { s.cleanup(ctx, now, days) })
 	}
+	// 撞锁延后的清理：存储位置空闲时补做，拿不到独占锁时它自己什么都不做
+	s.background(ctx, "forget-pending", func(ctx context.Context) {
+		if err := s.d.CleanupForgetPending(ctx); err != nil {
+			s.logf(ctx, "补做延后的旧快照清理失败：%v", err)
+		}
+	})
 	s.background(ctx, "stale", func(ctx context.Context) {
 		if err := s.d.CheckStale(ctx); err != nil {
 			s.logf(ctx, "太久没有成功检查失败：%v", err)
