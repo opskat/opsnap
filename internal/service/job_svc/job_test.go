@@ -332,9 +332,9 @@ func TestValidSourcesSave(t *testing.T) {
 		name string
 		in   func() jobapi.JobInput
 	}{
-		{"mariadb 全部库", func() jobapi.JobInput {
+		{"mysql 全部库", func() jobapi.JobInput {
 			in := f.mysqlInput()
-			in.SourceType, in.Databases, in.AllDatabases = jobapi.SourceMariaDB, nil, true
+			in.SourceType, in.Databases, in.AllDatabases = jobapi.SourceMySQL, nil, true
 			return in
 		}},
 		{"postgres", func() jobapi.JobInput {

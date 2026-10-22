@@ -35,7 +35,7 @@ func netProbeError(ctx context.Context, err error) *ProbeError {
 	return nil
 }
 
-// ---- MySQL / MariaDB ----
+// ---- MySQL ----
 
 type mysqlProbe struct{}
 

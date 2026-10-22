@@ -396,9 +396,9 @@ func (e *execution) databases(ctx context.Context, addr string) ([]string, error
 	return names, nil
 }
 
-// dumpFilename 快照里的文件名：MySQL/MariaDB 每个库单独一个快照，文件按库命名
+// dumpFilename 快照里的文件名：MySQL 每个库单独一个快照，文件按库命名
 func dumpFilename(spec cmdbuild.DumpSpec, name string) string {
-	if name != "" && (spec.Kind == cmdbuild.DBMySQL || spec.Kind == cmdbuild.DBMariaDB) {
+	if name != "" && spec.Kind == cmdbuild.DBMySQL {
 		return string(spec.Kind) + "/" + strings.NewReplacer("/", "_", `\`, "_").Replace(name) + ".sql"
 	}
 	return spec.Filename()

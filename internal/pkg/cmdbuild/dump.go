@@ -13,7 +13,6 @@ type DBKind string
 
 const (
 	DBMySQL    DBKind = "mysql"
-	DBMariaDB  DBKind = "mariadb"
 	DBPostgres DBKind = "postgres"
 	DBMongo    DBKind = "mongodb"
 	DBRedis    DBKind = "redis"
@@ -39,9 +38,9 @@ type DBConn struct {
 type DumpSpec struct {
 	Kind DBKind
 	Conn DBConn
-	// Databases 要导出的库。MySQL/MariaDB 可多个；PostgreSQL 恰好一个；MongoDB 至多一个；Redis 忽略
+	// Databases 要导出的库。MySQL 可多个；PostgreSQL 恰好一个；MongoDB 至多一个；Redis 忽略
 	Databases []string
-	// AllDatabases 导出全部库（MySQL/MariaDB/MongoDB）
+	// AllDatabases 导出全部库（MySQL/MongoDB）
 	AllDatabases bool
 	// AuthDatabase MongoDB 认证库，为空时用 admin
 	AuthDatabase string
@@ -52,7 +51,7 @@ type DumpSpec struct {
 // Filename 导出流在快照里的文件名
 func (s DumpSpec) Filename() string {
 	switch s.Kind {
-	case DBMySQL, DBMariaDB:
+	case DBMySQL:
 		return string(s.Kind) + "/databases.sql"
 	case DBPostgres:
 		return "postgres/" + safeName(first(s.Databases)) + ".dump"
@@ -92,9 +91,7 @@ func Dump(s DumpSpec) (Cmd, error) {
 	var err error
 	switch s.Kind {
 	case DBMySQL:
-		c, err = mysqlDump("mysqldump", s)
-	case DBMariaDB:
-		c, err = mysqlDump("mariadb-dump", s)
+		c, err = mysqlDump(s)
 	case DBPostgres:
 		c, err = pgDump(s)
 	case DBMongo:
@@ -111,8 +108,8 @@ func Dump(s DumpSpec) (Cmd, error) {
 	return c, nil
 }
 
-// mysqlDump mysqldump / mariadb-dump：单事务一致性快照，密码走 MYSQL_PWD
-func mysqlDump(name string, s DumpSpec) (Cmd, error) {
+// mysqlDump mysqldump：单事务一致性快照，密码走 MYSQL_PWD
+func mysqlDump(s DumpSpec) (Cmd, error) {
 	args := []string{
 		"--host=" + s.Conn.Host,
 		"--port=" + strconv.Itoa(s.Conn.Port),
@@ -139,7 +136,7 @@ func mysqlDump(name string, s DumpSpec) (Cmd, error) {
 	default:
 		return Cmd{}, errors.New("没有选择要导出的库")
 	}
-	c := Cmd{Name: name, Args: args}
+	c := Cmd{Name: "mysqldump", Args: args}
 	if s.Conn.Password != "" {
 		c.Env = []string{env("MYSQL_PWD", s.Conn.Password)}
 	}

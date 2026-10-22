@@ -10,7 +10,6 @@ import "github.com/cago-frame/cago/server/mux"
 // 数据源类型
 const (
 	SourceMySQL    = "mysql"
-	SourceMariaDB  = "mariadb"
 	SourcePostgres = "postgres"
 	SourceRedis    = "redis"
 	SourceMongoDB  = "mongodb"
@@ -63,7 +62,7 @@ type AdvancedInput struct {
 // JobInput 提交的任务配置，整体保存；Create、Update、Test、Databases 请求都带这组字段。
 type JobInput struct {
 	Name       string `json:"name"`
-	SourceType string `json:"source_type"` // mysql | mariadb | postgres | redis | mongodb | files
+	SourceType string `json:"source_type"` // mysql | postgres | redis | mongodb | files
 	// ServerID 经 SSH 的数据库任务和文件任务使用的服务器
 	ServerID int64  `json:"server_id"`
 	ConnMode string `json:"conn_mode"` // ssh | direct，仅数据库
