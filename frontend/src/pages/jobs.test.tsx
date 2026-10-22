@@ -37,6 +37,8 @@ function job(over: Partial<JobItem> = {}): JobItem {
     paused: false,
     next_run_at: NOW + 3600,
     attention: false,
+    forget_pending_at: 0,
+    forget_pending_error: "",
     created_at: NOW,
     updated_at: NOW,
     last_run: { id: 90, status: "success", started_at: NOW - 3600, bytes_added: 184_000_000 },
@@ -239,5 +241,30 @@ describe("任务列表", () => {
     await user.click(await screen.findByRole("button", { name: "立即运行 商城数据库" }));
     expect(await screen.findByText(/商城数据库 正在运行，结束后才能再次运行/)).toBeInTheDocument();
     expect(screen.getByTestId("location")).toHaveTextContent("/jobs");
+  });
+});
+
+describe("待清理", () => {
+  it("延后清理的任务显示待清理标记，写明首次延后时间；不影响需要处理", async () => {
+    routes({}, [job({ forget_pending_at: NOW - 7200, forget_pending_error: "", attention: false })]);
+    renderPage(<JobsPage />, PATH);
+    expect(await screen.findByText("待清理")).toBeInTheDocument();
+    expect(screen.getByText(/起等待清理/)).toBeInTheDocument();
+    // 延后只影响空间回收，不是需要处理的问题：筛选标签上的计数仍为 0
+    expect(screen.getByRole("tab", { name: /需要处理/ })).toHaveTextContent("需要处理0");
+  });
+
+  it("补做失败时把原因写进标记的说明", async () => {
+    routes({}, [job({ forget_pending_at: NOW - 7200, forget_pending_error: "密钥不对" })]);
+    renderPage(<JobsPage />, PATH);
+    expect(await screen.findByText("待清理")).toBeInTheDocument();
+    expect(screen.getByText(/密钥不对/)).toBeInTheDocument();
+  });
+
+  it("没有待清理的任务不显示标记", async () => {
+    routes();
+    renderPage(<JobsPage />, PATH);
+    await screen.findByText("商城数据库");
+    expect(screen.queryByText("待清理")).not.toBeInTheDocument();
   });
 });

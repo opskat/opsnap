@@ -88,6 +88,7 @@ type call struct {
 
 type fixture struct {
 	ctx      context.Context
+	db       *gorm.DB
 	clock    *fakeClock
 	mu       sync.Mutex
 	triggers []call
@@ -144,7 +145,10 @@ func setup(t *testing.T, tz string, now time.Time) *fixture {
 	repo_repo.RegisterRepo(repo_repo.NewRepo())
 	run_repo.RegisterRun(run_repo.NewRun())
 	setting_repo.RegisterSetting(setting_repo.NewSetting())
-	f := &fixture{ctx: db.WithContextDB(context.Background(), gdb), clock: newClock(now), busy: map[int64]bool{}}
+	f := &fixture{
+		ctx: db.WithContextDB(context.Background(), gdb), db: gdb,
+		clock: newClock(now), busy: map[int64]bool{},
+	}
 	f.setting(t, func(s *setting_entity.Setting) { s.Timezone = tz })
 	return f
 }
@@ -442,4 +446,50 @@ func runExists(t *testing.T, f *fixture, id int64) bool {
 	r, err := run_repo.Run().Find(f.ctx, id)
 	require.NoError(t, err)
 	return r != nil
+}
+
+// TestCleanupForgetPendingEachTick 只有存在待清理任务时才补做：每轮一次，进行中不叠加
+func TestCleanupForgetPendingEachTick(t *testing.T) {
+	f := setup(t, "Asia/Shanghai", time.Date(2026, 10, 15, 9, 0, 0, 0, time.UTC))
+	d := f.deps()
+	var pending []func()
+	cleanups := 0
+	d.CleanupForgetPending = func(context.Context) error { cleanups++; return nil }
+	d.Spawn = func(fn func()) { pending = append(pending, fn) }
+	s := New(d)
+	// 每一轮都会启动「太久没有成功」检查，所以只能数补做被调用了多少次
+	runAll := func() {
+		for _, fn := range pending {
+			fn()
+		}
+		pending = nil
+	}
+
+	// 没有待清理的任务：不补做
+	s.Tick(f.ctx)
+	runAll()
+	assert.Zero(t, cleanups)
+
+	// 有一个任务欠着清理：下一轮补做一次
+	j := f.job(t, "欠清理", "daily", "03:00", false)
+	require.NoError(t, f.db.Model(&job_entity.Job{}).Where("id = ?", j.ID).Update("forget_pending_at", 1000).Error)
+	s.Tick(f.ctx)
+	runAll()
+	assert.Equal(t, 1, cleanups)
+
+	// 还没跑完就再来两轮：只排一次，跑完也只算一次
+	s.Tick(f.ctx)
+	s.Tick(f.ctx)
+	require.Len(t, pending, 2, "补做与告警检查各一个，补做不叠加")
+	runAll()
+	assert.Equal(t, 2, cleanups)
+}
+
+// TestCleanupForgetPendingDefaultWired Deps 没注入时用真实实现，不 panic（真实实现读任务表，这里没有待清理）
+func TestCleanupForgetPendingDefaultWired(t *testing.T) {
+	f := setup(t, "Asia/Shanghai", time.Date(2026, 10, 15, 9, 0, 0, 0, time.UTC))
+	d := f.deps()
+	d.CleanupForgetPending = nil
+	s := New(d)
+	assert.NotNil(t, s.d.CleanupForgetPending, "为空的项用真实实现")
 }

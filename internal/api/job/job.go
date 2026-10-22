@@ -112,8 +112,13 @@ type Item struct {
 	Paused    bool           `json:"paused"`
 	NextRunAt int64          `json:"next_run_at"` // 下次运行时间 Unix 秒；已暂停为 0
 	Attention bool           `json:"attention"`   // 需要处理：最近一次运行失败或有警告，或太久没有成功
-	CreatedAt int64          `json:"created_at"`
-	UpdatedAt int64          `json:"updated_at"`
+
+	// ForgetPendingAt 首次因存储位置被其他备份占用而延后清理旧快照的时间（Unix 秒），0 表示没有
+	ForgetPendingAt int64 `json:"forget_pending_at"`
+	// ForgetPendingError 最近一次补做清理失败的原因（撞锁不算失败），成功后清空
+	ForgetPendingError string `json:"forget_pending_error"`
+	CreatedAt          int64  `json:"created_at"`
+	UpdatedAt          int64  `json:"updated_at"`
 
 	// LastRun 最近一次运行（不含跳过），可能早于 14 天；没有运行过为 null。只在列表里填写
 	LastRun *RunBrief `json:"last_run"`

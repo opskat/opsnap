@@ -310,3 +310,49 @@ describe("运行记录列表", () => {
     expect(screen.getAllByRole("link", { name: /#1，/ })).toHaveLength(1);
   });
 });
+
+describe("清理旧快照被延后", () => {
+  const deferred = () =>
+    run({
+      steps: [
+        { key: "preflight", label: "预检", status: "success", message: "", started_at: 1, finished_at: 2001 },
+        {
+          key: "export",
+          label: "导出并写入快照",
+          status: "success",
+          message: "",
+          started_at: 2001,
+          finished_at: 300_000,
+        },
+        {
+          key: "forget",
+          label: "清理旧快照",
+          status: "skipped",
+          message: "存储位置正被其他备份占用，本次跳过清理旧快照，稍后自动补做",
+          started_at: 300_000,
+          finished_at: 300_100,
+        },
+        {
+          key: "notify",
+          label: "记录并通知",
+          status: "success",
+          message: "",
+          started_at: 300_100,
+          finished_at: 301_000,
+        },
+      ],
+    });
+
+  it("已跳过的步骤显示原因，并当作已处理的完成态", async () => {
+    mockApi({ "GET /runs/1291": ok(deferred()), "GET /runs/1291/log": ok({ running: false, lines: LOG }) });
+    renderPage(<RunDetailPage />, at(1291));
+    await screen.findByRole("heading", { name: "商城数据库" });
+
+    expect(screen.getByText("存储位置正被其他备份占用，本次跳过清理旧快照，稍后自动补做")).toBeInTheDocument();
+    // 已跳过是完成态的中性样式，不是「未开始」的圆形序号
+    expect(screen.getByRole("img", { name: "已跳过" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "已跳过" })).not.toHaveTextContent("3");
+    // 整次运行仍然成功
+    expect(screen.getByText("成功")).toBeInTheDocument();
+  });
+});

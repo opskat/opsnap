@@ -15,12 +15,10 @@ import (
 	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/redact"
 	"github.com/opskat/opsnap/internal/pkg/repolock"
+	"github.com/opskat/opsnap/internal/pkg/resticrepo"
 	"github.com/opskat/opsnap/internal/repository/job_repo"
 	"github.com/opskat/opsnap/internal/service/repo_svc"
 )
-
-// restic 退出码 11：无法获取仓库锁
-const exitRepoLocked = 11
 
 // stderrLimit 保留的 restic 标准错误长度上限
 const stderrLimit = 4 << 10
@@ -100,7 +98,7 @@ func failure(ctx context.Context, cmd cmdbuild.Cmd, exit int, err error, stderr 
 	}
 	low := strings.ToLower(stderr)
 	switch {
-	case exit == exitRepoLocked || strings.Contains(low, "already locked"):
+	case resticrepo.Locked(exit, stderr):
 		return i18n.NewError(ctx, code.SnapshotRepoLocked)
 	case strings.Contains(low, "no matching id"):
 		return i18n.NewError(ctx, code.SnapshotNotFound)

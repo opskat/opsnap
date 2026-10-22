@@ -37,6 +37,8 @@ function job(over: Partial<JobItem> = {}): JobItem {
     paused: false,
     next_run_at: NOW + 3600,
     attention: false,
+    forget_pending_at: 0,
+    forget_pending_error: "",
     created_at: NOW,
     updated_at: NOW,
     ...over,
