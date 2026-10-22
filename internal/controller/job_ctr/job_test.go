@@ -151,3 +151,30 @@ func TestJobControllerTest(t *testing.T) {
 	assert.Equal(t, jobapi.CheckRepo, resp.Checks[1].Key)
 	assert.True(t, resp.OK)
 }
+
+// TestJobControllerForgetPending 待清理经接口带出，与运行结果分开：它不进「需要处理」
+func TestJobControllerForgetPending(t *testing.T) {
+	ctx, testMux, in := setupJobTest(t)
+
+	created := &jobapi.CreateResponse{}
+	require.NoError(t, testMux.Do(ctx, jobapi.NewCreateRequest(&in), created))
+	require.NoError(t, job_repo.Job().SetForgetPending(ctx, created.ID, 1000, "密钥不对"))
+
+	got := &jobapi.GetResponse{}
+	require.NoError(t, testMux.Do(ctx, &jobapi.GetRequest{ID: created.ID}, got))
+	assert.Equal(t, int64(1000), got.ForgetPendingAt)
+	assert.Equal(t, "密钥不对", got.ForgetPendingError)
+	assert.False(t, got.Attention, "待清理不算需要处理")
+
+	// 编辑任务不会把待清理弄丢
+	in.Name = "site-renewed"
+	upd := &jobapi.UpdateResponse{}
+	require.NoError(t, testMux.Do(ctx, jobapi.NewUpdateRequest(created.ID, &in), upd))
+	assert.Equal(t, "site-renewed", upd.Name)
+	assert.Equal(t, int64(1000), upd.ForgetPendingAt)
+
+	list := &jobapi.ListResponse{}
+	require.NoError(t, testMux.Do(ctx, &jobapi.ListRequest{Filter: jobapi.FilterAll}, list))
+	require.Len(t, list.List, 1)
+	assert.Equal(t, int64(1000), list.List[0].ForgetPendingAt)
+}

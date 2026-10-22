@@ -269,6 +269,8 @@ func (s *jobSvc) Update(ctx context.Context, req *jobapi.UpdateRequest) (*jobapi
 		return nil, err
 	}
 	j.ID, j.Createtime, j.Paused = old.ID, old.Createtime, old.Paused
+	// 待清理是运行状态，不归编辑管：沿用原值，别让「改个名字」把它弄丢
+	j.ForgetPendingAt, j.ForgetPendingError = old.ForgetPendingAt, old.ForgetPendingError
 	j.Updatetime = s.now().Unix()
 	if err := job_repo.Job().Update(ctx, j); err != nil {
 		return nil, err
@@ -304,6 +306,8 @@ func (s *jobSvc) Duplicate(ctx context.Context, id int64) (*jobapi.Item, error) 
 	cp.Excludes = slices.Clone(src.Excludes)
 	cp.ExtraArgs = slices.Clone(src.ExtraArgs)
 	cp.Paused = true
+	// 副本是一个新任务，不该继承原任务欠着的清理
+	cp.ForgetPendingAt, cp.ForgetPendingError = 0, ""
 	now := s.now().Unix()
 	cp.Createtime, cp.Updatetime = now, now
 	if err := job_repo.Job().Create(ctx, &cp); err != nil {

@@ -969,3 +969,35 @@ func TestForgetPendingInList(t *testing.T) {
 	assert.Equal(t, int64(1000), got.ForgetPendingAt)
 	assert.Equal(t, "密钥不对", got.ForgetPendingError)
 }
+
+// TestDuplicateDropsForgetPending 复制出来的任务不继承原任务欠着的清理
+func TestDuplicateDropsForgetPending(t *testing.T) {
+	f := setupJobTest(t)
+	src := f.create(t, f.mysqlInput())
+	require.NoError(t, job_repo.Job().SetForgetPending(f.ctx, src.ID, 1000, "密钥不对"))
+
+	dup, err := f.svc.Duplicate(f.ctx, src.ID)
+	require.NoError(t, err)
+	assert.Zero(t, dup.ForgetPendingAt)
+	assert.Empty(t, dup.ForgetPendingError)
+
+	// 原任务的标记不受影响
+	got, err := f.svc.Get(f.ctx, src.ID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1000), got.ForgetPendingAt)
+}
+
+// TestUpdateKeepsForgetPending 编辑任务不会清掉待清理：它是运行状态，不归编辑管
+func TestUpdateKeepsForgetPending(t *testing.T) {
+	f := setupJobTest(t)
+	src := f.create(t, f.mysqlInput())
+	require.NoError(t, job_repo.Job().SetForgetPending(f.ctx, src.ID, 1000, "密钥不对"))
+
+	in := f.mysqlInput()
+	in.Name = "orders-db-2"
+	upd, err := f.svc.Update(f.ctx, jobapi.NewUpdateRequest(src.ID, &in))
+	require.NoError(t, err)
+	assert.Equal(t, "orders-db-2", upd.Name)
+	assert.Equal(t, int64(1000), upd.ForgetPendingAt)
+	assert.Equal(t, "密钥不对", upd.ForgetPendingError)
+}

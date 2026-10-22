@@ -83,3 +83,50 @@ func TestForgetPending(t *testing.T) {
 	require.NoError(t, err)
 	assert.Zero(t, got.ForgetPendingAt)
 }
+
+// TestUpdateKeepsForgetPending 编辑任务不能清掉待清理：Update 是整体保存配置，运行状态不归它管
+func TestUpdateKeepsForgetPending(t *testing.T) {
+	ctx := setupDB(t)
+	repo := NewJob()
+	j := newJob(t, ctx, "改了名字")
+	require.NoError(t, repo.SetForgetPending(ctx, j.ID, 1000, "密钥不对"))
+
+	// 模拟编辑：拿到任务、改配置、整体保存
+	got, err := repo.Find(ctx, j.ID)
+	require.NoError(t, err)
+	got.Name = "新名字"
+	got.RetentionPreset = "long"
+	require.NoError(t, repo.Update(ctx, got))
+
+	after, err := repo.Find(ctx, j.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "新名字", after.Name)
+	assert.Equal(t, "long", after.RetentionPreset)
+	assert.Equal(t, int64(1000), after.ForgetPendingAt, "待清理是运行状态，编辑配置不该清掉它")
+	assert.Equal(t, "密钥不对", after.ForgetPendingError)
+}
+
+// TestMarkForgetPendingOnlySetsAnchorOnce 打标记只在没有锚点时写入：运行途中补做刚清掉标记时不能凭内存里的旧值跳过
+func TestMarkForgetPendingOnlySetsAnchorOnce(t *testing.T) {
+	ctx := setupDB(t)
+	repo := NewJob()
+	j := newJob(t, ctx, "j")
+
+	require.NoError(t, repo.MarkForgetPending(ctx, j.ID, 1000))
+	got, err := repo.Find(ctx, j.ID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1000), got.ForgetPendingAt)
+
+	// 已有锚点：第二次延后不覆盖首次时间
+	require.NoError(t, repo.MarkForgetPending(ctx, j.ID, 2000))
+	got, err = repo.Find(ctx, j.ID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1000), got.ForgetPendingAt)
+
+	// 补做清掉标记之后，下一次延后重新写锚点
+	require.NoError(t, repo.SetForgetPending(ctx, j.ID, 0, ""))
+	require.NoError(t, repo.MarkForgetPending(ctx, j.ID, 3000))
+	got, err = repo.Find(ctx, j.ID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3000), got.ForgetPendingAt)
+}

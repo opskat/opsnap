@@ -168,7 +168,7 @@ func (s *Scheduler) Tick(ctx context.Context) {
 	tzChanged := s.tz != "" && s.tz != st.Timezone
 	s.tz = st.Timezone
 
-	s.tickJobs(ctx, now, base, loc, tzChanged)
+	jobs := s.tickJobs(ctx, now, base, loc, tzChanged)
 	if s.fire(&s.maintAt, maintenanceSpec, now, base, loc, tzChanged) {
 		s.background(ctx, "maintenance", func(ctx context.Context) { s.maintainAll(ctx) })
 	}
@@ -176,12 +176,14 @@ func (s *Scheduler) Tick(ctx context.Context) {
 		days := st.RetentionDays
 		s.background(ctx, "retention", func(ctx context.Context) { s.cleanup(ctx, now, days) })
 	}
-	// 撞锁延后的清理：存储位置空闲时补做，拿不到独占锁时它自己什么都不做
-	s.background(ctx, "forget-pending", func(ctx context.Context) {
-		if err := s.d.CleanupForgetPending(ctx); err != nil {
-			s.logf(ctx, "补做延后的旧快照清理失败：%v", err)
-		}
-	})
+	// 撞锁延后的清理：有欠着的才补做，存储位置空闲时由它自己判断能不能做
+	if hasForgetPending(jobs) {
+		s.background(ctx, "forget-pending", func(ctx context.Context) {
+			if err := s.d.CleanupForgetPending(ctx); err != nil {
+				s.logf(ctx, "补做延后的旧快照清理失败：%v", err)
+			}
+		})
+	}
 	s.background(ctx, "stale", func(ctx context.Context) {
 		if err := s.d.CheckStale(ctx); err != nil {
 			s.logf(ctx, "太久没有成功检查失败：%v", err)
@@ -210,11 +212,22 @@ func (s *Scheduler) fire(at *time.Time, spec schedule.Spec, now, base time.Time,
 	return !missed
 }
 
-func (s *Scheduler) tickJobs(ctx context.Context, now, base time.Time, loc *time.Location, tzChanged bool) {
+// hasForgetPending 是否有任务还欠着一次旧快照清理
+func hasForgetPending(jobs []*job_entity.Job) bool {
+	for _, j := range jobs {
+		if j.ForgetPendingAt > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// tickJobs 触发到点的任务，返回本轮读到的任务
+func (s *Scheduler) tickJobs(ctx context.Context, now, base time.Time, loc *time.Location, tzChanged bool) []*job_entity.Job {
 	jobs, err := job_repo.Job().List(ctx)
 	if err != nil {
 		s.logf(ctx, "读取任务失败：%v", err)
-		return
+		return nil
 	}
 	alive := make(map[int64]bool, len(jobs))
 	for _, j := range jobs {
@@ -250,6 +263,7 @@ func (s *Scheduler) tickJobs(ctx context.Context, now, base time.Time, loc *time
 			delete(s.jobs, id)
 		}
 	}
+	return jobs
 }
 
 // trigger 按计划触发；上一次还在运行就记一条跳过

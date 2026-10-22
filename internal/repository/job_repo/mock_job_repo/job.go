@@ -144,6 +144,20 @@ func (mr *MockJobRepoMockRecorder) ListForgetPending(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListForgetPending", reflect.TypeOf((*MockJobRepo)(nil).ListForgetPending), ctx)
 }
 
+// MarkForgetPending mocks base method.
+func (m *MockJobRepo) MarkForgetPending(ctx context.Context, id, at int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkForgetPending", ctx, id, at)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// MarkForgetPending indicates an expected call of MarkForgetPending.
+func (mr *MockJobRepoMockRecorder) MarkForgetPending(ctx, id, at any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkForgetPending", reflect.TypeOf((*MockJobRepo)(nil).MarkForgetPending), ctx, id, at)
+}
+
 // SetForgetPending mocks base method.
 func (m *MockJobRepo) SetForgetPending(ctx context.Context, id, at int64, reason string) error {
 	m.ctrl.T.Helper()

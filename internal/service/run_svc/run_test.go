@@ -1147,8 +1147,17 @@ func TestForgetRepoLocked(t *testing.T) {
 		assert.Equal(t, []string{"ab12cd34"}, r.SnapshotIDs, "撞锁不影响本次快照")
 		assert.Equal(t, run_entity.StepSkipped, stepStatuses(r)["forget"])
 		assert.Contains(t, logText(r), "存储位置正被其他备份占用")
-		assert.NotContains(t, logText(r)+r.Reason, "already locked", "原因里不放 restic 的原始 JSON")
-		assert.NotContains(t, logText(r)+r.Reason, "unlock", "原始 JSON 里的 unlock 提示会诱导人删掉别人正在用的锁")
+		// 原因与步骤说明是人话；原始输出只留在日志里供排查（spec 决策 12）
+		assert.NotContains(t, r.Reason, "already locked")
+		var forgetStep run_entity.Step
+		for _, st := range r.Steps {
+			if st.Key == run_entity.StepForget {
+				forgetStep = st
+			}
+		}
+		assert.NotContains(t, forgetStep.Message, "already locked", "步骤说明不放 restic 的原始 JSON")
+		assert.NotContains(t, forgetStep.Message, "unlock", "原始 JSON 里的 unlock 提示会诱导人删掉别人正在用的锁")
+		assert.Contains(t, logText(r), "仓库已被占用", "原始输出留在日志里")
 
 		// forget 带上重试，不至于撞一次就放弃
 		forgets := calls(f.exec, "restic", "forget")
@@ -1218,4 +1227,43 @@ func TestForgetRepoLocked(t *testing.T) {
 		require.NoError(t, ferr)
 		assert.Zero(t, got.ForgetPendingAt)
 	})
+}
+
+// clearingRunner 在执行 forget 之前先清掉任务上的待清理标记，
+// 模拟「运行途中另一个补做正好把这个标记清掉了」
+type clearingRunner struct {
+	*executor.Fake
+	clear func()
+	once  sync.Once
+}
+
+func (r *clearingRunner) Run(ctx context.Context, cmd cmdbuild.Cmd, out io.Writer) (int, error) {
+	if cmd.Name == "restic" && len(cmd.Args) > 0 && cmd.Args[0] == "forget" {
+		r.once.Do(r.clear)
+	}
+	return r.Fake.Run(ctx, cmd, out)
+}
+
+// TestForgetDeferredAfterCleanupCleared 运行途中补做刚把标记清掉时，本次撞锁仍然要重新打上锚点
+func TestForgetDeferredAfterCleanupCleared(t *testing.T) {
+	f := setupRunTest(t)
+	j := f.addJob(t, &job_entity.Job{SourceType: job_entity.SourceRedis, ConnMode: job_entity.ConnDirect, DBHost: "h", DBPort: 1})
+	// 运行开始时任务上已有锚点（运行里读到的任务带着它）
+	require.NoError(t, job_repo.Job().SetForgetPending(f.ctx, j.ID, 1000, ""))
+	f.exec.On(executor.Match("restic", "backup"), executor.Step{Output: summary("ab12cd34", 1, 1)})
+	f.exec.On(executor.Match("restic", "forget"), executor.Step{ExitCode: 11, Output: lockedOutput})
+	runner := &clearingRunner{Fake: f.exec, clear: func() {
+		require.NoError(t, job_repo.Job().SetForgetPending(f.ctx, j.ID, 0, ""))
+	}}
+	f.svc = newRun(Deps{
+		Runner: runner, Now: time.Now, DataDir: f.dataDir, Self: "/opt/opsnap/opsnap",
+		ListDatabases: f.lister.list, Notify: f.notify.send,
+	})
+
+	r := f.run(t, j.ID, run_entity.TriggerManual)
+	require.Equal(t, run_entity.StatusSuccess, r.Status, logText(r))
+
+	got, err := job_repo.Job().Find(f.ctx, j.ID)
+	require.NoError(t, err)
+	assert.NotZero(t, got.ForgetPendingAt, "这次确实没做成，标记必须重新写上")
 }

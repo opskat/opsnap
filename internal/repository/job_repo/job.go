@@ -26,6 +26,9 @@ type JobRepo interface {
 	ListForgetPending(ctx context.Context) ([]*job_entity.Job, error)
 	// SetForgetPending 只改待清理锚点与原因，不碰其他配置与 updatetime；at 为 0 表示清除
 	SetForgetPending(ctx context.Context, id int64, at int64, reason string) error
+	// MarkForgetPending 延后清理时打锚点：已经有锚点就不动（保留首次延后的时间），没有才写入 at。
+	// 「有没有锚点」由数据库判断，不用调用方内存里的值——补做可能刚把标记清掉。
+	MarkForgetPending(ctx context.Context, id int64, at int64) error
 	// Delete 只删除任务这一行，不触及存储位置里的快照
 	Delete(ctx context.Context, id int64) error
 	// CountByServer 每台服务器被多少个任务使用；经 SSH 的数据库和文件任务才计入
@@ -70,8 +73,11 @@ func (r *jobRepo) Create(ctx context.Context, j *job_entity.Job) error {
 	return db.Ctx(ctx).Create(j).Error
 }
 
+// Update 整体保存配置。待清理是运行状态，不归编辑管：一并跳过，避免「改个名字就把待清理弄丢」
 func (r *jobRepo) Update(ctx context.Context, j *job_entity.Job) error {
-	return db.Ctx(ctx).Select("*").Omit("id", "createtime", "paused").Where("id = ?", j.ID).Updates(j).Error
+	return db.Ctx(ctx).Select("*").
+		Omit("id", "createtime", "paused", "forget_pending_at", "forget_pending_error").
+		Where("id = ?", j.ID).Updates(j).Error
 }
 
 func (r *jobRepo) SetPaused(ctx context.Context, id int64, paused bool, updatetime int64) error {
@@ -90,6 +96,13 @@ func (r *jobRepo) ListForgetPending(ctx context.Context) ([]*job_entity.Job, err
 func (r *jobRepo) SetForgetPending(ctx context.Context, id int64, at int64, reason string) error {
 	return db.Ctx(ctx).Model(&job_entity.Job{}).Where("id = ?", id).
 		Updates(map[string]any{"forget_pending_at": at, "forget_pending_error": reason}).Error
+}
+
+func (r *jobRepo) MarkForgetPending(ctx context.Context, id int64, at int64) error {
+	// 条件更新：只有还没有锚点时才写，避免读改写之间的竞争覆盖首次延后的时间
+	return db.Ctx(ctx).Model(&job_entity.Job{}).
+		Where("id = ? AND forget_pending_at = 0", id).
+		Updates(map[string]any{"forget_pending_at": at, "forget_pending_error": ""}).Error
 }
 
 func (r *jobRepo) Delete(ctx context.Context, id int64) error {

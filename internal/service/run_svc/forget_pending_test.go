@@ -222,3 +222,15 @@ func TestCleanupForgetPending(t *testing.T) {
 		assert.Equal(t, int64(1000), got.ForgetPendingAt, "位置没了不算这个任务的错，标记留着")
 	})
 }
+
+// TestCleanupForgetPendingWithoutRetry 补做不再等锁：它已持有存储位置独占锁，再等只会挡住新备份
+func TestCleanupForgetPendingWithoutRetry(t *testing.T) {
+	f := setupRunTest(t)
+	f.pendingJob(t, f.repoID, "待清理", 1000)
+
+	require.NoError(t, f.svc.CleanupForgetPending(f.ctx))
+
+	forgets := calls(f.exec, "restic", "forget")
+	require.Len(t, forgets, 1)
+	assert.NotContains(t, forgets[0].Args, "--retry-lock")
+}

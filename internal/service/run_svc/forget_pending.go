@@ -2,8 +2,6 @@ package run_svc
 
 import (
 	"context"
-	"fmt"
-	"strconv"
 
 	"github.com/cago-frame/cago/pkg/logger"
 
@@ -49,7 +47,9 @@ func (s *runSvc) cleanupRepo(ctx context.Context, repoID int64, jobs []*job_enti
 	repo, releaseEnv, err := repo_svc.Env(ctx, repoID)
 	if err != nil {
 		// 位置没了或密钥坏了：不是这些任务的错，标记留着，等位置恢复
-		s.forgetPendingFailed(ctx, jobs, err.Error())
+		for _, j := range jobs {
+			s.forgetPendingFailed(ctx, j, err.Error())
+		}
 		return
 	}
 	defer releaseEnv()
@@ -62,29 +62,17 @@ func (s *runSvc) cleanupRepo(ctx context.Context, repoID int64, jobs []*job_enti
 func (s *runSvc) cleanupJob(ctx context.Context, repo cmdbuild.Repo, j *job_entity.Job) {
 	policy, err := j.Retention().ForgetArgs()
 	if err != nil {
-		s.forgetPendingFailed(ctx, []*job_entity.Job{j}, err.Error())
+		s.forgetPendingFailed(ctx, j, err.Error())
 		return
 	}
-	cmd, err := cmdbuild.ResticForget(repo, cmdbuild.ForgetSpec{
-		Tags: []string{"job:" + strconv.FormatInt(j.ID, 10)}, Policy: policy, RetryLock: forgetRetryLock,
-	})
-	if err != nil {
-		s.forgetPendingFailed(ctx, []*job_entity.Job{j}, err.Error())
-		return
-	}
-	// 失败原因要写进任务的标记里，先把凭据加入遮盖
-	rd := redact.New(cmd.Secrets()...)
-	out := newCapBuffer()
-	code, err := s.d.Runner.Run(ctx, cmd, out)
+	res, err := runForget(ctx, s.d.Runner.Run, repo, j.ID, policy, false)
 	switch {
 	case err != nil:
-		s.forgetPendingFailed(ctx, []*job_entity.Job{j}, rd.String(err.Error()))
+		// 失败原因要写进任务的标记里，先把凭据遮盖掉
+		s.forgetPendingFailed(ctx, j, redact.New(repo.Password).String(err.Error()))
 		return
-	case code != 0 && repoLocked(code, out.tail()):
+	case res.locked:
 		// 这一轮又被别的进程抢先了：什么都不改，等下一轮
-		return
-	case code != 0:
-		s.forgetPendingFailed(ctx, []*job_entity.Job{j}, rd.String(fmt.Sprintf("restic 退出码 %d：%s", code, out.tail())))
 		return
 	}
 
@@ -92,23 +80,20 @@ func (s *runSvc) cleanupJob(ctx context.Context, repo cmdbuild.Repo, j *job_enti
 		// 标记没清掉：下一轮会再补做一次，forget 是幂等的，不算错
 		logger.Ctx(ctx).Sugar().Warnf("清除任务 %d 的待清理标记失败：%v", j.ID, err)
 	}
-	removed := countRemoved(out.buf.Bytes())
-	logger.Ctx(ctx).Sugar().Infof("补做清理旧快照：任务「%s」（#%d）删除了 %d 个过期快照", j.Name, j.ID, max(removed, 0))
+	logger.Ctx(ctx).Sugar().Infof("补做清理旧快照：任务「%s」（#%d）删除了 %d 个过期快照", j.Name, j.ID, res.removed)
 }
 
 // forgetPendingFailed 记下补做失败的原因（保留标记），同一原因只记一条日志，避免每轮重复刷屏
-func (s *runSvc) forgetPendingFailed(ctx context.Context, jobs []*job_entity.Job, reason string) {
-	for _, j := range jobs {
-		sameAsBefore := j.ForgetPendingError == reason
-		if err := job_repo.Job().SetForgetPending(ctx, j.ID, j.ForgetPendingAt, reason); err != nil {
-			logger.Ctx(ctx).Sugar().Warnf("记录任务 %d 的待清理失败原因失败：%v", j.ID, err)
-			continue
-		}
-		if sameAsBefore {
-			continue
-		}
-		logger.Ctx(ctx).Sugar().Errorf("补做清理旧快照失败：任务「%s」（#%d）：%s", j.Name, j.ID, reason)
+func (s *runSvc) forgetPendingFailed(ctx context.Context, j *job_entity.Job, reason string) {
+	sameAsBefore := j.ForgetPendingError == reason
+	if err := job_repo.Job().SetForgetPending(ctx, j.ID, j.ForgetPendingAt, reason); err != nil {
+		logger.Ctx(ctx).Sugar().Warnf("记录任务 %d 的待清理失败原因失败：%v", j.ID, err)
+		return
 	}
+	if sameAsBefore {
+		return
+	}
+	logger.Ctx(ctx).Sugar().Errorf("补做清理旧快照失败：任务「%s」（#%d）：%s", j.Name, j.ID, reason)
 }
 
 // CleanupForgetPending 补做撞锁时延后的旧快照清理，供调度器使用
