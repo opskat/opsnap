@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -352,6 +353,9 @@ type ForgetSpec struct {
 	Prune bool
 	// DryRun 只演算不删除，输出里的 reasons 说明每个被保留的快照为什么保留
 	DryRun bool
+	// RetryLock 拿不到仓库独占锁时等这么久再放弃（restic --retry-lock）。为零表示不重试；
+	// 同一存储位置上的并发备份持有非独占锁，forget 需要独占锁，所以正常运行时会重试一会儿
+	RetryLock time.Duration
 }
 
 // ResticForget restic forget
@@ -367,6 +371,9 @@ func ResticForget(r Repo, f ForgetSpec) (Cmd, error) {
 	if f.DryRun {
 		// 只演算时 restic 允许不加锁；否则 forget 总是取独占锁，会让同一仓库上正在开始的备份失败
 		extra = append(extra, "--dry-run", "--no-lock")
+	} else if f.RetryLock > 0 {
+		// 仓库被告同一存储位置上的另一个备份占用时，等一会儿而不是立即以退出码 11 失败
+		extra = append(extra, "--retry-lock", f.RetryLock.String())
 	}
 	if f.Prune {
 		extra = append(extra, "--prune")
