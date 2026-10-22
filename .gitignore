@@ -17,3 +17,6 @@ dist/
 
 # 系统文件
 .DS_Store
+
+# 工作区里复用主检出的依赖时会出现（node_modules/ 只匹配目录）
+node_modules

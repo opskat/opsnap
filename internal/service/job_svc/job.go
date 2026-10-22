@@ -14,6 +14,7 @@ import (
 	"github.com/opskat/opsnap/internal/model/entity/job_entity"
 	"github.com/opskat/opsnap/internal/model/entity/run_entity"
 	"github.com/opskat/opsnap/internal/pkg/code"
+	"github.com/opskat/opsnap/internal/pkg/remotefs"
 	"github.com/opskat/opsnap/internal/pkg/schedule"
 	"github.com/opskat/opsnap/internal/pkg/secret"
 	"github.com/opskat/opsnap/internal/repository/job_repo"
@@ -61,6 +62,8 @@ type JobSvc interface {
 	NextRuns(ctx context.Context, req *jobapi.NextRunsRequest) (*jobapi.NextRunsResponse, error)
 	// Databases 读取数据库列表及大小；读取失败不是错误，返回 OK=false 与原因
 	Databases(ctx context.Context, req *jobapi.DatabasesRequest) (*jobapi.DatabasesResponse, error)
+	// Paths 列出服务器上的一层目录，供文件任务选目录；读取失败不是错误，返回 OK=false 与原因
+	Paths(ctx context.Context, req *jobapi.PathsRequest) (*jobapi.PathsResponse, error)
 	// Test 逐项检查连接，返回有序的检查项
 	Test(ctx context.Context, req *jobapi.TestRequest) (*jobapi.TestResponse, error)
 }
@@ -69,22 +72,33 @@ type JobSvc interface {
 // addr 为空只建立连接、不转发，用来检查链路。
 type Tunnel func(ctx context.Context, serverID int64, addr string) (local string, closeFn func(), err error)
 
+// Browser 浏览远端目录：列一层子目录，或者确认某条路径存在且是目录。
+type Browser = remotefs.Lister
+
+// OpenFS 在服务器的 SSH 连接上开一个目录浏览通道，返回关闭函数。
+//
+// 与 Tunnel 分工不同：Tunnel 只能得到本机可达的地址，拿不到 *ssh.Client，
+// 开不了 SFTP 会话。浏览与路径校验走这里，测试连接复用同一条连接。
+type OpenFS func(ctx context.Context, serverID int64) (Browser, func(), error)
+
 // Deps 外部依赖，测试里替换
 type Deps struct {
 	Now    func() time.Time
 	Tunnel Tunnel
 	Probes ProbeFor
+	OpenFS OpenFS
 }
 
 type jobSvc struct {
 	now    func() time.Time
 	tunnel Tunnel
 	probes ProbeFor
+	openFS OpenFS
 }
 
 // NewJob 创建任务服务；Deps 中为空的项使用真实实现
 func NewJob(d Deps) JobSvc {
-	s := &jobSvc{now: d.Now, tunnel: d.Tunnel, probes: d.Probes}
+	s := &jobSvc{now: d.Now, tunnel: d.Tunnel, probes: d.Probes, openFS: d.OpenFS}
 	if s.now == nil {
 		s.now = time.Now
 	}
@@ -93,6 +107,9 @@ func NewJob(d Deps) JobSvc {
 	}
 	if s.probes == nil {
 		s.probes = defaultProbes
+	}
+	if s.openFS == nil {
+		s.openFS = sshOpenFS
 	}
 	return s
 }
@@ -220,21 +237,17 @@ func (s *jobSvc) view(ctx context.Context, j *job_entity.Job) (*jobapi.Item, err
 }
 
 func (s *jobSvc) Create(ctx context.Context, req *jobapi.CreateRequest) (*jobapi.CreateResponse, error) {
-	// 与轮换主密钥互斥，见 secret.BeginWrite
+	j, errs, unverified, err := s.prepareSave(ctx, nil, req.Input())
+	if err != nil {
+		return nil, err
+	}
+	if err := errs.Err(ctx); err != nil {
+		return nil, err
+	}
+	// 与轮换主密钥互斥，见 secret.BeginWrite。
+	// 放在远端校验之后：上面最多要等 20 秒的 SSH/SFTP，不能把它算进锁的持有时间。
 	endWrite := secret.BeginWrite()
 	defer endWrite()
-	j, errs, err := s.assemble(ctx, nil, req.Input())
-	if err != nil {
-		return nil, err
-	}
-	errs = append(errs, j.ValidateConfig()...)
-	more, err := s.checkResources(ctx, j, errs)
-	if err != nil {
-		return nil, err
-	}
-	if err := append(errs, more...).Err(ctx); err != nil {
-		return nil, err
-	}
 	j.Paused = req.Paused
 	now := s.now().Unix()
 	j.Createtime, j.Updatetime = now, now
@@ -245,29 +258,24 @@ func (s *jobSvc) Create(ctx context.Context, req *jobapi.CreateRequest) (*jobapi
 	if err != nil {
 		return nil, err
 	}
-	return &jobapi.CreateResponse{Item: *item}, nil
+	return &jobapi.CreateResponse{Item: *item, UnverifiedPaths: unverified}, nil
 }
 
 func (s *jobSvc) Update(ctx context.Context, req *jobapi.UpdateRequest) (*jobapi.UpdateResponse, error) {
-	// 与轮换主密钥互斥，见 secret.BeginWrite
-	endWrite := secret.BeginWrite()
-	defer endWrite()
 	old, err := s.find(ctx, req.ID)
 	if err != nil {
 		return nil, err
 	}
-	j, errs, err := s.assemble(ctx, old, req.Input())
+	j, errs, unverified, err := s.prepareSave(ctx, old, req.Input())
 	if err != nil {
 		return nil, err
 	}
-	errs = append(errs, j.ValidateConfig()...)
-	more, err := s.checkResources(ctx, j, errs)
-	if err != nil {
+	if err := errs.Err(ctx); err != nil {
 		return nil, err
 	}
-	if err := append(errs, more...).Err(ctx); err != nil {
-		return nil, err
-	}
+	// 与轮换主密钥互斥，见 secret.BeginWrite；放在远端校验之后，理由同 Create。
+	endWrite := secret.BeginWrite()
+	defer endWrite()
 	j.ID, j.Createtime, j.Paused = old.ID, old.Createtime, old.Paused
 	// 待清理是运行状态，不归编辑管：沿用原值，别让「改个名字」把它弄丢
 	j.ForgetPendingAt, j.ForgetPendingError = old.ForgetPendingAt, old.ForgetPendingError
@@ -279,7 +287,7 @@ func (s *jobSvc) Update(ctx context.Context, req *jobapi.UpdateRequest) (*jobapi
 	if err != nil {
 		return nil, err
 	}
-	return &jobapi.UpdateResponse{Item: *item}, nil
+	return &jobapi.UpdateResponse{Item: *item, UnverifiedPaths: unverified}, nil
 }
 
 func (s *jobSvc) Delete(ctx context.Context, id int64) error {

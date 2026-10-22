@@ -573,6 +573,8 @@ export interface JobInput {
 }
 export interface JobItem extends Omit<JobInput, "databases" | "paths" | "excludes"> {
   id: number;
+  /** 保存时没能确认的路径（连不上服务器）；非空表示这次没有校验过它们 */
+  unverified_paths?: string[] | null;
   server_name: string;
   repo_name: string;
   databases: string[] | null;
@@ -616,7 +618,27 @@ export interface JobDatabasesResult {
   reason_label: string;
   message: string;
 }
-export type JobCheckKey = "ssh" | "db_reach" | "db_auth" | "db_privs" | "repo";
+/** 一个子目录。symlink 为 true 表示指向目录的符号链接，备份（rsync）不跟随；selectable 为 false 时不能在面板里选 */
+export interface JobPathEntry {
+  name: string;
+  /** 修改时间，Unix 秒 */
+  mtime: number;
+  symlink: boolean;
+  selectable: boolean;
+}
+/** 列一层目录的结果。失败不是接口错误：ok 为 false，reason_label 与 message 原地显示 */
+export interface JobPathsResult {
+  ok: boolean;
+  /** 规范化后的目录 */
+  path: string;
+  list: JobPathEntry[] | null;
+  /** 条目超过 2000 条被截断 */
+  truncated: boolean;
+  reason: string;
+  reason_label: string;
+  message: string;
+}
+export type JobCheckKey = "ssh" | "db_reach" | "db_auth" | "db_privs" | "paths" | "repo";
 export interface JobCheck {
   key: JobCheckKey;
   label: string;
@@ -917,6 +939,9 @@ export const api = {
       request<JobNextRuns>("POST", "/jobs/next-runs", { schedule, count }),
     /** 读取库列表及大小；id 非 0 时密码占位取该任务已保存的值 */
     databases: (id: number, body: JobInput) => request<JobDatabasesResult>("POST", "/jobs/databases", { id, ...body }),
+    /** 列出服务器上的一层目录；path 为空表示根目录 */
+    paths: (id: number, body: JobInput, path: string) =>
+      request<JobPathsResult>("POST", "/jobs/paths", { id, ...body, path }),
     /** 测试一份未保存的配置 */
     test: (id: number, body: JobInput) => request<JobTestResult>("POST", "/jobs/test", { id, ...body }),
     /** 立即运行一次 */

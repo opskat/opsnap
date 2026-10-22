@@ -26,6 +26,7 @@ import (
 	"github.com/opskat/opsnap/internal/model/entity/setting_entity"
 	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/executor"
+	"github.com/opskat/opsnap/internal/pkg/remotefs"
 	"github.com/opskat/opsnap/internal/pkg/secret"
 	"github.com/opskat/opsnap/internal/pkg/sshconn"
 	"github.com/opskat/opsnap/internal/repository/credential_repo"
@@ -140,7 +141,15 @@ func setupJobTest(t *testing.T) *fixture {
 	require.NoError(t, os.WriteFile(filepath.Join(f.mount, repo_entity.MarkerFile), nil, 0o600))
 	f.repoID = f.addRepo(t, "nas", f.mount)
 
-	f.svc = NewJob(Deps{Now: func() time.Time { return f.now }, Tunnel: f.tunnel.open, Probes: func(string) (Probe, error) { return f.probe, nil }})
+	f.svc = NewJob(Deps{
+		Now:    func() time.Time { return f.now },
+		Tunnel: f.tunnel.open,
+		Probes: func(string) (Probe, error) { return f.probe, nil },
+		// 默认所有路径都存在且可读；需要别的结果时用 fixture.withPaths 覆盖
+		OpenFS: func(context.Context, int64) (Browser, func(), error) {
+			return okPaths{}, func() {}, nil
+		},
+	})
 	return f
 }
 
@@ -160,6 +169,12 @@ func (f *fixture) setTimezone(t *testing.T, tz string) {
 	st.Timezone = tz
 	require.NoError(t, setting_repo.Setting().Save(f.ctx, st))
 }
+
+// okPaths 任何路径都可读的目录替身
+type okPaths struct{}
+
+func (okPaths) List(context.Context, string) ([]remotefs.Entry, error) { return nil, nil }
+func (okPaths) Stat(context.Context, string) error                     { return nil }
 
 // mysqlInput 一份合法的 MySQL 经 SSH 任务
 func (f *fixture) mysqlInput() jobapi.JobInput {
@@ -900,11 +915,12 @@ func TestConnection(t *testing.T) {
 		assert.True(t, checkOf(t, resp, "db_privs").OK)
 	})
 
-	t.Run("文件任务只检查 SSH 与存储位置", func(t *testing.T) {
+	t.Run("文件任务检查 SSH、目录可读与存储位置", func(t *testing.T) {
+		f.usePaths(map[string][]remotefs.Entry{"/var/www": {}}, nil)
 		resp, err := f.svc.Test(f.ctx, jobapi.NewTestRequest(0, ptr(f.filesInput())))
 		require.NoError(t, err)
 		assert.True(t, resp.OK)
-		assert.Equal(t, []string{"ssh", "repo"}, keys(resp))
+		assert.Equal(t, []string{"ssh", "paths", "repo"}, keys(resp))
 	})
 
 	t.Run("连接字段不合法按字段报错，不做任何网络访问", func(t *testing.T) {

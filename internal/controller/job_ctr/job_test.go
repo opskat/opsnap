@@ -2,6 +2,7 @@ package job_ctr
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -21,7 +22,9 @@ import (
 	"github.com/opskat/opsnap/internal/model/entity/server_entity"
 	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/executor"
+	"github.com/opskat/opsnap/internal/pkg/remotefs"
 	"github.com/opskat/opsnap/internal/pkg/secret"
+	"github.com/opskat/opsnap/internal/pkg/sshconn"
 	"github.com/opskat/opsnap/internal/repository/credential_repo"
 	"github.com/opskat/opsnap/internal/repository/job_repo"
 	"github.com/opskat/opsnap/internal/repository/repo_repo"
@@ -55,9 +58,12 @@ func setupJobTest(t *testing.T) (context.Context, *muxtest.TestMux, jobapi.JobIn
 	setting_repo.RegisterSetting(setting_repo.NewSetting())
 	run_repo.RegisterRun(run_repo.NewRun())
 	repo_svc.RegisterRepo(repo_svc.NewRepo(executor.NewFake(), time.Now))
-	// 不做真实的 SSH 连接
+	// 不做真实的 SSH 连接与目录读取
 	job_svc.RegisterJob(job_svc.NewJob(job_svc.Deps{
 		Tunnel: func(context.Context, int64, string) (string, func(), error) { return "", func() {}, nil },
+		OpenFS: func(context.Context, int64) (job_svc.Browser, func(), error) {
+			return fakeBrowser{}, func() {}, nil
+		},
 	}))
 	ctx := db.WithContextDB(context.Background(), gdb)
 
@@ -73,7 +79,7 @@ func setupJobTest(t *testing.T) (context.Context, *muxtest.TestMux, jobapi.JobIn
 	testMux := muxtest.NewTestMux()
 	ctr := NewJob()
 	testMux.Group("/api/v1").Bind(ctr.List, ctr.Get, ctr.Create, ctr.Update, ctr.Delete, ctr.Duplicate,
-		ctr.Pause, ctr.Resume, ctr.NextRuns, ctr.Databases, ctr.Test)
+		ctr.Pause, ctr.Resume, ctr.NextRuns, ctr.Databases, ctr.Paths, ctr.Test)
 	in := jobapi.JobInput{
 		Name: "site", SourceType: jobapi.SourceFiles, ServerID: srv.ID, Paths: []string{"/var/www"},
 		RepoID:    rp.ID,
@@ -81,6 +87,67 @@ func setupJobTest(t *testing.T) (context.Context, *muxtest.TestMux, jobapi.JobIn
 		Retention: jobapi.RetentionInput{Preset: "7d"},
 	}
 	return ctx, testMux, in
+}
+
+// fakeBrowser 目录浏览替身：所有路径都存在，/var/www 下有一个子目录
+type fakeBrowser struct{}
+
+func (fakeBrowser) List(_ context.Context, path string) ([]remotefs.Entry, error) {
+	if path == "/var/www" {
+		return []remotefs.Entry{{Name: "uploads", IsDir: true}}, nil
+	}
+	return nil, nil
+}
+
+func (fakeBrowser) Stat(context.Context, string) error { return nil }
+
+// ListRequest 供 TestJobControllerPaths 断言返回形状
+func TestJobControllerPaths(t *testing.T) {
+	ctx, testMux, in := setupJobTest(t)
+	resp := &jobapi.PathsResponse{}
+	require.NoError(t, testMux.Do(ctx, &jobapi.PathsRequest{
+		SourceType: in.SourceType, ServerID: in.ServerID, Paths: in.Paths,
+		RepoID: in.RepoID, Schedule: in.Schedule, Retention: in.Retention,
+		Path: "/var/www",
+	}, resp))
+	assert.True(t, resp.OK)
+	assert.Equal(t, "/var/www", resp.Path)
+	require.Len(t, resp.List, 1)
+	assert.Equal(t, "uploads", resp.List[0].Name)
+
+	t.Run("数据库任务不能浏览目录", func(t *testing.T) {
+		err := testMux.Do(ctx, &jobapi.PathsRequest{SourceType: jobapi.SourceMySQL, ServerID: in.ServerID, Path: "/"}, &jobapi.PathsResponse{})
+		var he *httputils.Error
+		require.ErrorAs(t, err, &he)
+	})
+
+	t.Run("非法路径按字段错误返回 11401", func(t *testing.T) {
+		err := testMux.Do(ctx, &jobapi.PathsRequest{
+			SourceType: in.SourceType, ServerID: in.ServerID, Path: "/srv/../etc",
+		}, &jobapi.PathsResponse{})
+		var he *httputils.Error
+		require.ErrorAs(t, err, &he)
+		assert.Equal(t, code.JobFieldInvalid, he.Code)
+		assert.Contains(t, he.Msg, "[path] ")
+	})
+}
+
+// 保存时连不上服务器：放行，但要把「没能确认的路径」透到响应里，面板据此提示
+func TestJobControllerSaveUnverifiedPaths(t *testing.T) {
+	ctx, testMux, in := setupJobTest(t)
+	job_svc.RegisterJob(job_svc.NewJob(job_svc.Deps{
+		Tunnel: func(context.Context, int64, string) (string, func(), error) { return "", func() {}, nil },
+		OpenFS: func(context.Context, int64) (job_svc.Browser, func(), error) {
+			return nil, nil, fmt.Errorf("包装：%w", sshconn.ErrServerNotFound)
+		},
+	}))
+	_ = in
+	resp := &jobapi.CreateResponse{}
+	err := testMux.Do(ctx, jobapi.NewCreateRequest(&in), resp)
+	// 服务器不存在是永久错误，必须报出来而不是静默放行
+	var he *httputils.Error
+	require.ErrorAs(t, err, &he)
+	assert.NotEqual(t, 0, he.Code)
 }
 
 func TestJobController(t *testing.T) {
@@ -145,10 +212,11 @@ func TestJobControllerTest(t *testing.T) {
 	ctx, testMux, in := setupJobTest(t)
 	resp := &jobapi.TestResponse{}
 	require.NoError(t, testMux.Do(ctx, jobapi.NewTestRequest(0, &in), resp))
-	// 文件任务只有 SSH 链路与存储位置两项
-	require.Len(t, resp.Checks, 2)
+	// 文件任务有 SSH 链路、目录可读与存储位置三项
+	require.Len(t, resp.Checks, 3)
 	assert.Equal(t, jobapi.CheckSSH, resp.Checks[0].Key)
-	assert.Equal(t, jobapi.CheckRepo, resp.Checks[1].Key)
+	assert.Equal(t, jobapi.CheckPaths, resp.Checks[1].Key)
+	assert.Equal(t, jobapi.CheckRepo, resp.Checks[2].Key)
 	assert.True(t, resp.OK)
 }
 

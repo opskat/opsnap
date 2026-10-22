@@ -85,9 +85,10 @@ const (
 
 // 备份任务相关错误码
 const (
-	JobNotFound        = iota + 11400 // 任务不存在
-	JobFieldInvalid                   // 字段校验失败，消息每行一个字段，写法 "[字段名] 原因"
-	JobSourceNotListed                // 这种数据源没有库列表可读
+	JobNotFound           = iota + 11400 // 任务不存在
+	JobFieldInvalid                      // 字段校验失败，消息每行一个字段，写法 "[字段名] 原因"
+	JobSourceNotListed                   // 这种数据源没有库列表可读
+	JobSourceNotBrowsable                // 这种数据源不能浏览目录
 )
 
 // 运行记录相关错误码

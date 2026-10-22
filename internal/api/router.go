@@ -125,6 +125,7 @@ func Router(ctx context.Context, root *mux.Router) error {
 		jobCtr.Resume,
 		jobCtr.NextRuns,
 		jobCtr.Databases,
+		jobCtr.Paths,
 		jobCtr.Test,
 		runCtr.RunJob,
 		runCtr.List,

@@ -17,10 +17,13 @@ import (
 // probeTimeout 一次读取库列表或测试连接的总时限
 const probeTimeout = 45 * time.Second
 
-// connectionFields 测试连接和读取库列表只关心的字段；其余字段（名称、计划、保留……）允许还没填好
+// connectionFields 测试连接和读取库列表只关心的字段；其余字段（名称、计划、保留……）允许还没填好。
+//
+// paths 不在这里：它决定的是「备份什么」，不是「能不能连上」。留在里面会让路径框还空着时
+// 测试连接直接报「请至少填写一个要备份的路径」，也就永远跑不到目录可读那一项。
 var connectionFields = map[string]bool{
 	"source_type": true, "server_id": true, "conn_mode": true, "db_host": true, "db_port": true,
-	"db_user": true, "db_password": true, "auth_db": true, "paths": true,
+	"db_user": true, "db_password": true, "auth_db": true,
 }
 
 // prepareConn 整理未保存的配置并只校验连接相关字段。id 非 0 时表示编辑中的已保存任务，占位密码取它的值。
@@ -164,7 +167,7 @@ func (s *jobSvc) testConnection(ctx context.Context, req *jobapi.TestRequest) (*
 			sshOK = false
 		} else {
 			defer closeFn()
-			b.ok(jobapi.CheckSSH, "SSH 链路可达")
+			b.ok(jobapi.CheckSSH, "SSH 链路可达", "")
 			if isDB {
 				addr = local
 			}
@@ -174,6 +177,8 @@ func (s *jobSvc) testConnection(ctx context.Context, req *jobapi.TestRequest) (*
 		if err := s.checkDatabase(ctx, j, addr, sshOK, b); err != nil {
 			return nil, err
 		}
+	} else {
+		s.checkFiles(ctx, j, sshOK, b)
 	}
 	b.add(s.checkRepo(ctx, j.RepoID))
 	return b.response(), nil
@@ -207,17 +212,17 @@ func (s *jobSvc) checkDatabase(ctx context.Context, j *job_entity.Job, addr stri
 		b.skip(jobapi.CheckDBAuth, authLabel)
 		b.skip(jobapi.CheckDBPrivs, privsLabel)
 	case d.Auth != nil:
-		b.ok(jobapi.CheckDBReach, reachLabel)
+		b.ok(jobapi.CheckDBReach, reachLabel, "")
 		b.fail(jobapi.CheckDBAuth, authLabel, d.Auth.Message, "")
 		b.skip(jobapi.CheckDBPrivs, privsLabel)
 	case len(d.Missing) > 0:
-		b.ok(jobapi.CheckDBReach, reachLabel)
-		b.ok(jobapi.CheckDBAuth, authLabel)
+		b.ok(jobapi.CheckDBReach, reachLabel, "")
+		b.ok(jobapi.CheckDBAuth, authLabel, "")
 		b.fail(jobapi.CheckDBPrivs, privsLabel, "缺少权限："+strings.Join(d.Missing, "、"), fixCommand(j.SourceType, j.DBUser, d.Missing))
 	default:
-		b.ok(jobapi.CheckDBReach, reachLabel)
-		b.ok(jobapi.CheckDBAuth, authLabel)
-		b.ok(jobapi.CheckDBPrivs, privsLabel)
+		b.ok(jobapi.CheckDBReach, reachLabel, "")
+		b.ok(jobapi.CheckDBAuth, authLabel, "")
+		b.ok(jobapi.CheckDBPrivs, privsLabel, "")
 	}
 	return nil
 }
@@ -241,11 +246,16 @@ func (s *jobSvc) checkRepo(ctx context.Context, repoID int64) *jobapi.CheckItem 
 type checkBuilder struct{ items []*jobapi.CheckItem }
 
 func (b *checkBuilder) add(c *jobapi.CheckItem) { b.items = append(b.items, c) }
-func (b *checkBuilder) ok(key, label string) {
-	b.add(&jobapi.CheckItem{Key: key, Label: label, OK: true})
+func (b *checkBuilder) ok(key, label, detail string) {
+	b.add(&jobapi.CheckItem{Key: key, Label: label, OK: true, Reason: detail})
 }
 func (b *checkBuilder) skip(key, label string) {
 	b.add(&jobapi.CheckItem{Key: key, Label: label, Skipped: true, Reason: "前面的检查没有通过，已跳过"})
+}
+
+// note 这一项没有失败，但也没有真正检查（例如还没填路径）
+func (b *checkBuilder) note(key, label, reason string) {
+	b.add(&jobapi.CheckItem{Key: key, Label: label, Skipped: true, Reason: reason})
 }
 func (b *checkBuilder) fail(key, label, reason, fix string) {
 	b.add(&jobapi.CheckItem{Key: key, Label: label, Reason: reason, Fix: fix})

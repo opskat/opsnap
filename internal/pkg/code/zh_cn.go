@@ -75,9 +75,10 @@ var zhCN = map[int]string{
 	RepoCredentialRetarget:       "地址或用户已改动，请重新填写%s",
 	RepoProbeTimeout:             "%s内没有结果，没能确认这里是空位置还是已有仓库。restic 报告的错误：%s。请检查地址、端口、bucket 或路径、访问凭据是否正确，网络是否连通，NAS 上的服务是否在运行",
 
-	JobNotFound:        "任务不存在",
-	JobFieldInvalid:    "%s",
-	JobSourceNotListed: "这种数据源没有库列表",
+	JobNotFound:           "任务不存在",
+	JobFieldInvalid:       "%s",
+	JobSourceNotListed:    "这种数据源没有库列表",
+	JobSourceNotBrowsable: "只有文件任务可以浏览目录",
 
 	RunNotFound:         "运行记录不存在",
 	RunAlreadyRunning:   "这个任务正在运行，请等它结束后再试",

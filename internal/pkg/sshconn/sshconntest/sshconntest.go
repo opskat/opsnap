@@ -22,6 +22,8 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
+
+	"github.com/pkg/sftp"
 )
 
 // listen 在 127.0.0.1 的随机端口监听，测试结束时关闭
@@ -158,6 +160,9 @@ type SSHServer struct {
 	authAttempts recorder
 	directTCPIP  recorder
 	conns        recorder
+	sessions     recorder
+
+	sftpRoot string
 }
 
 // SSHOptions SSH 服务的认证设置；Password 与 AuthorizedKey 都为空时拒绝一切认证
@@ -168,6 +173,9 @@ type SSHOptions struct {
 	// ExtraECDSAHostKey 另外再出示一把 ECDSA 主机密钥（像默认安装的 OpenSSH 那样同时有多种主机密钥）；
 	// SSHServer.Fingerprint 仍是 ed25519 主机密钥的指纹
 	ExtraECDSAHostKey bool
+	// SFTPRoot 非空时提供 sftp 子系统，服务这个目录（作为 /）。
+	// 留空时像没有 `Subsystem sftp` 的服务器那样拒绝子系统请求。
+	SFTPRoot string
 }
 
 // StartSSH 启动 SSH 服务
@@ -182,6 +190,7 @@ func StartSSH(t testing.TB, opts SSHOptions) *SSHServer {
 		t.Fatalf("创建主机密钥失败: %v", err)
 	}
 	s := &SSHServer{Fingerprint: ssh.FingerprintSHA256(signer.PublicKey())}
+	s.sftpRoot = opts.SFTPRoot
 	cfg := &ssh.ServerConfig{
 		PasswordCallback: func(meta ssh.ConnMetadata, pw []byte) (*ssh.Permissions, error) {
 			s.authAttempts.inc()
@@ -227,35 +236,83 @@ func (s *SSHServer) handle(c net.Conn, cfg *ssh.ServerConfig) {
 	defer func() { _ = sc.Close() }()
 	go ssh.DiscardRequests(reqs)
 	for nc := range chans {
-		if nc.ChannelType() != "direct-tcpip" {
-			_ = nc.Reject(ssh.UnknownChannelType, "只支持 direct-tcpip")
-			continue
+		switch nc.ChannelType() {
+		case "direct-tcpip":
+			s.handleDirectTCPIP(nc)
+		case "session":
+			// 必须并发：handleSession 会一直读这个 session 的请求直到关闭，
+			// 同步调用会把同一连接上后续的 channel（含 direct-tcpip）全卡住。
+			go s.handleSession(nc)
+		default:
+			_ = nc.Reject(ssh.UnknownChannelType, "只支持 direct-tcpip 与 session")
 		}
-		var payload struct {
-			Host     string
-			Port     uint32
-			OrigHost string
-			OrigPort uint32
-		}
-		if err := ssh.Unmarshal(nc.ExtraData(), &payload); err != nil {
-			_ = nc.Reject(ssh.ConnectionFailed, "请求格式错误")
-			continue
-		}
-		target := net.JoinHostPort(payload.Host, strconv.Itoa(int(payload.Port)))
-		s.directTCPIP.add(target)
-		up, err := net.DialTimeout("tcp", target, 5*time.Second)
-		if err != nil {
-			_ = nc.Reject(ssh.ConnectionFailed, err.Error())
-			continue
-		}
-		ch, chReqs, err := nc.Accept()
-		if err != nil {
-			_ = up.Close()
-			continue
-		}
-		go ssh.DiscardRequests(chReqs)
-		go pipe(chanConn{ch}, up)
 	}
+}
+
+// handleDirectTCPIP 处理端口转发通道
+func (s *SSHServer) handleDirectTCPIP(nc ssh.NewChannel) {
+	var payload struct {
+		Host     string
+		Port     uint32
+		OrigHost string
+		OrigPort uint32
+	}
+	if err := ssh.Unmarshal(nc.ExtraData(), &payload); err != nil {
+		_ = nc.Reject(ssh.ConnectionFailed, "请求格式错误")
+		return
+	}
+	target := net.JoinHostPort(payload.Host, strconv.Itoa(int(payload.Port)))
+	s.directTCPIP.add(target)
+	up, err := net.DialTimeout("tcp", target, 5*time.Second)
+	if err != nil {
+		_ = nc.Reject(ssh.ConnectionFailed, err.Error())
+		return
+	}
+	ch, chReqs, err := nc.Accept()
+	if err != nil {
+		_ = up.Close()
+		return
+	}
+	go ssh.DiscardRequests(chReqs)
+	go pipe(chanConn{ch}, up)
+}
+
+// handleSession 处理 session 通道：目前只支持 sftp 子系统
+func (s *SSHServer) handleSession(nc ssh.NewChannel) {
+	s.sessions.inc()
+	ch, reqs, err := nc.Accept()
+	if err != nil {
+		return
+	}
+	for req := range reqs {
+		switch req.Type {
+		case "subsystem":
+			var payload struct{ Name string }
+			_ = ssh.Unmarshal(req.Payload, &payload)
+			if payload.Name != "sftp" || s.sftpRoot == "" {
+				_ = req.Reply(false, nil)
+				_ = ch.Close()
+				return
+			}
+			if err := req.Reply(true, nil); err != nil {
+				_ = ch.Close()
+				return
+			}
+			srv := sftp.NewRequestServer(ch, sftp.Handlers{
+				FileList: sftpHandler{root: s.sftpRoot},
+			})
+			go func() {
+				defer func() { _ = ch.Close() }()
+				_ = srv.Serve()
+			}()
+			return
+		default:
+			if req.WantReply {
+				_ = req.Reply(false, nil)
+			}
+		}
+	}
+	_ = ch.Close()
 }
 
 // AuthAttempts 收到的认证尝试次数（密码与公钥）

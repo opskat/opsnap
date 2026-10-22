@@ -157,6 +157,7 @@ func (s *jobSvc) checkResources(ctx context.Context, j *job_entity.Job, prior jo
 			errs = append(errs, job_entity.FieldError{Field: "server_id", Message: "服务器不存在"})
 		}
 	}
+
 	if j.RepoID > 0 && !prior.Has("repo_id") {
 		msg, err := repoProblem(ctx, j.RepoID)
 		if err != nil {

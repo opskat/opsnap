@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { JobFormPage, JobsRoutes } from "./job-form";
+import { JobFormPage, JobsRoutes, saveNotice } from "./job-form";
 import { renderPage } from "@/test/render";
 import { fail, mockApi, ok } from "@/test/api-mock";
 
@@ -138,6 +138,228 @@ describe("按数据源类型显示的字段", () => {
   });
 });
 
+describe("目录浏览", () => {
+  const FILES = {
+    ...JOB,
+    id: 9,
+    name: "站点文件",
+    source_type: "files",
+    databases: [],
+    paths: ["/srv/www"],
+  };
+  const TREE: Record<string, { name: string; mtime: number; symlink: boolean; selectable: boolean }[]> = {
+    "/srv/www": [
+      { name: "static", mtime: 1760000000, symlink: false, selectable: true },
+      { name: "uploads", mtime: 1760000000, symlink: false, selectable: true },
+    ],
+    "/srv/www/uploads": [{ name: "2026", mtime: 1760000000, symlink: false, selectable: true }],
+    "/srv/www/uploads/2026": [],
+  };
+  const pathsRoute = (call: { body: unknown }) => {
+    const path = (call.body as { path: string }).path || "/";
+    const list = TREE[path];
+    return list
+      ? ok({ ok: true, path, list, truncated: false, reason: "", reason_label: "", message: "" })
+      : ok({
+          ok: false,
+          path,
+          list: null,
+          truncated: false,
+          reason: "not_found",
+          reason_label: "不存在",
+          message: `${path} 不存在`,
+        });
+  };
+
+  it("未选服务器时不能浏览", async () => {
+    newJob();
+    const user = userEvent.setup();
+    await ready();
+    await user.click(screen.getByRole("radio", { name: "文件" }));
+    expect(screen.getByRole("button", { name: "浏览目录 1" })).toBeDisabled();
+    expect(screen.getByText("先选服务器才能浏览目录。")).toBeInTheDocument();
+  });
+
+  it("浏览、进入子目录并选中，写回路径并显示已确认", async () => {
+    const m = editJob({ "POST /jobs/paths": pathsRoute }, FILES);
+    const user = userEvent.setup();
+    await ready();
+    await user.click(screen.getByRole("button", { name: "浏览目录 1" }));
+    const dialog = await screen.findByRole("dialog", { name: "选择目录" });
+    await within(dialog).findByRole("button", { name: /uploads/ });
+    await user.click(within(dialog).getByRole("button", { name: /uploads/ }));
+    await user.click(await within(dialog).findByRole("button", { name: /2026/ }));
+    // 等这一层读完，「选择此目录」才可用
+    await within(dialog).findByText(/这个目录下没有子目录/);
+    await user.click(within(dialog).getByRole("button", { name: "选择此目录" }));
+    await waitFor(() => expect(screen.getByLabelText("目录 1")).toHaveValue("/srv/www/uploads/2026"));
+    expect(screen.getByText("/srv/www/uploads/2026 已确认可读，0 个子目录")).toBeInTheDocument();
+    expect(m.find("POST", "/jobs/paths").map((c) => (c.body as { path: string }).path)).toEqual([
+      "/srv/www",
+      "/srv/www/uploads",
+      "/srv/www/uploads/2026",
+    ]);
+  });
+
+  it("手改路径后已确认提示消失", async () => {
+    editJob({ "POST /jobs/paths": pathsRoute }, FILES);
+    const user = userEvent.setup();
+    await ready();
+    await user.click(screen.getByRole("button", { name: "浏览目录 1" }));
+    await user.click(await screen.findByRole("button", { name: "选择此目录" }));
+    expect(await screen.findByText(/已确认可读/)).toBeInTheDocument();
+    await user.type(screen.getByLabelText("目录 1"), "x");
+    expect(screen.queryByText(/已确认可读/)).not.toBeInTheDocument();
+  });
+
+  it("读不了时写明是哪个目录，并给退路", async () => {
+    editJob({ "POST /jobs/paths": pathsRoute }, FILES);
+    const user = userEvent.setup();
+    await ready();
+    await user.click(screen.getByRole("button", { name: "浏览目录 1" }));
+    await user.click(await screen.findByRole("button", { name: /uploads/ }));
+    await user.click(await screen.findByRole("button", { name: "选择此目录" }));
+    // 手工改到不存在的目录后重新浏览
+    await user.clear(screen.getByLabelText("目录 1"));
+    await user.type(screen.getByLabelText("目录 1"), "/nope");
+    await user.click(screen.getByRole("button", { name: "浏览目录 1" }));
+    const dialog = await screen.findByRole("dialog", { name: "选择目录" });
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(/\/nope 不存在/);
+    expect(within(dialog).getByRole("button", { name: "回到根目录" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "选择此目录" })).toBeDisabled();
+  });
+
+  it("选中符号链接时提示 rsync 不跟随", async () => {
+    const LINKED: typeof TREE = {
+      ...TREE,
+      "/srv/www": [{ name: "current", mtime: 1760000000, symlink: true, selectable: true }],
+    };
+    editJob(
+      {
+        "POST /jobs/paths": (call: { body: unknown }) => {
+          const p = (call.body as { path: string }).path || "/";
+          const list = LINKED[p];
+          return list
+            ? ok({ ok: true, path: p, list, truncated: false, reason: "", reason_label: "", message: "" })
+            : ok({
+                ok: false,
+                path: p,
+                list: null,
+                truncated: false,
+                reason: "not_found",
+                reason_label: "不存在",
+                message: `${p} 不存在`,
+              });
+        },
+      },
+      FILES
+    );
+    const user = userEvent.setup();
+    await ready();
+    await user.click(screen.getByRole("button", { name: "浏览目录 1" }));
+    const dialog = await screen.findByRole("dialog", { name: "选择目录" });
+    await user.click(await within(dialog).findByRole("button", { name: /current/ }));
+    expect(await within(dialog).findByText(/是符号链接，rsync 只备份链接本身/)).toBeInTheDocument();
+  });
+
+  it("删掉前面的目录后，已确认提示不会挂到别的路径上", async () => {
+    editJob({ "POST /jobs/paths": pathsRoute }, { ...FILES, paths: ["/srv/www", "/srv/www/uploads"] });
+    const user = userEvent.setup();
+    await ready();
+    await user.click(screen.getByRole("button", { name: "浏览目录 2" }));
+    const dialog = await screen.findByRole("dialog", { name: "选择目录" });
+    await user.click(await within(dialog).findByRole("button", { name: "选择此目录" }));
+    await waitFor(() => expect(screen.getByText(/已确认可读/)).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "移除目录 1" }));
+    expect(screen.getByLabelText("目录 1")).toHaveValue("/srv/www/uploads");
+    expect(screen.getByText(/^\/srv\/www\/uploads 已确认可读，\d+ 个子目录$/)).toBeInTheDocument();
+  });
+
+  it("换目录时不拿上一层的旧列表充数", async () => {
+    // 子目录那层故意慢回，先拿到的必须是它自己的结果，而不是上层的列表
+    const SLOW: typeof TREE = { ...TREE };
+    editJob(
+      {
+        "POST /jobs/paths": async (call: { body: unknown }) => {
+          const p = (call.body as { path: string }).path || "/";
+          if (p === "/srv/www/uploads") await new Promise((r) => setTimeout(r, 120));
+          const list = SLOW[p];
+          return list
+            ? ok({ ok: true, path: p, list, truncated: false, reason: "", reason_label: "", message: "" })
+            : ok({
+                ok: false,
+                path: p,
+                list: null,
+                truncated: false,
+                reason: "not_found",
+                reason_label: "不存在",
+                message: `${p} 不存在`,
+              });
+        },
+      },
+      FILES
+    );
+    const user = userEvent.setup();
+    await ready();
+    await user.click(screen.getByRole("button", { name: "浏览目录 1" }));
+    const dialog = await screen.findByRole("dialog", { name: "选择目录" });
+    await user.click(await within(dialog).findByRole("button", { name: /uploads/ }));
+    // 加载中不该还显示 /srv/www 的 static
+    expect(within(dialog).queryByRole("button", { name: /static/ })).not.toBeInTheDocument();
+    expect(await within(dialog).findByRole("button", { name: /2026/ })).toBeInTheDocument();
+  });
+
+  it("没有子目录也能选", async () => {
+    editJob({ "POST /jobs/paths": pathsRoute }, FILES);
+    const user = userEvent.setup();
+    await ready();
+    await user.click(screen.getByRole("button", { name: "浏览目录 1" }));
+    const dialog = await screen.findByRole("dialog", { name: "选择目录" });
+    await user.click(await within(dialog).findByRole("button", { name: /uploads/ }));
+    await user.click(await within(dialog).findByRole("button", { name: /2026/ }));
+    expect(await within(dialog).findByText(/这个目录下没有子目录/)).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "选择此目录" })).toBeEnabled();
+  });
+});
+
+describe("保存时没能确认目录", () => {
+  it("连不上服务器时保存成功，但提示没能确认哪些路径", async () => {
+    const FILES = { ...JOB, id: 9, name: "站点文件", source_type: "files", databases: [], paths: ["/srv/www"] };
+    const m = editJob(
+      {
+        "PUT /jobs/5": ok({ ...FILES, unverified_paths: ["/srv/www"] }),
+        // 浏览没打开过，这里只为避免未登记路由的 404 干扰
+        "POST /jobs/paths": ok({
+          ok: true,
+          path: "/srv/www",
+          list: [],
+          truncated: false,
+          reason: "",
+          reason_label: "",
+          message: "",
+        }),
+      },
+      FILES
+    );
+    const user = userEvent.setup();
+    await ready();
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    // 没测过连接时会先确认一次
+    const confirm = await screen.findByRole("button", { name: "仍然保存" });
+    await user.click(confirm);
+    await waitFor(() => expect(m.find("PUT", "/jobs/5")).toHaveLength(1));
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/jobs"));
+    // 提示文案本身由下面这两个用例锁定
+    expect(saveNotice(["/srv/www"])).toContain("没能确认目录是否存在（/srv/www）");
+  });
+
+  it("没有未确认路径时不给警告", () => {
+    expect(saveNotice([])).toBeNull();
+    expect(saveNotice(null)).toBeNull();
+    expect(saveNotice(undefined)).toBeNull();
+  });
+});
+
 describe("库勾选", () => {
   it("系统库显示但不可选；勾选的库进入摘要", async () => {
     const m = editJob();
@@ -166,6 +388,12 @@ describe("库勾选", () => {
     await user.click(screen.getByRole("button", { name: "测试连接" }));
     await screen.findByText("全部通过");
     await user.click(screen.getByRole("button", { name: "保存" }));
+    console.log(
+      "FORMERR:",
+      screen.queryAllByRole("alert").map((e) => e.textContent),
+      "DIALOG:",
+      !!screen.queryByRole("dialog")
+    );
     await waitFor(() => expect(m.find("PUT", "/jobs/5")).toHaveLength(1));
     expect(m.find("PUT", "/jobs/5")[0].body).toMatchObject({ all_databases: true, databases: [] });
   });
@@ -296,6 +524,12 @@ describe("高级", () => {
     await user.click(screen.getByRole("button", { name: "测试连接" }));
     await screen.findByText("全部通过");
     await user.click(screen.getByRole("button", { name: "保存" }));
+    console.log(
+      "FORMERR:",
+      screen.queryAllByRole("alert").map((e) => e.textContent),
+      "DIALOG:",
+      !!screen.queryByRole("dialog")
+    );
     await waitFor(() => expect(m.find("PUT", "/jobs/5")).toHaveLength(1));
     expect(m.find("PUT", "/jobs/5")[0].body).toMatchObject({
       advanced: {
@@ -359,6 +593,12 @@ describe("校验错误", () => {
     await screen.findByText("全部通过");
     await user.click(screen.getByRole("button", { name: /高级/ }));
     await user.click(screen.getByRole("button", { name: "保存" }));
+    console.log(
+      "FORMERR:",
+      screen.queryAllByRole("alert").map((e) => e.textContent),
+      "DIALOG:",
+      !!screen.queryByRole("dialog")
+    );
 
     await waitFor(() =>
       expect(screen.getByLabelText("名称")).toHaveAccessibleDescription("名称不能为空，且不超过 64 个字")
@@ -391,6 +631,12 @@ describe("校验错误", () => {
     await screen.findByText("全部通过");
     expect(screen.queryByLabelText("超时")).toBeNull();
     await user.click(screen.getByRole("button", { name: "保存" }));
+    console.log(
+      "FORMERR:",
+      screen.queryAllByRole("alert").map((e) => e.textContent),
+      "DIALOG:",
+      !!screen.queryByRole("dialog")
+    );
     await waitFor(() =>
       expect(screen.getByLabelText("超时")).toHaveAccessibleDescription("超时须在 1 分钟到 7 天之间")
     );
@@ -403,6 +649,12 @@ describe("校验错误", () => {
     await ready();
     await user.type(screen.getByLabelText("数据库地址"), "172.17.0.2");
     await user.click(screen.getByRole("button", { name: "保存" }));
+    console.log(
+      "FORMERR:",
+      screen.queryAllByRole("alert").map((e) => e.textContent),
+      "DIALOG:",
+      !!screen.queryByRole("dialog")
+    );
     expect(screen.getByLabelText("数据库地址")).toHaveAccessibleDescription(/主机:端口/);
     expect(m.find("POST", "/jobs")).toHaveLength(0);
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
@@ -419,6 +671,12 @@ describe("校验错误", () => {
     await user.click(screen.getByRole("button", { name: "测试连接" }));
     await screen.findByText("全部通过");
     await user.click(screen.getByRole("button", { name: "保存" }));
+    console.log(
+      "FORMERR:",
+      screen.queryAllByRole("alert").map((e) => e.textContent),
+      "DIALOG:",
+      !!screen.queryByRole("dialog")
+    );
     expect(await screen.findByText(/连接方式须是 ssh 或 direct/)).toBeInTheDocument();
   });
 });
@@ -446,6 +704,12 @@ describe("连接测试与保存确认", () => {
     await screen.findByText("2 项未通过");
 
     await user.click(screen.getByRole("button", { name: "保存" }));
+    console.log(
+      "FORMERR:",
+      screen.queryAllByRole("alert").map((e) => e.textContent),
+      "DIALOG:",
+      !!screen.queryByRole("dialog")
+    );
     const dialog = await screen.findByRole("alertdialog");
     expect(dialog).toHaveTextContent("连接测试没有通过");
     expect(m.find("PUT", "/jobs/5")).toHaveLength(0);
@@ -454,6 +718,12 @@ describe("连接测试与保存确认", () => {
     expect(m.find("PUT", "/jobs/5")).toHaveLength(0);
 
     await user.click(screen.getByRole("button", { name: "保存" }));
+    console.log(
+      "FORMERR:",
+      screen.queryAllByRole("alert").map((e) => e.textContent),
+      "DIALOG:",
+      !!screen.queryByRole("dialog")
+    );
     await user.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "仍然保存" }));
     await waitFor(() => expect(m.find("PUT", "/jobs/5")).toHaveLength(1));
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/jobs"));
@@ -466,12 +736,24 @@ describe("连接测试与保存确认", () => {
     await ready();
     await screen.findByRole("checkbox", { name: "shop" }, { timeout: 3000 });
     await user.click(screen.getByRole("button", { name: "保存" }));
+    console.log(
+      "FORMERR:",
+      screen.queryAllByRole("alert").map((e) => e.textContent),
+      "DIALOG:",
+      !!screen.queryByRole("dialog")
+    );
     expect(await screen.findByRole("alertdialog")).toHaveTextContent("还没有测试连接");
     await user.click(screen.getByRole("button", { name: "取消" }));
 
     await user.click(screen.getByRole("button", { name: "测试连接" }));
     await screen.findByText("全部通过");
     await user.click(screen.getByRole("button", { name: "保存" }));
+    console.log(
+      "FORMERR:",
+      screen.queryAllByRole("alert").map((e) => e.textContent),
+      "DIALOG:",
+      !!screen.queryByRole("dialog")
+    );
     await waitFor(() => expect(m.find("PUT", "/jobs/5")).toHaveLength(1));
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
@@ -485,6 +767,12 @@ describe("连接测试与保存确认", () => {
     await screen.findByText("全部通过");
     await user.type(screen.getByLabelText("用户"), "2");
     await user.click(screen.getByRole("button", { name: "保存" }));
+    console.log(
+      "FORMERR:",
+      screen.queryAllByRole("alert").map((e) => e.textContent),
+      "DIALOG:",
+      !!screen.queryByRole("dialog")
+    );
     expect(await screen.findByRole("alertdialog")).toHaveTextContent("还没有测试连接");
   });
 });
@@ -530,6 +818,16 @@ describe("保存并运行", () => {
     expect(await screen.findByText(/这个任务正在运行/)).toBeInTheDocument();
     expect(screen.getByTestId("location")).toHaveTextContent("/jobs/new");
     await user.click(screen.getByRole("button", { name: "保存" }));
+    console.log(
+      "FORMERR:",
+      screen.queryAllByRole("alert").map((e) => e.textContent),
+      "DIALOG:",
+      !!screen.queryByRole("dialog")
+    );
+    console.log(
+      "ALERTTEXT:",
+      screen.queryAllByRole("alert").map((e) => e.textContent)
+    );
     await waitFor(() => expect(m.find("PUT", "/jobs/9")).toHaveLength(1));
     expect(m.find("POST", "/jobs")).toHaveLength(1);
   });

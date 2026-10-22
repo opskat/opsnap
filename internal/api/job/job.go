@@ -182,6 +182,9 @@ type CreateRequest struct {
 
 type CreateResponse struct {
 	Item
+	// UnverifiedPaths 没能确认的路径（保存时连不上服务器）。非空表示这次保存没有校验过它们，
+	// 面板要在成功提示里说明，运行时还会再检查。
+	UnverifiedPaths []string `json:"unverified_paths"`
 }
 
 // UpdateRequest 修改任务，整体提交
@@ -210,6 +213,8 @@ type UpdateRequest struct {
 
 type UpdateResponse struct {
 	Item
+	// UnverifiedPaths 同 CreateResponse
+	UnverifiedPaths []string `json:"unverified_paths"`
 }
 
 // DeleteRequest 删除任务；存储位置里已有的快照保留
@@ -305,6 +310,65 @@ type DatabasesResponse struct {
 	Message     string      `json:"message"`
 }
 
+// PathsRequest 浏览服务器上的一层目录。
+//
+// 请求体与 DatabasesRequest 字段一致：ID 非 0 表示编辑中的已保存任务，
+// 服务器与凭据按它与提交的配置解析，不需要先保存。
+// Path 为空表示根目录。
+type PathsRequest struct {
+	mux.Meta     `path:"/jobs/paths" method:"POST"`
+	ID           int64          `json:"id"`
+	Name         string         `json:"name"`
+	SourceType   string         `json:"source_type"`
+	ServerID     int64          `json:"server_id"`
+	ConnMode     string         `json:"conn_mode"`
+	DBHost       string         `json:"db_host"`
+	DBPort       int            `json:"db_port"`
+	DBUser       string         `json:"db_user"`
+	DBPassword   string         `json:"db_password"`
+	Databases    []string       `json:"databases"`
+	AllDatabases bool           `json:"all_databases"`
+	AuthDB       string         `json:"auth_db"`
+	Paths        []string       `json:"paths"`
+	Excludes     []string       `json:"excludes"`
+	RepoID       int64          `json:"repo_id"`
+	Schedule     ScheduleInput  `json:"schedule"`
+	Retention    RetentionInput `json:"retention"`
+	Advanced     AdvancedInput  `json:"advanced"`
+	Paused       bool           `json:"paused"`
+
+	Path string `json:"path"`
+}
+
+// Input 取出提交的任务配置
+func (r *PathsRequest) Input() *JobInput {
+	return &JobInput{Name: r.Name, SourceType: r.SourceType, ServerID: r.ServerID, ConnMode: r.ConnMode, DBHost: r.DBHost, DBPort: r.DBPort, DBUser: r.DBUser, DBPassword: r.DBPassword, Databases: r.Databases, AllDatabases: r.AllDatabases, AuthDB: r.AuthDB, Paths: r.Paths, Excludes: r.Excludes, RepoID: r.RepoID, Schedule: r.Schedule, Retention: r.Retention, Advanced: r.Advanced, Paused: r.Paused}
+}
+
+// PathsResponse 列目录结果。失败不是接口错误：OK 为 false，Reason 与 Message 供面板原地显示并提供重试。
+type PathsResponse struct {
+	OK   bool   `json:"ok"`
+	Path string `json:"path"` // 规范化后的目录
+	// List 子目录，按名称排序；条目上限 2000，超出时 Truncated 为 true
+	List      []PathEntryItem `json:"list"`
+	Truncated bool            `json:"truncated"`
+	// Reason SSH 链路失败时同服务器测试的原因（timeout、auth_failed、fingerprint_mismatch 等），
+	// 否则 not_found | not_dir | permission | sftp_unavailable | timeout | failed
+	Reason      string `json:"reason"`
+	ReasonLabel string `json:"reason_label"`
+	Message     string `json:"message"`
+}
+
+// PathEntryItem 一个子目录
+type PathEntryItem struct {
+	Name    string `json:"name"`
+	ModTime int64  `json:"mtime"`
+	// Symlink 指向目录的符号链接；备份（rsync --archive）不跟随，选择时需提示
+	Symlink bool `json:"symlink"`
+	// Selectable 名称含控制字符或不是合法 UTF-8 时为 false：仍列出但不可选
+	Selectable bool `json:"selectable"`
+}
+
 // TestRequest 测试一份未保存的配置，字段同 DatabasesRequest
 type TestRequest struct {
 	mux.Meta     `path:"/jobs/test" method:"POST"`
@@ -335,6 +399,7 @@ const (
 	CheckDBReach = "db_reach" // 数据库可达
 	CheckDBAuth  = "db_auth"  // 认证通过
 	CheckDBPrivs = "db_privs" // 权限足够导出
+	CheckPaths   = "paths"    // 目录可读
 	CheckRepo    = "repo"     // 目标存储位置可达、已挂载
 )
 

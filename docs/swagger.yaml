@@ -379,6 +379,14 @@ definitions:
         type: string
     type: object
   job.CreateResponse:
+    properties:
+      unverified_paths:
+        description: |-
+          没能确认的路径（保存时连不上服务器）。非空表示这次保存没有校验过它们，
+          面板要在成功提示里说明，运行时还会再检查。
+        items:
+          type: string
+        type: array
     type: object
   job.Database:
     properties:
@@ -571,6 +579,92 @@ definitions:
       timezone:
         type: string
     type: object
+  job.PathEntryItem:
+    properties:
+      mtime:
+        type: integer
+      name:
+        type: string
+      selectable:
+        description: 名称含控制字符或不是合法 UTF-8 时为 false：仍列出但不可选
+        type: boolean
+      symlink:
+        description: 指向目录的符号链接；备份（rsync --archive）不跟随，选择时需提示
+        type: boolean
+    type: object
+  job.PathsRequest:
+    properties:
+      advanced:
+        $ref: '#/definitions/job.AdvancedInput'
+      all_databases:
+        type: boolean
+      auth_db:
+        type: string
+      conn_mode:
+        type: string
+      databases:
+        items:
+          type: string
+        type: array
+      db_host:
+        type: string
+      db_password:
+        type: string
+      db_port:
+        type: integer
+      db_user:
+        type: string
+      excludes:
+        items:
+          type: string
+        type: array
+      id:
+        type: integer
+      name:
+        type: string
+      path:
+        type: string
+      paths:
+        items:
+          type: string
+        type: array
+      paused:
+        type: boolean
+      repo_id:
+        type: integer
+      retention:
+        $ref: '#/definitions/job.RetentionInput'
+      schedule:
+        $ref: '#/definitions/job.ScheduleInput'
+      server_id:
+        type: integer
+      source_type:
+        type: string
+    type: object
+  job.PathsResponse:
+    properties:
+      list:
+        description: 子目录，按名称排序；条目上限 2000，超出时 Truncated 为 true
+        items:
+          $ref: '#/definitions/job.PathEntryItem'
+        type: array
+      message:
+        type: string
+      ok:
+        type: boolean
+      path:
+        description: 规范化后的目录
+        type: string
+      reason:
+        description: |-
+          SSH 链路失败时同服务器测试的原因（timeout、auth_failed、fingerprint_mismatch 等），
+          否则 not_found | not_dir | permission | sftp_unavailable | timeout | failed
+        type: string
+      reason_label:
+        type: string
+      truncated:
+        type: boolean
+    type: object
   job.PauseRequest:
     type: object
   job.PauseResponse:
@@ -717,6 +811,12 @@ definitions:
         type: string
     type: object
   job.UpdateResponse:
+    properties:
+      unverified_paths:
+        description: 同 CreateResponse
+        items:
+          type: string
+        type: array
     type: object
   notify.GetResponse:
     properties:
@@ -2870,6 +2970,46 @@ paths:
           schema:
             $ref: '#/definitions/BadRequest'
       summary: 预览下次运行时间，按设置里的时区计算
+      tags:
+      - job
+  /jobs/paths:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        浏览服务器上的一层目录。
+
+        请求体与 DatabasesRequest 字段一致：ID 非 0 表示编辑中的已保存任务，
+        服务器与凭据按它与提交的配置解析，不需要先保存。
+        Path 为空表示根目录。
+      parameters:
+      - in: body
+        name: body
+        schema:
+          $ref: '#/definitions/job.PathsRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            properties:
+              code:
+                type: integer
+              data:
+                $ref: '#/definitions/job.PathsResponse'
+              msg:
+                type: string
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/BadRequest'
+      summary: |-
+        浏览服务器上的一层目录。
+
+        请求体与 DatabasesRequest 字段一致：ID 非 0 表示编辑中的已保存任务，
+        服务器与凭据按它与提交的配置解析，不需要先保存。
+        Path 为空表示根目录。
       tags:
       - job
   /jobs/test:

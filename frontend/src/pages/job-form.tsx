@@ -152,7 +152,9 @@ function JobFormBody({ jobId, data }: { jobId: number; data: Loaded }) {
         const { run_id } = await api.jobs.run(item.id);
         navigate(`/runs/${run_id}`);
       } else {
-        toast.success("任务已保存");
+        const notice = saveNotice(item.unverified_paths);
+        if (notice) toast.warning(notice);
+        else toast.success("任务已保存");
         navigate("/jobs");
       }
     } catch (err) {
@@ -238,4 +240,13 @@ function JobFormBody({ jobId, data }: { jobId: number; data: Loaded }) {
       />
     </>
   );
+}
+
+/**
+ * 保存成功后的提示。有没能确认的路径时要说清楚是哪些，
+ * 否则管理员会以为这次保存已经校验过目录。
+ */
+export function saveNotice(unverified: string[] | null | undefined): string | null {
+  if (!unverified || unverified.length === 0) return null;
+  return `任务已保存。连不上服务器，没能确认目录是否存在（${unverified.join("、")}），运行时还会检查。`;
 }

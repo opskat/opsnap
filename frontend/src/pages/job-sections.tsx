@@ -1,11 +1,12 @@
 // 任务表单的各个分区：数据源、连接、存到、计划与保留、高级。
 import * as React from "react";
-import { Check, ChevronDown, Plus, X } from "lucide-react";
+import { Check, ChevronDown, FolderOpen, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Choice, Field, Segmented, Sheet, TypeTile } from "@/components/bits";
 import { RetentionField } from "@/components/retention-field";
+import { PathPicker } from "./job-paths";
 import { SECRET_MASKED, type JobCompression, type RepoItem, type ScheduleKind, type ServerItem } from "@/lib/api";
 import { fmtBytes, fmtNext } from "@/lib/format";
 import {
@@ -228,13 +229,18 @@ export function ConnectionCard({
       {!files && !hasDatabaseList(form.source_type) && (
         <p className="mt-5 text-[13px] text-ink-3">Redis 整个实例一起导出，不需要选库。</p>
       )}
-      {files && <FilesFields form={form} set={set} errs={errs} />}
+      {files && <FilesFields form={form} set={set} errs={errs} jobId={jobId} />}
     </Card>
   );
 }
 
-function FilesFields({ form, set, errs }: SectionProps) {
+function FilesFields({ form, set, errs, jobId }: SectionProps & { jobId: number }) {
   const [draft, setDraft] = React.useState("");
+  // 打开选择器时停在哪一行；null 表示没打开
+  const [browsing, setBrowsing] = React.useState<number | null>(null);
+  // 浏览确认过的路径 → 那次看到的子目录数。按路径记而不是按下标：
+  // 增删上面的行会让下标错位，把「已确认可读」挂到另一条没浏览过的路径上。
+  const [confirmed, setConfirmed] = React.useState<Record<string, number>>({});
   const pathsErr = firstError(errs, "paths");
   const exErr = firstError(errs, "excludes");
   const addExclude = () => {
@@ -256,9 +262,30 @@ function FilesFields({ form, set, errs }: SectionProps) {
                 aria-label={`目录 ${i + 1}`}
                 aria-describedby={pathsErr ? "job-paths-msg" : undefined}
                 aria-invalid={pathsErr ? true : undefined}
-                onChange={(e) => set({ paths: form.paths.map((x, j) => (j === i ? e.target.value : x)) })}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  set({ paths: form.paths.map((x, j) => (j === i ? next : x)) });
+                  if (confirmed[p] !== undefined) {
+                    setConfirmed((c) => {
+                      const rest = { ...c };
+                      delete rest[p];
+                      return rest;
+                    });
+                  }
+                }}
                 className="bg-surface font-mono text-[13px]"
               />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                aria-label={`浏览目录 ${i + 1}`}
+                title={form.server_id > 0 ? "浏览服务器上的目录" : "先选服务器"}
+                disabled={form.server_id <= 0}
+                onClick={() => setBrowsing(i)}
+              >
+                <FolderOpen />
+              </Button>
               {form.paths.length > 1 && (
                 <Button
                   type="button"
@@ -283,7 +310,29 @@ function FilesFields({ form, set, errs }: SectionProps) {
           <Plus />
           添加目录
         </Button>
+        {form.paths.map((p) =>
+          confirmed[p] === undefined ? null : (
+            <p key={p} className="mt-1 break-all text-[13px] text-ok">
+              {p} 已确认可读，{confirmed[p]} 个子目录
+            </p>
+          )
+        )}
+        {form.server_id <= 0 && <p className="mt-1 text-[13px] text-ink-3">先选服务器才能浏览目录。</p>}
         <ErrText id="job-paths">{pathsErr}</ErrText>
+        <PathPicker
+          open={browsing !== null}
+          onOpenChange={(o) => !o && setBrowsing(null)}
+          form={form}
+          jobId={jobId}
+          startPath={browsing !== null ? (form.paths[browsing] ?? "") : ""}
+          onSelect={(path, count) => {
+            if (browsing === null) return;
+            const i = browsing;
+            set({ paths: form.paths.map((x, j) => (j === i ? path : x)) });
+            setConfirmed((c) => ({ ...c, [path]: count }));
+            setBrowsing(null);
+          }}
+        />
       </div>
       <div>
         <div className="mb-2 text-[13px] font-medium">排除</div>
