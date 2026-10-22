@@ -16,8 +16,28 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Field, FormError, Mono, useCopy } from "@/components/bits";
 import { RecoveryKeyBox } from "@/components/recovery-key-box";
-import { api, ApiError, errorMessage, ErrorCode, type RepoType, type SFTPHostKey } from "@/lib/api";
-import { buildCreateInput, emptyRepoForm, REPO_TYPE_LABEL, sftpPort, type RepoForm } from "@/lib/repos";
+import {
+  api,
+  ApiError,
+  errorMessage,
+  ErrorCode,
+  SECRET_MASKED,
+  type RepoItem,
+  type RepoType,
+  type SFTPHostKey,
+} from "@/lib/api";
+import {
+  buildCreateInput,
+  buildUpdateInput,
+  emptyRepoForm,
+  formFromRepo,
+  NOTHING_SAVED,
+  REPO_TYPE_LABEL,
+  savedCredentialsOf,
+  sftpPort,
+  type RepoForm,
+  type SavedCredentials,
+} from "@/lib/repos";
 import { useRecoveryKey } from "@/lib/use-recovery-key";
 
 /** 核对过的 SFTP 主机公钥，绑定到核对时的地址；地址一变就作废 */
@@ -28,15 +48,36 @@ interface Trusted {
   hostKey: string;
 }
 
-/** 添加存储位置。保存时后端先测试访问：空位置初始化，已有 restic 仓库则要现有密码。 */
-export function RepoDialog({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
-  const [form, setForm] = React.useState<RepoForm>(emptyRepoForm);
+/** 添加或修改存储位置。添加时后端先测试访问：空位置初始化，已有 restic 仓库则要现有密码。
+ * 修改时用已保存的参数预填；凭据不返回内容，留空表示保留。 */
+export function RepoDialog({
+  repo,
+  onClose,
+  onSaved,
+}: {
+  /** 传入表示修改这个存储位置，不传表示添加 */
+  repo?: RepoItem;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const editing = repo !== undefined;
+  const [form, setForm] = React.useState<RepoForm>(() => (repo ? formFromRepo(repo) : emptyRepoForm()));
   const [recovery, setRecovery] = React.useState(true);
   const [trusted, setTrusted] = React.useState<Trusted | null>(null);
   const [needPassword, setNeedPassword] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
-  const rk = useRecoveryKey(recovery);
+  const rk = useRecoveryKey(!editing && recovery);
+  // 已保存且已核对过的主机公钥：地址不变就直接可用，地址一改就作废
+  const hostKeySaved =
+    editing &&
+    repo.type === "sftp" &&
+    repo.params.host_key !== "" &&
+    repo.params.host === form.host.trim() &&
+    (repo.params.port || 22) === sftpPort(form) &&
+    repo.params.server_id === form.server_id;
+  // 接口只把已保存的凭据回填成占位，据此决定哪些输入框只提示「已设置」
+  const saved = editing ? savedCredentialsOf(repo) : NOTHING_SAVED;
 
   const set = (patch: Partial<RepoForm>) => setForm((f) => ({ ...f, ...patch }));
 
@@ -47,13 +88,19 @@ export function RepoDialog({ onClose, onCreated }: { onClose: () => void; onCrea
     trusted.serverId === form.server_id
       ? trusted.hostKey
       : "";
-  const sftpReady = form.type !== "sftp" || hostKey !== "";
-  const canSave = form.name.trim() !== "" && sftpReady && (!recovery || rk.ready) && !busy;
+  const sftpReady = form.type !== "sftp" || hostKey !== "" || hostKeySaved;
+  const canSave = form.name.trim() !== "" && sftpReady && (editing || !recovery || rk.ready) && !busy;
 
   async function save() {
     setBusy(true);
     setError(null);
     try {
+      if (repo) {
+        const updated = await api.repos.update(repo.id, buildUpdateInput(form, hostKey, saved));
+        toast.success(`已保存 ${updated.name}`);
+        onSaved();
+        return;
+      }
       const created = await api.repos.create(
         buildCreateInput(form, hostKey, { enabled: recovery, value: rk.value, saved: rk.acked })
       );
@@ -69,7 +116,7 @@ export function RepoDialog({ onClose, onCreated }: { onClose: () => void; onCrea
       } else {
         toast.success(created.adopted ? `已接入 ${created.name} 里现有的仓库` : `已添加 ${created.name}`);
       }
-      onCreated();
+      onSaved();
     } catch (err) {
       if (err instanceof ApiError && err.code === ErrorCode.RepoExistingPasswordRequired) {
         setNeedPassword(true);
@@ -84,31 +131,48 @@ export function RepoDialog({ onClose, onCreated }: { onClose: () => void; onCrea
     <Dialog open onOpenChange={(v) => !v && !busy && onClose()}>
       <DialogContent className="max-h-[92svh] gap-5 overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>添加存储位置</DialogTitle>
-          <DialogDescription>已有 restic 仓库会直接接入。</DialogDescription>
+          <DialogTitle>{editing ? "修改存储位置" : "添加存储位置"}</DialogTitle>
+          <DialogDescription>
+            {editing ? "类型不能改；留空的凭据表示保留已保存的值。" : "已有 restic 仓库会直接接入。"}
+          </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4">
-          <div className="grid grid-cols-[1fr_180px] gap-3">
+          <div className={editing ? "grid gap-3" : "grid grid-cols-[1fr_180px] gap-3"}>
             <Field label="名称">
               <Input value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="群晖 DS920+" />
             </Field>
-            <Field label="类型" htmlFor="repo-type">
-              <Select value={form.type} onValueChange={(v) => set({ type: v as RepoType })}>
-                <SelectTrigger id="repo-type" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {(Object.keys(REPO_TYPE_LABEL) as RepoType[]).map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {REPO_TYPE_LABEL[t]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
+            {editing ? (
+              <Field label="类型">
+                <div className="rounded-md border border-line bg-wash px-3 py-[9px] text-[13.5px] text-ink-2">
+                  {REPO_TYPE_LABEL[form.type] ?? form.type}
+                </div>
+              </Field>
+            ) : (
+              <Field label="类型" htmlFor="repo-type">
+                <Select value={form.type} onValueChange={(v) => set({ type: v as RepoType })}>
+                  <SelectTrigger id="repo-type" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(REPO_TYPE_LABEL) as RepoType[]).map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {REPO_TYPE_LABEL[t]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            )}
           </div>
 
-          <TypeFields form={form} set={set} hostKey={hostKey} onTrust={setTrusted} />
+          <TypeFields
+            form={form}
+            set={set}
+            hostKey={hostKey}
+            hostKeySaved={hostKeySaved}
+            saved={saved}
+            onTrust={setTrusted}
+          />
 
           {needPassword && (
             <Field label="现有密码" hint="这个仓库不是 opsnap 建的。密码只用于接入，opsnap 不保存。">
@@ -121,24 +185,26 @@ export function RepoDialog({ onClose, onCreated }: { onClose: () => void; onCrea
             </Field>
           )}
 
-          <div className="rounded-lg border border-line-strong">
-            <div className="flex items-center gap-2 border-b border-line px-4 py-3">
-              <ShieldCheck className="size-4 text-ok" aria-hidden />
-              <span className="text-[13.5px] font-medium">AES-256 加密</span>
-              <span className="ml-auto text-xs text-ink-3">opsnap 自动生成并保管密钥</span>
+          {!editing && (
+            <div className="rounded-lg border border-line-strong">
+              <div className="flex items-center gap-2 border-b border-line px-4 py-3">
+                <ShieldCheck className="size-4 text-ok" aria-hidden />
+                <span className="text-[13.5px] font-medium">AES-256 加密</span>
+                <span className="ml-auto text-xs text-ink-3">opsnap 自动生成并保管密钥</span>
+              </div>
+              <label className="flex items-center gap-2 px-4 py-3 text-[13.5px]">
+                <Checkbox checked={recovery} onCheckedChange={(v) => setRecovery(v === true)} />
+                同时生成一把恢复密钥，由你保管
+              </label>
+              {recovery && (
+                <RecoveryKeyBox
+                  rk={rk}
+                  className="border-t border-line px-4 py-3"
+                  note="opsnap 不保存这把密钥。opsnap 所在机器损坏时，用它在任何装了 restic 的机器上恢复。"
+                />
+              )}
             </div>
-            <label className="flex items-center gap-2 px-4 py-3 text-[13.5px]">
-              <Checkbox checked={recovery} onCheckedChange={(v) => setRecovery(v === true)} />
-              同时生成一把恢复密钥，由你保管
-            </label>
-            {recovery && (
-              <RecoveryKeyBox
-                rk={rk}
-                className="border-t border-line px-4 py-3"
-                note="opsnap 不保存这把密钥。opsnap 所在机器损坏时，用它在任何装了 restic 的机器上恢复。"
-              />
-            )}
-          </div>
+          )}
         </div>
         <FormError>{error}</FormError>
         <DialogFooter className="items-center">
@@ -148,7 +214,7 @@ export function RepoDialog({ onClose, onCreated }: { onClose: () => void; onCrea
           </Button>
           <Button disabled={!canSave} onClick={() => void save()}>
             {busy && <Loader2 className="animate-spin" />}
-            测试并保存
+            {editing ? "保存" : "测试并保存"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -160,11 +226,17 @@ function TypeFields({
   form,
   set,
   hostKey,
+  hostKeySaved,
+  saved,
   onTrust,
 }: {
   form: RepoForm;
   set: (patch: Partial<RepoForm>) => void;
   hostKey: string;
+  /** 已保存且已核对过的主机公钥，地址不变时无需重新核对 */
+  hostKeySaved: boolean;
+  /** 哪些凭据已有保存的值，留空表示保留 */
+  saved: SavedCredentials;
   onTrust: (t: Trusted) => void;
 }) {
   const mono = "font-mono";
@@ -181,7 +253,16 @@ function TypeFields({
         </Field>
       );
     case "sftp":
-      return <SftpFields form={form} set={set} hostKey={hostKey} onTrust={onTrust} />;
+      return (
+        <SftpFields
+          form={form}
+          set={set}
+          hostKey={hostKey}
+          hostKeySaved={hostKeySaved}
+          saved={saved}
+          onTrust={onTrust}
+        />
+      );
     case "s3":
       return (
         <div className="grid grid-cols-2 gap-3">
@@ -211,6 +292,7 @@ function TypeFields({
               type="password"
               autoComplete="off"
               value={form.secret_access_key}
+              placeholder={saved.secret_access_key ? `${SECRET_MASKED}，留空保持不变` : undefined}
               onChange={(e) => set({ secret_access_key: e.target.value })}
             />
           </Field>
@@ -248,6 +330,7 @@ function TypeFields({
               type="password"
               autoComplete="off"
               value={form.password}
+              placeholder={saved.password ? `${SECRET_MASKED}，留空保持不变` : undefined}
               onChange={(e) => set({ password: e.target.value })}
             />
           </Field>
@@ -260,11 +343,15 @@ function SftpFields({
   form,
   set,
   hostKey,
+  hostKeySaved,
+  saved,
   onTrust,
 }: {
   form: RepoForm;
   set: (patch: Partial<RepoForm>) => void;
   hostKey: string;
+  hostKeySaved: boolean;
+  saved: SavedCredentials;
   onTrust: (t: Trusted) => void;
 }) {
   const [servers, setServers] = React.useState<{ id: number; name: string }[]>([]);
@@ -338,6 +425,7 @@ function SftpFields({
             type="password"
             autoComplete="off"
             value={form.password}
+            placeholder={saved.password ? `${SECRET_MASKED}，留空保持不变` : undefined}
             onChange={(e) => set({ password: e.target.value })}
           />
         </Field>
@@ -361,11 +449,12 @@ function SftpFields({
         <Textarea
           className="min-h-16 font-mono text-[12.5px]"
           value={form.private_key}
+          placeholder={saved.private_key ? `${SECRET_MASKED}，留空保持不变` : undefined}
           onChange={(e) => set({ private_key: e.target.value })}
         />
       </Field>
       <div className="col-span-2">
-        {hostKey ? (
+        {hostKey || hostKeySaved ? (
           <span className="flex items-center gap-1.5 text-[13px] text-ok">
             <Check className="size-4" aria-hidden />
             主机指纹已核对
