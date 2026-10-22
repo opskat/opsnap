@@ -18,7 +18,6 @@ func TestRestoreCommand(t *testing.T) {
 	}{
 		{"mysql 压缩", "mysql", "shop.sql", true, []string{"gunzip < shop.sql.gz | mysql", "-p"}, nil},
 		{"mysql 原样", "mysql", "shop.sql", false, []string{"mysql", "< shop.sql"}, []string{"gunzip"}},
-		{"mariadb", "mariadb", "databases.sql", true, []string{"gunzip < databases.sql.gz | mariadb"}, nil},
 		{"postgres", "postgres", "app.dump", false, []string{"pg_restore", "--dbname=", "app.dump"}, []string{"gunzip"}},
 		{"postgres 压缩", "postgres", "app.dump", true, []string{"gunzip < app.dump.gz | pg_restore", "--dbname="}, nil},
 		{"mongodb", "mongodb", "all.archive", false, []string{"mongorestore", "--archive=all.archive"}, []string{"--gzip"}},

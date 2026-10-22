@@ -18,13 +18,12 @@ export interface SourceOption {
   value: JobSourceType;
   label: string;
   /** 用哪个 logo */
-  tile: "mysql" | "mariadb" | "postgres" | "redis" | "mongo" | "files";
+  tile: "mysql" | "postgres" | "redis" | "mongo" | "files";
   port: number;
 }
 
 export const SOURCES: SourceOption[] = [
   { value: "mysql", label: "MySQL", tile: "mysql", port: 3306 },
-  { value: "mariadb", label: "MariaDB", tile: "mariadb", port: 3306 },
   { value: "postgres", label: "PostgreSQL", tile: "postgres", port: 5432 },
   { value: "redis", label: "Redis", tile: "redis", port: 6379 },
   { value: "mongodb", label: "MongoDB", tile: "mongo", port: 27017 },

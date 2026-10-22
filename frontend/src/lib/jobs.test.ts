@@ -3,9 +3,13 @@ import { ApiError } from "./api";
 import { SOURCES, fieldErrorsOf, parseFieldErrors } from "./jobs";
 
 describe("数据源", () => {
-  it("每种数据源用自己的官方 logo，MariaDB 不借用 MySQL 的", () => {
+  it("每种数据源用自己的官方 logo", () => {
     const tiles = SOURCES.filter((s) => s.value !== "files").map((s) => s.tile);
     expect(new Set(tiles).size).toBe(tiles.length);
+  });
+
+  it("数据源只有 mysql、postgres、redis、mongodb、files", () => {
+    expect(SOURCES.map((s) => s.value)).toEqual(["mysql", "postgres", "redis", "mongodb", "files"]);
   });
 });
 
