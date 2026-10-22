@@ -4387,7 +4387,16 @@
             }
         },
         "job.CreateResponse": {
-            "type": "object"
+            "type": "object",
+            "properties": {
+                "unverified_paths": {
+                    "description": "没能确认的路径（保存时连不上服务器）。非空表示这次保存没有校验过它们，\n面板要在成功提示里说明，运行时还会再检查。",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
         },
         "job.Database": {
             "type": "object",
@@ -5008,7 +5017,16 @@
             }
         },
         "job.UpdateResponse": {
-            "type": "object"
+            "type": "object",
+            "properties": {
+                "unverified_paths": {
+                    "description": "同 CreateResponse",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
         },
         "notify.GetResponse": {
             "type": "object",

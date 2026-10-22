@@ -2,6 +2,7 @@ package job_ctr
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -23,6 +24,7 @@ import (
 	"github.com/opskat/opsnap/internal/pkg/executor"
 	"github.com/opskat/opsnap/internal/pkg/remotefs"
 	"github.com/opskat/opsnap/internal/pkg/secret"
+	"github.com/opskat/opsnap/internal/pkg/sshconn"
 	"github.com/opskat/opsnap/internal/repository/credential_repo"
 	"github.com/opskat/opsnap/internal/repository/job_repo"
 	"github.com/opskat/opsnap/internal/repository/repo_repo"
@@ -128,6 +130,24 @@ func TestJobControllerPaths(t *testing.T) {
 		assert.Equal(t, code.JobFieldInvalid, he.Code)
 		assert.Contains(t, he.Msg, "[path] ")
 	})
+}
+
+// 保存时连不上服务器：放行，但要把「没能确认的路径」透到响应里，面板据此提示
+func TestJobControllerSaveUnverifiedPaths(t *testing.T) {
+	ctx, testMux, in := setupJobTest(t)
+	job_svc.RegisterJob(job_svc.NewJob(job_svc.Deps{
+		Tunnel: func(context.Context, int64, string) (string, func(), error) { return "", func() {}, nil },
+		OpenFS: func(context.Context, int64) (job_svc.Browser, func(), error) {
+			return nil, nil, fmt.Errorf("包装：%w", sshconn.ErrServerNotFound)
+		},
+	}))
+	_ = in
+	resp := &jobapi.CreateResponse{}
+	err := testMux.Do(ctx, jobapi.NewCreateRequest(&in), resp)
+	// 服务器不存在是永久错误，必须报出来而不是静默放行
+	var he *httputils.Error
+	require.ErrorAs(t, err, &he)
+	assert.NotEqual(t, 0, he.Code)
 }
 
 func TestJobController(t *testing.T) {

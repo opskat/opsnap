@@ -57,7 +57,7 @@ func (s *jobSvc) prepareConn(ctx context.Context, id int64, in *jobapi.JobInput)
 func (s *jobSvc) checkServer(ctx context.Context, j *job_entity.Job, prior job_entity.FieldErrors) (job_entity.FieldErrors, error) {
 	repoless := *j
 	repoless.RepoID = 0
-	return s.checkResources(ctx, &repoless, prior, false)
+	return s.checkResources(ctx, &repoless, prior)
 }
 
 // connect 返回 opsnap 本机可连的数据库地址：直连是原地址，经 SSH 是本地转发端口
@@ -167,7 +167,7 @@ func (s *jobSvc) testConnection(ctx context.Context, req *jobapi.TestRequest) (*
 			sshOK = false
 		} else {
 			defer closeFn()
-			b.ok(jobapi.CheckSSH, "SSH 链路可达")
+			b.ok(jobapi.CheckSSH, "SSH 链路可达", "")
 			if isDB {
 				addr = local
 			}
@@ -212,17 +212,17 @@ func (s *jobSvc) checkDatabase(ctx context.Context, j *job_entity.Job, addr stri
 		b.skip(jobapi.CheckDBAuth, authLabel)
 		b.skip(jobapi.CheckDBPrivs, privsLabel)
 	case d.Auth != nil:
-		b.ok(jobapi.CheckDBReach, reachLabel)
+		b.ok(jobapi.CheckDBReach, reachLabel, "")
 		b.fail(jobapi.CheckDBAuth, authLabel, d.Auth.Message, "")
 		b.skip(jobapi.CheckDBPrivs, privsLabel)
 	case len(d.Missing) > 0:
-		b.ok(jobapi.CheckDBReach, reachLabel)
-		b.ok(jobapi.CheckDBAuth, authLabel)
+		b.ok(jobapi.CheckDBReach, reachLabel, "")
+		b.ok(jobapi.CheckDBAuth, authLabel, "")
 		b.fail(jobapi.CheckDBPrivs, privsLabel, "缺少权限："+strings.Join(d.Missing, "、"), fixCommand(j.SourceType, j.DBUser, d.Missing))
 	default:
-		b.ok(jobapi.CheckDBReach, reachLabel)
-		b.ok(jobapi.CheckDBAuth, authLabel)
-		b.ok(jobapi.CheckDBPrivs, privsLabel)
+		b.ok(jobapi.CheckDBReach, reachLabel, "")
+		b.ok(jobapi.CheckDBAuth, authLabel, "")
+		b.ok(jobapi.CheckDBPrivs, privsLabel, "")
 	}
 	return nil
 }
@@ -246,11 +246,16 @@ func (s *jobSvc) checkRepo(ctx context.Context, repoID int64) *jobapi.CheckItem 
 type checkBuilder struct{ items []*jobapi.CheckItem }
 
 func (b *checkBuilder) add(c *jobapi.CheckItem) { b.items = append(b.items, c) }
-func (b *checkBuilder) ok(key, label string) {
-	b.add(&jobapi.CheckItem{Key: key, Label: label, OK: true})
+func (b *checkBuilder) ok(key, label, detail string) {
+	b.add(&jobapi.CheckItem{Key: key, Label: label, OK: true, Reason: detail})
 }
 func (b *checkBuilder) skip(key, label string) {
 	b.add(&jobapi.CheckItem{Key: key, Label: label, Skipped: true, Reason: "前面的检查没有通过，已跳过"})
+}
+
+// note 这一项没有失败，但也没有真正检查（例如还没填路径）
+func (b *checkBuilder) note(key, label, reason string) {
+	b.add(&jobapi.CheckItem{Key: key, Label: label, Skipped: true, Reason: reason})
 }
 func (b *checkBuilder) fail(key, label, reason, fix string) {
 	b.add(&jobapi.CheckItem{Key: key, Label: label, Reason: reason, Fix: fix})

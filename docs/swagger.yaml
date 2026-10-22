@@ -379,6 +379,14 @@ definitions:
         type: string
     type: object
   job.CreateResponse:
+    properties:
+      unverified_paths:
+        description: |-
+          没能确认的路径（保存时连不上服务器）。非空表示这次保存没有校验过它们，
+          面板要在成功提示里说明，运行时还会再检查。
+        items:
+          type: string
+        type: array
     type: object
   job.Database:
     properties:
@@ -797,6 +805,12 @@ definitions:
         type: string
     type: object
   job.UpdateResponse:
+    properties:
+      unverified_paths:
+        description: 同 CreateResponse
+        items:
+          type: string
+        type: array
     type: object
   notify.GetResponse:
     properties:

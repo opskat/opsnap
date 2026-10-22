@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { api, errorMessage, type JobPathEntry, type JobPathsResult } from "@/lib/api";
 import { buildInput, type JobForm } from "@/lib/jobs";
-import { fmtAgo } from "@/lib/format";
+import { fmtDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 interface LoadState {
@@ -94,6 +94,9 @@ export function PathPicker({
   }, [open, path]);
 
   const list = state.result?.ok ? (state.result.list ?? []) : [];
+  // 当前路径本身是不是一条符号链接（从上一层带过来的标记）。
+  // 只在「用户从列表里点进来」时置位：面包屑、上一级、重试都不改它。
+  const [linkWarn, setLinkWarn] = React.useState(false);
   const failure = state.error ?? (state.result && !state.result.ok ? failureText(state.result) : null);
   const loading = state.status === "loading";
 
@@ -179,7 +182,10 @@ export function PathPicker({
                       "hover:bg-accent focus-visible:ring-2 focus-visible:ring-brand focus-visible:outline-none",
                       !e.selectable && "cursor-not-allowed opacity-50"
                     )}
-                    onClick={() => setPath(childPath(path, e.name))}
+                    onClick={() => {
+                      setLinkWarn(e.symlink);
+                      setPath(childPath(path, e.name));
+                    }}
                   >
                     <FolderOpen className="size-4 shrink-0 text-ink-3" />
                     <span className="min-w-0 flex-1 truncate font-mono">{e.name}</span>
@@ -189,7 +195,7 @@ export function PathPicker({
                         链接
                       </span>
                     )}
-                    <span className="shrink-0 text-[12px] text-ink-3">{fmtAgo(e.mtime)}</span>
+                    <span className="shrink-0 text-[12px] text-ink-3">{fmtDate(e.mtime)}</span>
                   </button>
                 </li>
               ))}
@@ -198,13 +204,25 @@ export function PathPicker({
         </div>
 
         {state.result?.truncated && (
-          <p className="text-[13px] text-ink-3">条目太多，只显示前 2000 个。可以直接在输入框里填完整路径。</p>
+          <p className="text-[13px] text-ink-3">
+            条目太多，只显示前 2000 个。可以直接在输入框里填完整路径；条目极多时也可能读取超时。
+          </p>
+        )}
+        {linkWarn && (
+          <p className="text-[13px] text-warn">
+            <span className="font-mono">{path}</span> 是符号链接，rsync 只备份链接本身，不备份它指向的内容。
+          </p>
+        )}
+        {list.some((e) => !e.selectable) && (
+          <p className="text-[13px] text-ink-3">
+            灰掉的目录名称含特殊字符，不能在面板里选；需要备份它请直接填完整路径。
+          </p>
         )}
 
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="min-w-0 text-[13px] text-ink-2">
             将备份 <span className="font-mono">{path}</span>
-            {state.result?.ok && list.length > 0 && <span className="text-ink-3">（{list.length} 个子目录）</span>}
+            {state.result?.ok && <span className="text-ink-3">（{list.length} 个子目录）</span>}
           </p>
           <div className="flex gap-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

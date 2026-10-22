@@ -69,18 +69,14 @@ func (l *SFTPLister) List(ctx context.Context, path string) ([]Entry, error) {
 	}
 	out := make([]Entry, 0, len(infos))
 	for _, fi := range infos {
-		// readdir 的 attrs 是 lstat 语义，指向目录的符号链接会显示成「不是目录」。
-		// 浏览要列出来（否则管理员以为服务器上没有这个目录），但要如实标记，
-		// 因为备份是 rsync --archive，不跟随链接——看到有内容、备份出来是空的
-		// 是最容易误导人的不一致。
 		link := fi.Mode()&os.ModeSymlink != 0
-		if link {
-			if err := l.stat(ctx, path+"/"+fi.Name()); err != nil {
-				continue // 指向的不是目录，或者已经断链
-			}
-		} else if !fi.IsDir() {
+		if !link && !fi.IsDir() {
 			continue
 		}
+		// 符号链接一律列出来并标记：readdir 的 attrs 是 lstat 语义，
+		// 指向目录的链接会显示成「不是目录」，直接丢掉会让管理员以为服务器上没有它。
+		// 这里不额外 Stat 去确认目标是不是目录——那是一次往返一个链接，几百个链接就能
+		// 把 20 秒预算吃光，整层被判超时。目标类型留到用户点进去时再判定。
 		out = append(out, Entry{
 			Name:    fi.Name(),
 			ModTime: fi.ModTime(),
@@ -97,12 +93,19 @@ func (l *SFTPLister) Stat(ctx context.Context, path string) error {
 }
 
 func (l *SFTPLister) stat(ctx context.Context, path string) error {
+	// pkg/sftp 的 Stat 不接受 ctx（内部用 context.Background 发包），所以不能在
+	// 协程里跑再 select —— 那样超时只是让调用方走开，协程还会挂在一个 TCP RTT 上，
+	// 并且拖住 gogo.Wait 的关机路径。
+	//
+	// 改成：超时到达时主动关掉这次会话，让阻塞中的 Stat 立刻出错返回。
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	type res struct {
 		info os.FileInfo
 		err  error
 	}
 	done := make(chan res, 1)
-	// 这里的 ctx 不传给 gogo：它只用于等待，不让请求 ctx 进后台协程。
 	gogo.Go(func() error {
 		info, err := l.sc.Stat(path)
 		done <- res{info: info, err: err}
@@ -110,6 +113,7 @@ func (l *SFTPLister) stat(ctx context.Context, path string) error {
 	})
 	select {
 	case <-ctx.Done():
+		_ = l.sc.Close()
 		return ctx.Err()
 	case r := <-done:
 		if r.err != nil {

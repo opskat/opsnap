@@ -2,15 +2,17 @@ package job_svc
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"io/fs"
 	"testing"
 	"time"
 
+	"github.com/cago-frame/cago/pkg/utils/httputils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	jobapi "github.com/opskat/opsnap/internal/api/job"
+	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/remotefs"
 	"github.com/opskat/opsnap/internal/pkg/sshconn"
 )
@@ -106,6 +108,19 @@ func TestPaths(t *testing.T) {
 		assert.Equal(t, remotefs.ReasonPermission, resp.Reason)
 	})
 
+	t.Run("服务器没开 SFTP 报 sftp_unavailable", func(t *testing.T) {
+		f.svc = f.withPaths(func(context.Context, int64) (Browser, func(), error) {
+			return nil, nil, fmt.Errorf("包装：%w", remotefs.ErrSFTPUnsupported)
+		})
+		req := &jobapi.PathsRequest{SourceType: jobapi.SourceFiles, ServerID: f.srvID, Path: "/"}
+		resp, err := f.svc.Paths(f.ctx, req)
+		require.NoError(t, err)
+		assert.False(t, resp.OK)
+		assert.Equal(t, remotefs.ReasonSFTPUnavailable, resp.Reason)
+		assert.Equal(t, "没有开启 SFTP", resp.ReasonLabel)
+		assert.Contains(t, resp.Message, "直接在输入框里填完整路径")
+	})
+
 	t.Run("SSH 链路失败沿用服务器原因", func(t *testing.T) {
 		f.svc = f.withPaths(func(context.Context, int64) (Browser, func(), error) {
 			return nil, nil, &sshconn.HopError{Index: 1, Kind: sshconn.KindSSH, Addr: "10.0.0.1:22", Reason: sshconn.ReasonTimeout, Message: "超时"}
@@ -144,11 +159,11 @@ func TestPaths(t *testing.T) {
 	})
 
 	t.Run("数据库任务不能浏览目录", func(t *testing.T) {
-		req := f.mysqlInput()
 		preq := &jobapi.PathsRequest{SourceType: jobapi.SourceMySQL, ServerID: f.srvID, DBHost: "172.18.0.5", DBPort: 3306, DBUser: "backup", DBPassword: "pw", Databases: []string{"orders"}, RepoID: f.repoID}
-		_ = req
 		_, err := f.svc.Paths(f.ctx, preq)
-		assert.Error(t, err)
+		var he *httputils.Error
+		require.ErrorAs(t, err, &he)
+		assert.Equal(t, code.JobSourceNotBrowsable, he.Code)
 	})
 }
 
@@ -233,13 +248,33 @@ func TestSaveChecksPaths(t *testing.T) {
 		assert.Contains(t, fieldErrors(t, err), "paths")
 	})
 
-	t.Run("服务器连不上放行保存", func(t *testing.T) {
+	t.Run("服务器连不上放行保存，并说明没能确认", func(t *testing.T) {
 		f.svc = f.withPaths(func(context.Context, int64) (Browser, func(), error) {
-			return nil, nil, errors.New("dial tcp: i/o timeout")
+			return nil, nil, &sshconn.HopError{Index: 1, Kind: sshconn.KindSSH, Addr: "10.0.0.1:22", Reason: sshconn.ReasonTimeout, Message: "超时"}
 		})
-		resp, err := f.svc.Create(f.ctx, jobapi.NewCreateRequest(&[]jobapi.JobInput{f.filesInput()}[0]))
+		resp, err := f.svc.Create(f.ctx, jobapi.NewCreateRequest(ptr(f.filesInput())))
 		require.NoError(t, err, "网络抖动不该挡住保存")
 		assert.NotZero(t, resp.ID)
+		assert.Equal(t, []string{"/var/www"}, resp.UnverifiedPaths, "要告诉前端这次没校验过哪些路径")
+	})
+
+	// 永久性错误不是网络抖动，放行等于让一个必然失败的任务保存成功
+	t.Run("服务器不存在不能保存", func(t *testing.T) {
+		f.svc = f.withPaths(func(context.Context, int64) (Browser, func(), error) {
+			return nil, nil, fmt.Errorf("%w：id=1", sshconn.ErrServerNotFound)
+		})
+		_, err := f.svc.Create(f.ctx, jobapi.NewCreateRequest(ptr(f.filesInput())))
+		require.Error(t, err, "服务器不存在是永久错误")
+	})
+
+	// 备份走 rsync，不需要 SFTP：没开 SFTP 只是浏览不可用，不能挡住保存
+	t.Run("服务器没开 SFTP 仍可保存，并说明没能确认", func(t *testing.T) {
+		f.svc = f.withPaths(func(context.Context, int64) (Browser, func(), error) {
+			return nil, nil, fmt.Errorf("包装：%w", remotefs.ErrSFTPUnsupported)
+		})
+		resp, err := f.svc.Create(f.ctx, jobapi.NewCreateRequest(ptr(f.filesInput())))
+		require.NoError(t, err)
+		assert.Equal(t, []string{"/var/www"}, resp.UnverifiedPaths)
 	})
 
 	t.Run("数据库任务不校验路径", func(t *testing.T) {

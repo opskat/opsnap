@@ -194,6 +194,13 @@ func selectable(name string) bool {
 	return !strings.ContainsFunc(name, func(r rune) bool { return r < 0x20 || r == 0x7f })
 }
 
+// Classify 把底层错误转成带中文原因与分类的 *Error。
+//
+// Stat 与 List 走同一套分类，两处调用方都不必自己拼错误的文案。
+func Classify(path string, err error) *Error {
+	return classify(path, err)
+}
+
 func classify(path string, err error) *Error {
 	var notDir *ErrNotDirectory
 	var invalid *InvalidPathError

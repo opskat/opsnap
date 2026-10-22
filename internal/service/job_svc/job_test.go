@@ -141,7 +141,15 @@ func setupJobTest(t *testing.T) *fixture {
 	require.NoError(t, os.WriteFile(filepath.Join(f.mount, repo_entity.MarkerFile), nil, 0o600))
 	f.repoID = f.addRepo(t, "nas", f.mount)
 
-	f.svc = NewJob(Deps{Now: func() time.Time { return f.now }, Tunnel: f.tunnel.open, Probes: func(string) (Probe, error) { return f.probe, nil }})
+	f.svc = NewJob(Deps{
+		Now:    func() time.Time { return f.now },
+		Tunnel: f.tunnel.open,
+		Probes: func(string) (Probe, error) { return f.probe, nil },
+		// 默认所有路径都存在且可读；需要别的结果时用 fixture.withPaths 覆盖
+		OpenFS: func(context.Context, int64) (Browser, func(), error) {
+			return okPaths{}, func() {}, nil
+		},
+	})
 	return f
 }
 
@@ -161,6 +169,12 @@ func (f *fixture) setTimezone(t *testing.T, tz string) {
 	st.Timezone = tz
 	require.NoError(t, setting_repo.Setting().Save(f.ctx, st))
 }
+
+// okPaths 任何路径都可读的目录替身
+type okPaths struct{}
+
+func (okPaths) List(context.Context, string) ([]remotefs.Entry, error) { return nil, nil }
+func (okPaths) Stat(context.Context, string) error                     { return nil }
 
 // mysqlInput 一份合法的 MySQL 经 SSH 任务
 func (f *fixture) mysqlInput() jobapi.JobInput {

@@ -142,8 +142,8 @@ func TestSFTPSymlinkToDirFlagged(t *testing.T) {
 	assert.False(t, res.List[1].Symlink)
 }
 
-// 断链与指向文件的链接不列
-func TestSFTPBrokenSymlinkSkipped(t *testing.T) {
+// 断链与指向文件的链接也列出来并标记：不静默隐藏，也不为它们多花一次往返
+func TestSFTPAllSymlinksListedAndFlagged(t *testing.T) {
 	client, root := startSFTP(t, sshconntest.SSHOptions{User: "u", Password: "p"})
 	mkdirs(t, root, "data/real")
 	require.NoError(t, os.Symlink(filepath.Join(root, "data/nowhere"), filepath.Join(root, "data/broken")))
@@ -156,8 +156,14 @@ func TestSFTPBrokenSymlinkSkipped(t *testing.T) {
 
 	res, err := remotefs.List(context.Background(), l, "/data")
 	require.NoError(t, err)
-	require.Len(t, res.List, 1)
-	assert.Equal(t, "real", res.List[0].Name)
+	require.Len(t, res.List, 3, "链接一律列出，不按目标类型筛选")
+	byName := map[string]bool{}
+	for _, e := range res.List {
+		byName[e.Name] = e.Symlink
+	}
+	assert.True(t, byName["broken"], "断链也标为链接")
+	assert.True(t, byName["to-file"], "指向文件的链接也标为链接")
+	assert.False(t, byName["real"])
 }
 
 func TestSFTPCancelMidList(t *testing.T) {

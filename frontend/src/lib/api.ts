@@ -568,6 +568,8 @@ export interface JobInput {
 }
 export interface JobItem extends Omit<JobInput, "databases" | "paths" | "excludes"> {
   id: number;
+  /** 保存时没能确认的路径（连不上服务器）；非空表示这次没有校验过它们 */
+  unverified_paths?: string[] | null;
   server_name: string;
   repo_name: string;
   databases: string[] | null;

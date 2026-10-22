@@ -238,8 +238,9 @@ function FilesFields({ form, set, errs, jobId }: SectionProps & { jobId: number 
   const [draft, setDraft] = React.useState("");
   // 打开选择器时停在哪一行；null 表示没打开
   const [browsing, setBrowsing] = React.useState<number | null>(null);
-  // 浏览确认过的行：下标 → 那次看到的子目录数。手改这一行后提示失效。
-  const [confirmed, setConfirmed] = React.useState<Record<number, number>>({});
+  // 浏览确认过的路径 → 那次看到的子目录数。按路径记而不是按下标：
+  // 增删上面的行会让下标错位，把「已确认可读」挂到另一条没浏览过的路径上。
+  const [confirmed, setConfirmed] = React.useState<Record<string, number>>({});
   const pathsErr = firstError(errs, "paths");
   const exErr = firstError(errs, "excludes");
   const addExclude = () => {
@@ -262,12 +263,13 @@ function FilesFields({ form, set, errs, jobId }: SectionProps & { jobId: number 
                 aria-describedby={pathsErr ? "job-paths-msg" : undefined}
                 aria-invalid={pathsErr ? true : undefined}
                 onChange={(e) => {
-                  set({ paths: form.paths.map((x, j) => (j === i ? e.target.value : x)) });
-                  if (confirmed[i] !== undefined) {
+                  const next = e.target.value;
+                  set({ paths: form.paths.map((x, j) => (j === i ? next : x)) });
+                  if (confirmed[p] !== undefined) {
                     setConfirmed((c) => {
-                      const next = { ...c };
-                      delete next[i];
-                      return next;
+                      const rest = { ...c };
+                      delete rest[p];
+                      return rest;
                     });
                   }
                 }}
@@ -308,11 +310,13 @@ function FilesFields({ form, set, errs, jobId }: SectionProps & { jobId: number 
           <Plus />
           添加目录
         </Button>
-        {Object.entries(confirmed).map(([i, n]) => (
-          <p key={i} className="mt-1 text-[13px] text-ok">
-            已确认可读{n > 0 ? `，${n} 个子目录` : ""}
-          </p>
-        ))}
+        {form.paths.map((p) =>
+          confirmed[p] === undefined ? null : (
+            <p key={p} className="mt-1 break-all text-[13px] text-ok">
+              {p} 已确认可读，{confirmed[p]} 个子目录
+            </p>
+          )
+        )}
         {form.server_id <= 0 && <p className="mt-1 text-[13px] text-ink-3">先选服务器才能浏览目录。</p>}
         <ErrText id="job-paths">{pathsErr}</ErrText>
         <PathPicker
@@ -325,7 +329,7 @@ function FilesFields({ form, set, errs, jobId }: SectionProps & { jobId: number 
             if (browsing === null) return;
             const i = browsing;
             set({ paths: form.paths.map((x, j) => (j === i ? path : x)) });
-            setConfirmed((c) => ({ ...c, [i]: count }));
+            setConfirmed((c) => ({ ...c, [path]: count }));
             setBrowsing(null);
           }}
         />

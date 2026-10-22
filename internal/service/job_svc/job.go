@@ -237,21 +237,17 @@ func (s *jobSvc) view(ctx context.Context, j *job_entity.Job) (*jobapi.Item, err
 }
 
 func (s *jobSvc) Create(ctx context.Context, req *jobapi.CreateRequest) (*jobapi.CreateResponse, error) {
-	// 与轮换主密钥互斥，见 secret.BeginWrite
+	j, errs, unverified, err := s.prepareSave(ctx, nil, req.Input())
+	if err != nil {
+		return nil, err
+	}
+	if err := errs.Err(ctx); err != nil {
+		return nil, err
+	}
+	// 与轮换主密钥互斥，见 secret.BeginWrite。
+	// 放在远端校验之后：上面最多要等 20 秒的 SSH/SFTP，不能把它算进锁的持有时间。
 	endWrite := secret.BeginWrite()
 	defer endWrite()
-	j, errs, err := s.assemble(ctx, nil, req.Input())
-	if err != nil {
-		return nil, err
-	}
-	errs = append(errs, j.ValidateConfig()...)
-	more, err := s.checkResources(ctx, j, errs, true)
-	if err != nil {
-		return nil, err
-	}
-	if err := append(errs, more...).Err(ctx); err != nil {
-		return nil, err
-	}
 	j.Paused = req.Paused
 	now := s.now().Unix()
 	j.Createtime, j.Updatetime = now, now
@@ -262,29 +258,24 @@ func (s *jobSvc) Create(ctx context.Context, req *jobapi.CreateRequest) (*jobapi
 	if err != nil {
 		return nil, err
 	}
-	return &jobapi.CreateResponse{Item: *item}, nil
+	return &jobapi.CreateResponse{Item: *item, UnverifiedPaths: unverified}, nil
 }
 
 func (s *jobSvc) Update(ctx context.Context, req *jobapi.UpdateRequest) (*jobapi.UpdateResponse, error) {
-	// 与轮换主密钥互斥，见 secret.BeginWrite
-	endWrite := secret.BeginWrite()
-	defer endWrite()
 	old, err := s.find(ctx, req.ID)
 	if err != nil {
 		return nil, err
 	}
-	j, errs, err := s.assemble(ctx, old, req.Input())
+	j, errs, unverified, err := s.prepareSave(ctx, old, req.Input())
 	if err != nil {
 		return nil, err
 	}
-	errs = append(errs, j.ValidateConfig()...)
-	more, err := s.checkResources(ctx, j, errs, true)
-	if err != nil {
+	if err := errs.Err(ctx); err != nil {
 		return nil, err
 	}
-	if err := append(errs, more...).Err(ctx); err != nil {
-		return nil, err
-	}
+	// 与轮换主密钥互斥，见 secret.BeginWrite；放在远端校验之后，理由同 Create。
+	endWrite := secret.BeginWrite()
+	defer endWrite()
 	j.ID, j.Createtime, j.Paused = old.ID, old.Createtime, old.Paused
 	j.Updatetime = s.now().Unix()
 	if err := job_repo.Job().Update(ctx, j); err != nil {
@@ -294,7 +285,7 @@ func (s *jobSvc) Update(ctx context.Context, req *jobapi.UpdateRequest) (*jobapi
 	if err != nil {
 		return nil, err
 	}
-	return &jobapi.UpdateResponse{Item: *item}, nil
+	return &jobapi.UpdateResponse{Item: *item, UnverifiedPaths: unverified}, nil
 }
 
 func (s *jobSvc) Delete(ctx context.Context, id int64) error {

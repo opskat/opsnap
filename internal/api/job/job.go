@@ -178,6 +178,9 @@ type CreateRequest struct {
 
 type CreateResponse struct {
 	Item
+	// UnverifiedPaths 没能确认的路径（保存时连不上服务器）。非空表示这次保存没有校验过它们，
+	// 面板要在成功提示里说明，运行时还会再检查。
+	UnverifiedPaths []string `json:"unverified_paths"`
 }
 
 // UpdateRequest 修改任务，整体提交
@@ -206,6 +209,8 @@ type UpdateRequest struct {
 
 type UpdateResponse struct {
 	Item
+	// UnverifiedPaths 同 CreateResponse
+	UnverifiedPaths []string `json:"unverified_paths"`
 }
 
 // DeleteRequest 删除任务；存储位置里已有的快照保留
