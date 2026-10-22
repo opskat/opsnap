@@ -11,6 +11,7 @@ import (
 func RunMigrations(db *gorm.DB) error {
 	return run(db,
 		T202610180001,
+		T202610220001,
 	)
 }
 

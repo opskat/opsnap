@@ -96,6 +96,11 @@ type Job struct {
 	Paused     bool  `gorm:"column:paused;not null"`
 	Createtime int64 `gorm:"column:createtime"`
 	Updatetime int64 `gorm:"column:updatetime"`
+
+	// ForgetPendingAt 首次因存储位置被占用而延后清理旧快照的时间（Unix 秒），0 表示没有待清理
+	ForgetPendingAt int64 `gorm:"column:forget_pending_at;not null"`
+	// ForgetPendingError 最近一次补做清理失败的原因，成功后清空
+	ForgetPendingError string `gorm:"column:forget_pending_error;not null"`
 }
 
 func (Job) TableName() string { return "jobs" }
