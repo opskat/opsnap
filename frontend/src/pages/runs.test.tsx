@@ -1,9 +1,9 @@
-import { describe, expect, it } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { RunDetailPage, RunsPage } from "./runs";
 import { renderPage } from "@/test/render";
-import { PINNED_NOW_SEC, pinClock } from "@/test/clock";
+import { PINNED_NOW, PINNED_NOW_SEC, pinClock } from "@/test/clock";
 import { stubEventSource } from "@/test/event-source";
 import { fail, mockApi, ok } from "@/test/api-mock";
 import type { RunItem } from "@/lib/api";
@@ -155,6 +155,21 @@ describe("运行详情", () => {
     expect(await screen.findByText("3.2 GB")).toBeInTheDocument();
     expect(screen.getByText("运行中")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "停止运行" })).toBeInTheDocument();
+  });
+
+  it("数据每 10 秒才变化时详情速度按实际间隔计算", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"], now: PINNED_NOW });
+    stubEventSource();
+    let n = 0;
+    mockApi({
+      "GET /runs/1291": () => ok({ ...RUNNING, bytes_processed: (n++ < 4 ? 10 : 20) * 1_000_000 }),
+    });
+    renderPage(<RunDetailPage />, at(1291));
+    await screen.findByRole("heading", { name: "商城数据库" });
+    for (let i = 0; i < 4; i++) await act(async () => vi.advanceTimersByTime(3000));
+    expect(screen.getByText("814 KB/s")).toBeInTheDocument();
+    await act(async () => vi.advanceTimersByTime(3000));
+    expect(screen.getByText("814 KB/s")).toBeInTheDocument();
   });
 
   it("停止运行要先确认，确认后带 confirm:true 提交", async () => {
