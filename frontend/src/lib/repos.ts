@@ -1,4 +1,5 @@
-import type { RepoCreateInput, RepoParams, RepoType } from "./api";
+import { SECRET_MASKED } from "./api";
+import type { RepoCreateInput, RepoItem, RepoParams, RepoType, RepoUpdateInput } from "./api";
 
 export const REPO_TYPE_LABEL: Record<RepoType, string> = {
   local: "本地目录",
@@ -60,8 +61,55 @@ export function sftpPort(f: Pick<RepoForm, "port">): number {
   return Number.isFinite(n) && n > 0 ? n : 22;
 }
 
-/** 只带当前类型用到的地址参数，别的类型的残留输入不提交 */
-export function buildParams(f: RepoForm, hostKey: string): Partial<RepoParams> {
+/** 用已保存的存储位置预填表单；凭据不返回内容，留空表示保留 */
+export function formFromRepo(r: RepoItem): RepoForm {
+  const p = r.params;
+  return {
+    ...emptyRepoForm(),
+    name: r.name,
+    type: r.type,
+    path: p.path,
+    host: p.host,
+    port: String(p.port || 22),
+    username: p.username,
+    server_id: p.server_id,
+    endpoint: p.endpoint,
+    bucket: p.bucket,
+    prefix: p.prefix,
+    region: p.region,
+    access_key_id: p.access_key_id,
+    path_style: p.path_style,
+    url: p.url,
+    vendor: p.vendor,
+  };
+}
+
+/** 哪些凭据已经有保存的值；修改时留空才换成占位，否则留空就是不设 */
+export interface SavedCredentials {
+  password: boolean;
+  private_key: boolean;
+  secret_access_key: boolean;
+}
+
+export const NOTHING_SAVED: SavedCredentials = { password: false, private_key: false, secret_access_key: false };
+
+/** 接口只把已保存的凭据回填成占位，据此判断哪些字段留空表示保留 */
+export function savedCredentialsOf(r: RepoItem): SavedCredentials {
+  const p = r.params;
+  return {
+    password: p.password === SECRET_MASKED,
+    private_key: p.private_key === SECRET_MASKED,
+    secret_access_key: p.secret_access_key === SECRET_MASKED,
+  };
+}
+
+/** 只带当前类型用到的地址参数，别的类型的残留输入不提交。saved 里为真的凭据留空时换成占位，表示保留已保存的值 */
+export function buildParams(
+  f: RepoForm,
+  hostKey: string,
+  saved: SavedCredentials = NOTHING_SAVED
+): Partial<RepoParams> {
+  const keep = (v: string, isSaved: boolean) => (isSaved && v === "" ? SECRET_MASKED : v);
   switch (f.type) {
     case "local":
       return { path: f.path.trim() };
@@ -71,8 +119,8 @@ export function buildParams(f: RepoForm, hostKey: string): Partial<RepoParams> {
         port: sftpPort(f),
         path: f.path.trim(),
         username: f.username.trim(),
-        password: f.password,
-        private_key: f.private_key,
+        password: keep(f.password, saved.password),
+        private_key: keep(f.private_key, saved.private_key),
         server_id: f.server_id,
         host_key: hostKey,
       };
@@ -83,18 +131,18 @@ export function buildParams(f: RepoForm, hostKey: string): Partial<RepoParams> {
         prefix: f.prefix.trim(),
         region: f.region.trim(),
         access_key_id: f.access_key_id.trim(),
-        secret_access_key: f.secret_access_key,
+        secret_access_key: keep(f.secret_access_key, saved.secret_access_key),
         path_style: f.path_style,
       };
     case "rest":
-      return { url: f.url.trim(), username: f.username.trim(), password: f.password };
+      return { url: f.url.trim(), username: f.username.trim(), password: keep(f.password, saved.password) };
     case "webdav":
       return {
         url: f.url.trim(),
         path: f.path.trim(),
         vendor: f.vendor.trim(),
         username: f.username.trim(),
-        password: f.password,
+        password: keep(f.password, saved.password),
       };
   }
 }
@@ -114,4 +162,9 @@ export function buildCreateInput(
   };
   if (f.existing_password) input.existing_password = f.existing_password;
   return input;
+}
+
+/** 修改存储位置：类型和恢复密钥都不变，留空的凭据换成占位以保留已保存的值 */
+export function buildUpdateInput(f: RepoForm, hostKey: string, saved: SavedCredentials): RepoUpdateInput {
+  return { name: f.name.trim(), params: buildParams(f, hostKey, saved) };
 }

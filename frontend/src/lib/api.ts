@@ -500,6 +500,11 @@ export interface RepoCreated extends RepoItem {
   /** 仓库已保存但恢复密钥没有加入成功的原因 */
   recovery_key_error: string;
 }
+/** 修改存储位置：类型不能改，只能改名称和地址参数 */
+export interface RepoUpdateInput {
+  name: string;
+  params: Partial<RepoParams>;
+}
 export interface KeyStatus {
   present: boolean;
   id: string;
@@ -876,6 +881,7 @@ export const api = {
   repos: {
     list: () => request<{ list: RepoItem[] | null }>("GET", "/repos"),
     create: (body: RepoCreateInput) => request<RepoCreated>("POST", "/repos", body),
+    update: (id: number, body: RepoUpdateInput) => request<RepoItem>("PUT", `/repos/${id}`, body),
     /** 生成一把恢复密钥的值供展示；不保存、不加入任何仓库 */
     newRecoveryKey: () => request<{ recovery_key_value: string }>("POST", "/repos/recovery-key"),
     sftpHostKey: (body: { host: string; port: number; server_id: number }) =>
