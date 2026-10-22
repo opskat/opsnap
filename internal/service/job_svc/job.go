@@ -14,6 +14,7 @@ import (
 	"github.com/opskat/opsnap/internal/model/entity/job_entity"
 	"github.com/opskat/opsnap/internal/model/entity/run_entity"
 	"github.com/opskat/opsnap/internal/pkg/code"
+	"github.com/opskat/opsnap/internal/pkg/remotefs"
 	"github.com/opskat/opsnap/internal/pkg/schedule"
 	"github.com/opskat/opsnap/internal/pkg/secret"
 	"github.com/opskat/opsnap/internal/repository/job_repo"
@@ -61,6 +62,8 @@ type JobSvc interface {
 	NextRuns(ctx context.Context, req *jobapi.NextRunsRequest) (*jobapi.NextRunsResponse, error)
 	// Databases 读取数据库列表及大小；读取失败不是错误，返回 OK=false 与原因
 	Databases(ctx context.Context, req *jobapi.DatabasesRequest) (*jobapi.DatabasesResponse, error)
+	// Paths 列出服务器上的一层目录，供文件任务选目录；读取失败不是错误，返回 OK=false 与原因
+	Paths(ctx context.Context, req *jobapi.PathsRequest) (*jobapi.PathsResponse, error)
 	// Test 逐项检查连接，返回有序的检查项
 	Test(ctx context.Context, req *jobapi.TestRequest) (*jobapi.TestResponse, error)
 }
@@ -69,22 +72,33 @@ type JobSvc interface {
 // addr 为空只建立连接、不转发，用来检查链路。
 type Tunnel func(ctx context.Context, serverID int64, addr string) (local string, closeFn func(), err error)
 
+// Browser 浏览远端目录：列一层子目录，或者确认某条路径存在且是目录。
+type Browser = remotefs.Lister
+
+// OpenFS 在服务器的 SSH 连接上开一个目录浏览通道，返回关闭函数。
+//
+// 与 Tunnel 分工不同：Tunnel 只能得到本机可达的地址，拿不到 *ssh.Client，
+// 开不了 SFTP 会话。浏览与路径校验走这里，测试连接复用同一条连接。
+type OpenFS func(ctx context.Context, serverID int64) (Browser, func(), error)
+
 // Deps 外部依赖，测试里替换
 type Deps struct {
 	Now    func() time.Time
 	Tunnel Tunnel
 	Probes ProbeFor
+	OpenFS OpenFS
 }
 
 type jobSvc struct {
 	now    func() time.Time
 	tunnel Tunnel
 	probes ProbeFor
+	openFS OpenFS
 }
 
 // NewJob 创建任务服务；Deps 中为空的项使用真实实现
 func NewJob(d Deps) JobSvc {
-	s := &jobSvc{now: d.Now, tunnel: d.Tunnel, probes: d.Probes}
+	s := &jobSvc{now: d.Now, tunnel: d.Tunnel, probes: d.Probes, openFS: d.OpenFS}
 	if s.now == nil {
 		s.now = time.Now
 	}
@@ -93,6 +107,9 @@ func NewJob(d Deps) JobSvc {
 	}
 	if s.probes == nil {
 		s.probes = defaultProbes
+	}
+	if s.openFS == nil {
+		s.openFS = sshOpenFS
 	}
 	return s
 }
@@ -228,7 +245,7 @@ func (s *jobSvc) Create(ctx context.Context, req *jobapi.CreateRequest) (*jobapi
 		return nil, err
 	}
 	errs = append(errs, j.ValidateConfig()...)
-	more, err := s.checkResources(ctx, j, errs)
+	more, err := s.checkResources(ctx, j, errs, true)
 	if err != nil {
 		return nil, err
 	}
@@ -261,7 +278,7 @@ func (s *jobSvc) Update(ctx context.Context, req *jobapi.UpdateRequest) (*jobapi
 		return nil, err
 	}
 	errs = append(errs, j.ValidateConfig()...)
-	more, err := s.checkResources(ctx, j, errs)
+	more, err := s.checkResources(ctx, j, errs, true)
 	if err != nil {
 		return nil, err
 	}

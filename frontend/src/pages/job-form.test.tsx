@@ -138,6 +138,110 @@ describe("按数据源类型显示的字段", () => {
   });
 });
 
+describe("目录浏览", () => {
+  const FILES = {
+    ...JOB,
+    id: 9,
+    name: "站点文件",
+    source_type: "files",
+    databases: [],
+    paths: ["/srv/www"],
+  };
+  const TREE: Record<string, { name: string; mtime: number; symlink: boolean; selectable: boolean }[]> = {
+    "/srv/www": [
+      { name: "static", mtime: 1760000000, symlink: false, selectable: true },
+      { name: "uploads", mtime: 1760000000, symlink: false, selectable: true },
+    ],
+    "/srv/www/uploads": [{ name: "2026", mtime: 1760000000, symlink: false, selectable: true }],
+    "/srv/www/uploads/2026": [],
+  };
+  const pathsRoute = (call: { body: unknown }) => {
+    const path = (call.body as { path: string }).path || "/";
+    const list = TREE[path];
+    return list
+      ? ok({ ok: true, path, list, truncated: false, reason: "", reason_label: "", message: "" })
+      : ok({
+          ok: false,
+          path,
+          list: null,
+          truncated: false,
+          reason: "not_found",
+          reason_label: "不存在",
+          message: `${path} 不存在`,
+        });
+  };
+
+  it("未选服务器时不能浏览", async () => {
+    newJob();
+    const user = userEvent.setup();
+    await ready();
+    await user.click(screen.getByRole("radio", { name: "文件" }));
+    expect(screen.getByRole("button", { name: "浏览目录 1" })).toBeDisabled();
+    expect(screen.getByText("先选服务器才能浏览目录。")).toBeInTheDocument();
+  });
+
+  it("浏览、进入子目录并选中，写回路径并显示已确认", async () => {
+    const m = editJob({ "POST /jobs/paths": pathsRoute }, FILES);
+    const user = userEvent.setup();
+    await ready();
+    await user.click(screen.getByRole("button", { name: "浏览目录 1" }));
+    const dialog = await screen.findByRole("dialog", { name: "选择目录" });
+    await within(dialog).findByRole("button", { name: /uploads/ });
+    await user.click(within(dialog).getByRole("button", { name: /uploads/ }));
+    await user.click(await within(dialog).findByRole("button", { name: /2026/ }));
+    // 等这一层读完，「选择此目录」才可用
+    await within(dialog).findByText(/这个目录下没有子目录/);
+    await user.click(within(dialog).getByRole("button", { name: "选择此目录" }));
+    await waitFor(() => expect(screen.getByLabelText("目录 1")).toHaveValue("/srv/www/uploads/2026"));
+    expect(screen.getByText("已确认可读")).toBeInTheDocument();
+    expect(m.find("POST", "/jobs/paths").map((c) => (c.body as { path: string }).path)).toEqual([
+      "/srv/www",
+      "/srv/www/uploads",
+      "/srv/www/uploads/2026",
+    ]);
+  });
+
+  it("手改路径后已确认提示消失", async () => {
+    editJob({ "POST /jobs/paths": pathsRoute }, FILES);
+    const user = userEvent.setup();
+    await ready();
+    await user.click(screen.getByRole("button", { name: "浏览目录 1" }));
+    await user.click(await screen.findByRole("button", { name: "选择此目录" }));
+    expect(await screen.findByText(/已确认可读/)).toBeInTheDocument();
+    await user.type(screen.getByLabelText("目录 1"), "x");
+    expect(screen.queryByText(/已确认可读/)).not.toBeInTheDocument();
+  });
+
+  it("读不了时写明是哪个目录，并给退路", async () => {
+    editJob({ "POST /jobs/paths": pathsRoute }, FILES);
+    const user = userEvent.setup();
+    await ready();
+    await user.click(screen.getByRole("button", { name: "浏览目录 1" }));
+    await user.click(await screen.findByRole("button", { name: /uploads/ }));
+    await user.click(await screen.findByRole("button", { name: "选择此目录" }));
+    // 手工改到不存在的目录后重新浏览
+    await user.clear(screen.getByLabelText("目录 1"));
+    await user.type(screen.getByLabelText("目录 1"), "/nope");
+    await user.click(screen.getByRole("button", { name: "浏览目录 1" }));
+    const dialog = await screen.findByRole("dialog", { name: "选择目录" });
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(/\/nope 不存在/);
+    expect(within(dialog).getByRole("button", { name: "回到根目录" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "选择此目录" })).toBeDisabled();
+  });
+
+  it("没有子目录也能选", async () => {
+    editJob({ "POST /jobs/paths": pathsRoute }, FILES);
+    const user = userEvent.setup();
+    await ready();
+    await user.click(screen.getByRole("button", { name: "浏览目录 1" }));
+    const dialog = await screen.findByRole("dialog", { name: "选择目录" });
+    await user.click(await within(dialog).findByRole("button", { name: /uploads/ }));
+    await user.click(await within(dialog).findByRole("button", { name: /2026/ }));
+    expect(await within(dialog).findByText(/这个目录下没有子目录/)).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "选择此目录" })).toBeEnabled();
+  });
+});
+
 describe("库勾选", () => {
   it("系统库显示但不可选；勾选的库进入摘要", async () => {
     const m = editJob();

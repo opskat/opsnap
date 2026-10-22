@@ -62,6 +62,15 @@ type DirLister interface {
 	List(ctx context.Context, path string) ([]Entry, error)
 }
 
+// Lister 既能列目录，也能确认某条路径存在且是目录。
+//
+// 两者分开是因为「是不是目录」不能靠 ReadDir 的错误码判定（SFTP 对普通文件
+// 返回的是裸 SSH_FX_FAILURE），必须先 Stat。
+type Lister interface {
+	DirLister
+	Stat(ctx context.Context, path string) error
+}
+
 // InvalidPathError 路径形状不合法，不进入列举器
 type InvalidPathError struct {
 	Path   string
@@ -154,7 +163,7 @@ func ApplyLimit(entries []Entry, limit int) ([]Entry, bool) {
 //
 // 任何错误都整层作废：底层 ReadDir 在传输中途失败时会把已收到的条目连同错误一起返回，
 // 把半份列表当完整列表展示会让管理员以为目录里只有这些，从而漏备。
-func List(ctx context.Context, l DirLister, rawPath string) (*Result, error) {
+func List(ctx context.Context, l Lister, rawPath string) (*Result, error) {
 	path, err := Normalize(rawPath)
 	if err != nil {
 		return nil, err

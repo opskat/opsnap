@@ -26,6 +26,12 @@ func (f *fakeFS) List(_ context.Context, path string) ([]Entry, error) {
 	return f.dirs[path], nil
 }
 
+// Stat 让 fakeFS 满足 Lister；本文件的用例都不走这条路径
+func (f *fakeFS) Stat(ctx context.Context, path string) error {
+	_, err := f.List(ctx, path)
+	return err
+}
+
 func entries(names ...string) []Entry {
 	out := make([]Entry, 0, len(names))
 	for _, n := range names {

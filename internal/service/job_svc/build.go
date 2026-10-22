@@ -146,7 +146,8 @@ func plainPassword(cipher string) (string, error) {
 
 // checkResources 检查引用的服务器和存储位置：服务器存在，存储位置存在且已挂载。
 // 前面已经报过同一字段的错误时不再重复。
-func (s *jobSvc) checkResources(ctx context.Context, j *job_entity.Job, prior job_entity.FieldErrors) (job_entity.FieldErrors, error) {
+// save 为 true 时连同文件任务的目录可读性一起校验（只在保存时）。
+func (s *jobSvc) checkResources(ctx context.Context, j *job_entity.Job, prior job_entity.FieldErrors, save bool) (job_entity.FieldErrors, error) {
 	var errs job_entity.FieldErrors
 	if j.ServerID > 0 && !prior.Has("server_id") {
 		srv, err := server_repo.Server().Find(ctx, j.ServerID)
@@ -156,6 +157,12 @@ func (s *jobSvc) checkResources(ctx context.Context, j *job_entity.Job, prior jo
 		if srv == nil {
 			errs = append(errs, job_entity.FieldError{Field: "server_id", Message: "服务器不存在"})
 		}
+	}
+	// 文件任务：确认每条路径存在且是目录。服务器连不上时放行，不因此挡住保存。
+	// 只在保存时做，不在 prepareConn（测试连接/读库列表/浏览）里做：
+	// 目录可读是保存的不变量，测试连接另有独立的检查项，浏览本身还要靠这条路径进去。
+	if save && job_entity.IsFiles(j.SourceType) && j.ServerID > 0 && !prior.Has("server_id") && !prior.Has("paths") {
+		errs = append(errs, s.checkPaths(ctx, j.ServerID, j.Paths)...)
 	}
 	if j.RepoID > 0 && !prior.Has("repo_id") {
 		msg, err := repoProblem(ctx, j.RepoID)

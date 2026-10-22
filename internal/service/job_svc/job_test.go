@@ -26,6 +26,7 @@ import (
 	"github.com/opskat/opsnap/internal/model/entity/setting_entity"
 	"github.com/opskat/opsnap/internal/pkg/code"
 	"github.com/opskat/opsnap/internal/pkg/executor"
+	"github.com/opskat/opsnap/internal/pkg/remotefs"
 	"github.com/opskat/opsnap/internal/pkg/secret"
 	"github.com/opskat/opsnap/internal/pkg/sshconn"
 	"github.com/opskat/opsnap/internal/repository/credential_repo"
@@ -900,11 +901,12 @@ func TestConnection(t *testing.T) {
 		assert.True(t, checkOf(t, resp, "db_privs").OK)
 	})
 
-	t.Run("文件任务只检查 SSH 与存储位置", func(t *testing.T) {
+	t.Run("文件任务检查 SSH、目录可读与存储位置", func(t *testing.T) {
+		f.usePaths(map[string][]remotefs.Entry{"/var/www": {}}, nil)
 		resp, err := f.svc.Test(f.ctx, jobapi.NewTestRequest(0, ptr(f.filesInput())))
 		require.NoError(t, err)
 		assert.True(t, resp.OK)
-		assert.Equal(t, []string{"ssh", "repo"}, keys(resp))
+		assert.Equal(t, []string{"ssh", "paths", "repo"}, keys(resp))
 	})
 
 	t.Run("连接字段不合法按字段报错，不做任何网络访问", func(t *testing.T) {

@@ -77,6 +77,11 @@ func (c *Job) Databases(ctx context.Context, req *jobapi.DatabasesRequest) (*job
 	return job_svc.Job().Databases(ctx, req)
 }
 
+// Paths 列出服务器上的一层目录，供文件任务选目录
+func (c *Job) Paths(ctx context.Context, req *jobapi.PathsRequest) (*jobapi.PathsResponse, error) {
+	return job_svc.Job().Paths(ctx, req)
+}
+
 // Test 测试连接
 func (c *Job) Test(ctx context.Context, req *jobapi.TestRequest) (*jobapi.TestResponse, error) {
 	return job_svc.Job().Test(ctx, req)

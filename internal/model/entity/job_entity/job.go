@@ -117,6 +117,11 @@ func IsDatabase(t string) bool {
 	return false
 }
 
+// IsFiles 数据源是否是文件（目录备份）
+func IsFiles(t string) bool {
+	return t == SourceFiles
+}
+
 // HasDatabaseList 数据源是否有可勾选的库列表（Redis 整个实例导出）
 func HasDatabaseList(t string) bool {
 	return IsDatabase(t) && t != SourceRedis
