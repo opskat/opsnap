@@ -5,7 +5,7 @@ import { useLocation } from "react-router";
 import { Shell, type NavCounts, type RunningInfo } from "@/components/shell";
 import { api, type JobItem, type RunList } from "@/lib/api";
 import { fmtBytes } from "@/lib/format";
-import { speedBetween, type Sample } from "@/lib/runs";
+import { nextSpeedSample, type SpeedSample } from "@/lib/runs";
 
 const POLL_MS = 5000;
 
@@ -45,7 +45,7 @@ export function ShellStatus({ children }: { children: React.ReactNode }) {
 
   // 上一次轮询的结果与采样；只在轮询里读写，不放进 setState 的更新函数（严格模式下会被调用两次）
   const lastRef = React.useRef<Status>(status);
-  const sampleRef = React.useRef<(Sample & { runId: number }) | null>(null);
+  const sampleRef = React.useRef<(SpeedSample & { runId: number }) | null>(null);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -90,7 +90,7 @@ function nextStatus(
   prev: Status,
   jobs: PromiseSettledResult<{ list: JobItem[] | null }>,
   runs: PromiseSettledResult<RunList>,
-  sampleRef: React.RefObject<(Sample & { runId: number }) | null>
+  sampleRef: React.RefObject<(SpeedSample & { runId: number }) | null>
 ): Status {
   const attention = jobs.status === "fulfilled" ? (jobs.value.list ?? []).length : prev.attention;
   if (runs.status !== "fulfilled") return { attention, running: prev.running, runningJobs: prev.runningJobs };
@@ -108,10 +108,10 @@ function nextStatus(
   }
   const now = Date.now();
   const last = sampleRef.current;
-  const speed = speedBetween(last && last.runId === first.id ? last : undefined, first.bytes_processed, now);
-  sampleRef.current = { runId: first.id, bytes: first.bytes_processed, at: now };
+  const sample = nextSpeedSample(last && last.runId === first.id ? last : undefined, first.bytes_processed, now);
+  sampleRef.current = { ...sample, runId: first.id };
   const parts = [`已处理 ${fmtBytes(first.bytes_processed)}`];
-  if (speed !== null) parts.push(`${fmtBytes(speed)}/s`);
+  if (sample.speed !== null) parts.push(`${fmtBytes(sample.speed)}/s`);
   let progress = parts.join("，");
   if (list.length > 1) progress += `，另有 ${list.length - 1} 个在运行`;
   return { attention, running: { runId: first.id, jobName: first.job_name, progress }, runningJobs };
