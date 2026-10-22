@@ -944,3 +944,28 @@ func TestMissingMySQL(t *testing.T) {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+// TestForgetPendingInList 待清理是任务的运行状态，列表与详情都要带出来，但不影响 attention
+func TestForgetPendingInList(t *testing.T) {
+	f := setupJobTest(t)
+	clean := f.create(t, f.mysqlInput())
+	pending := f.create(t, f.filesInput())
+	require.NoError(t, job_repo.Job().SetForgetPending(f.ctx, pending.ID, 1000, "密钥不对"))
+
+	resp, err := f.svc.List(f.ctx, jobapi.FilterAll, "")
+	require.NoError(t, err)
+	byID := map[int64]*jobapi.Item{}
+	for _, it := range resp.List {
+		byID[it.ID] = it
+	}
+	assert.Zero(t, byID[clean.ID].ForgetPendingAt)
+	assert.Empty(t, byID[clean.ID].ForgetPendingError)
+	assert.Equal(t, int64(1000), byID[pending.ID].ForgetPendingAt)
+	assert.Equal(t, "密钥不对", byID[pending.ID].ForgetPendingError)
+	assert.False(t, byID[pending.ID].Attention, "待清理不算需要处理")
+
+	got, err := f.svc.Get(f.ctx, pending.ID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1000), got.ForgetPendingAt)
+	assert.Equal(t, "密钥不对", got.ForgetPendingError)
+}

@@ -576,6 +576,10 @@ export interface JobItem extends Omit<JobInput, "databases" | "paths" | "exclude
   /** 下次运行，Unix 秒；已暂停为 0 */
   next_run_at: number;
   attention: boolean;
+  /** 首次因存储位置被其他备份占用而延后清理旧快照的时间（Unix 秒），0 表示没有 */
+  forget_pending_at: number;
+  /** 最近一次补做清理失败的原因（撞锁不算失败），成功后清空 */
+  forget_pending_error: string;
   created_at: number;
   updated_at: number;
   /** 以下三项只在列表里返回：最近一次运行（不含跳过），可能早于 14 天 */

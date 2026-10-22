@@ -422,7 +422,10 @@ func (v *viewer) item(j *job_entity.Job) *jobapi.Item {
 		},
 		Paused:    j.Paused,
 		Attention: v.needAttend[j.ID],
-		CreatedAt: j.Createtime, UpdatedAt: j.Updatetime,
+		// 待清理只是欠着一次空间回收，不影响是否需要处理
+		ForgetPendingAt:    j.ForgetPendingAt,
+		ForgetPendingError: j.ForgetPendingError,
+		CreatedAt:          j.Createtime, UpdatedAt: j.Updatetime,
 	}
 	if next, ok := j.NextRun(v.now, v.loc); ok {
 		it.NextRunAt = next.Unix()
